@@ -165,16 +165,19 @@ arith (operation_kind operation,
               {
                 uaccu = uop0 + uop1;
                 sign_comparison = ((uop0 & 0x8000) == (uop1 & 0x8000));
+                if ((uint) uop0 + (uint) uop1 > 0xFFFF)
+                  simreg.sw |= CS_CARRY;
               }
             else
               {
                 uaccu = uop0 - uop1;
                 sign_comparison = ((uop0 & 0x8000) != (uop1 & 0x8000));
+                if (uop0 >= uop1)
+                  simreg.sw |= CS_CARRY;
               }
 
             if (sign_comparison && (uop0 & 0x8000) != (uaccu & 0x8000))
               {
-                simreg.sw |= CS_CARRY;
                 if (update_pir)
                   {
                     simreg.pir |= INTR_FIXOFL;
@@ -328,16 +331,19 @@ arith (operation_kind operation,
             {
               ulaccu = ulop0 + ulop1;
               sign_comparison = ((ulop0 & 0x80000000) == (ulop1 & 0x80000000));
+              if ((unsigned long long) ulop0 + (unsigned long long) ulop1 > 0xFFFFFFFFULL)
+                simreg.sw |= CS_CARRY;
             }
           else
             {
               ulaccu = ulop0 - ulop1;
               sign_comparison = ((ulop0 & 0x80000000) != (ulop1 & 0x80000000));
+              if (ulop0 >= ulop1)
+                simreg.sw |= CS_CARRY;
             }
 
           if (sign_comparison && (ulop0 & 0x80000000) != (ulaccu & 0x80000000))
             {
-              simreg.sw |= CS_CARRY;
               simreg.pir |= INTR_FIXOFL;
               info ("FIXOFL on long %s, op0=%d op1=%d res=%d",
                     (operation == ARI_ADD) ? "addition" : "subtraction",
