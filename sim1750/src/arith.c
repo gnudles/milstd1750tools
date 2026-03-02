@@ -172,6 +172,8 @@ arith (operation_kind operation,
               {
                 uaccu = uop0 - uop1;
                 sign_comparison = ((uop0 & 0x8000) != (uop1 & 0x8000));
+                /* Subtraction is performed via 2's complement addition:
+                 * A + ~B + 1. Thus, a carry occurs when A >= B. */
                 if (uop0 >= uop1)
                   simreg.sw |= CS_CARRY;
               }
@@ -338,6 +340,8 @@ arith (operation_kind operation,
             {
               ulaccu = ulop0 - ulop1;
               sign_comparison = ((ulop0 & 0x80000000) != (ulop1 & 0x80000000));
+              /* Subtraction is performed via 2's complement addition:
+               * A + ~B + 1. Thus, a carry occurs when A >= B. */
               if (ulop0 >= ulop1)
                 simreg.sw |= CS_CARRY;
             }
