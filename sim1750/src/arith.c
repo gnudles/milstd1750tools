@@ -239,7 +239,7 @@ arith (operation_kind operation,
                      | ((int) operand0[1] & 0xFFFF);
             int lop1 = (int) *operand1;
 
-            if (lop1 == 0)
+            if (lop1 == 0 || (lop0 == (int)0x80000000 && lop1 == -1))
               {
                 simreg.pir |= INTR_FIXOFL;
                 info ("FIXOFL on integer DIV, op0=%d op1=%d", lop0, lop1);
@@ -279,7 +279,10 @@ arith (operation_kind operation,
             int lop0 = (int) *operand0;
             int lop1 = (int) *operand1;
 
-            if (lop1 == 0)
+            /* Issue #6: lop0 is a short 16 bit casted into int and it could
+               never reach the value 0x80000000. The correct value is 0xFFFF8000
+               which is -32768. */
+            if (lop1 == 0 || (lop0 == -32768 && lop1 == -1))
               {
                 simreg.pir |= INTR_FIXOFL;
                 info ("FIXOFL on integer DIVV, op0=%d op1=%d res=%d", lop0, lop1);
