@@ -206,41 +206,37 @@ workout_interrupts ()
   if (simreg.pir == 0)
     return 0;
 
-  for (intnum = 0; intnum < 16; intnum++)
-    {
-      pirmask = 1 << (15 - intnum);
-      if (simreg.pir & pirmask)
-	{
-	  if ((simreg.sys & SYS_INT) == 0
-	      && intnum != 0 && intnum != 1 && intnum != 5)
-	    continue;           /* Master Interrupt Enable is not set */
-	  info ("\tInterrupt %2d (%s)", (unsigned) intnum, intr_name[intnum]);
-	  if ((simreg.mk & pirmask) == 0  && intnum != 0 && intnum != 5)
-	    info ("  pending but masked");
-	  else
-	    {
-	      ushort as;
-	      simreg.pir &= ~pirmask;
-	      simreg.sys &= ~SYS_INT;  /* clear the Master Interrupt Enable */
-	      /************** Switch to the interrupt context ***************/
-	      simreg.sw &= 0xFFF0;      /* LP and SVP in AS 0 */
-	      get_raw (CODE, 0, 0x20 + intnum * 2, &lp);
-	      get_raw (CODE, 0, 0x21 + intnum * 2, &svp);
-	      /* get new MK/SW/IC */
-	      get_raw (DATA, 0, svp, &simreg.mk);
-	      get_raw (DATA, 0, svp + 1, &simreg.sw);
-	      get_raw (DATA, 0, svp + 2 + (intnum == 5 ? bex_index : 0),
-		 		     &simreg.ic); /* bex_index: see ex_bex() */
-	      /* save old MK/SW/IC in new AS */
-	      as = simreg.sw & 0x000F;
-	      store_raw (DATA, as, lp, old_mk);
-	      store_raw (DATA, as, lp + 1, old_sw);
-	      store_raw (DATA, as, lp + 2, old_ic);
-	      return 1;
-	    }
-	}
-    }
-  return 0;
+  uint16_t unmaskable = simreg.pir & 0x8400;
+  uint16_t maskable_undisable = (simreg.pir & simreg.mk) & 0x4000;
+  uint16_t maskable_disableable = (simreg.sys & SYS_INT) ? (simreg.pir & simreg.mk & ~0xC400) : 0;
+  uint16_t active_interrupts = unmaskable | maskable_undisable | maskable_disableable;
+
+  if (active_interrupts == 0)
+    return 0;
+
+  intnum = count_leading_zeros(active_interrupts);
+  pirmask = 1 << (15 - intnum);
+
+  info ("\tInterrupt %2d (%s)", (unsigned) intnum, intr_name[intnum]);
+
+  ushort as;
+  simreg.pir &= ~pirmask;
+  simreg.sys &= ~SYS_INT;  /* clear the Master Interrupt Enable */
+  /************** Switch to the interrupt context ***************/
+  simreg.sw &= 0xFFF0;      /* LP and SVP in AS 0 */
+  get_raw (CODE, 0, 0x20 + intnum * 2, &lp);
+  get_raw (CODE, 0, 0x21 + intnum * 2, &svp);
+  /* get new MK/SW/IC */
+  get_raw (DATA, 0, svp, &simreg.mk);
+  get_raw (DATA, 0, svp + 1, &simreg.sw);
+  get_raw (DATA, 0, svp + 2 + (intnum == 5 ? bex_index : 0),
+           &simreg.ic); /* bex_index: see ex_bex() */
+  /* save old MK/SW/IC in new AS */
+  as = simreg.sw & 0x000F;
+  store_raw (DATA, as, lp, old_mk);
+  store_raw (DATA, as, lp + 1, old_sw);
+  store_raw (DATA, as, lp + 2, old_ic);
+  return 1;
 }
 
 
