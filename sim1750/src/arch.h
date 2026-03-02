@@ -31,6 +31,7 @@
 #define _ARCH_H
 
 #include "type.h"
+#include <stdint.h>
 
 /* condition status bit masks (within Status Register) */
 #define  CS_CARRY     0x8000
@@ -82,6 +83,29 @@ typedef enum { ARI_ADD, ARI_SUB, ARI_MULS, ARI_MUL, ARI_DIVV, ARI_DIV }
 
 /* define types of variables for sim_arith */
 typedef enum { VAR_INT, VAR_LONG, VAR_FLOAT, VAR_DOUBLE } datatype;
+
+#if defined(_MSC_VER)
+#include <intrin.h>
+#endif
+
+/* Count Leading Zeros for 16-bit integers */
+static inline int count_leading_zeros(uint16_t x) {
+    if (x == 0) return 16;
+#if defined(__GNUC__) || defined(__clang__)
+    return __builtin_clz(x) - 16;
+#elif defined(_MSC_VER)
+    unsigned long index;
+    _BitScanReverse(&index, x);
+    return 15 - index;
+#else
+    int n = 0;
+    if ((x & 0xFF00) == 0) { n += 8; x <<= 8; }
+    if ((x & 0xF000) == 0) { n += 4; x <<= 4; }
+    if ((x & 0xC000) == 0) { n += 2; x <<= 2; }
+    if ((x & 0x8000) == 0) { n += 1; }
+    return n;
+#endif
+}
 
 /* Simulator register file */
 struct regs
