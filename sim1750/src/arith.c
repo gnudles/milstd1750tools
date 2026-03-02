@@ -290,29 +290,10 @@ arith (operation_kind operation,
             else
               {
                 int laccu = lop0 / lop1;
-                bool overflow = FALSE;
-
-                if (laccu < -32768)
-                  {
-                    overflow = TRUE;
-                  }
-                else if (laccu > 32767)
-                  {
-                    overflow = TRUE;
-                  }
-
-                if (overflow)
-                  {
-                    simreg.pir |= INTR_FIXOFL;
-                    info ("FIXOFL on integer DIV, op0=%d op1=%d", lop0, lop1);
-                  }
-                else
-                  {
-                    int rem = lop0 % lop1;
-                    operand0[0] = (short) laccu;
-                    operand0[1] = (short) rem;
-                    update_cs (operand0, VAR_INT);
-                  }
+                int rem = lop0 % lop1;
+                operand0[0] = (short) laccu;
+                operand0[1] = (short) rem;
+                update_cs (operand0, VAR_INT);
               }
           }
         }
