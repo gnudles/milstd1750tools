@@ -191,7 +191,7 @@ workout_timing (int cycles)
 /* A quickie for communication between workout_interrupts() and ex_bex() */
 static ushort bex_index;
 
-static void
+static int
 workout_interrupts ()
 {
   ushort intnum, pirmask;
@@ -204,7 +204,7 @@ workout_interrupts ()
       "IO-Level-1", "User-4", "IO-Level-2", "User-5" };
 
   if (simreg.pir == 0)
-    return;
+    return 0;
 
   for (intnum = 0; intnum < 16; intnum++)
     {
@@ -236,10 +236,11 @@ workout_interrupts ()
 	      store_raw (DATA, as, lp, old_mk);
 	      store_raw (DATA, as, lp + 1, old_sw);
 	      store_raw (DATA, as, lp + 2, old_ic);
-	      break;
+	      return 1;
 	    }
 	}
     }
+  return 0;
 }
 
 
@@ -2347,7 +2348,8 @@ ex_mov ()		/* 93xy */
       simreg.r[lower] = ++source;	/* unsigned op */
       simreg.r[upper + 1] = --n_moves;	/* unsigned op */
       workout_timing (single_cycle);
-      workout_interrupts ();
+      if (workout_interrupts ())
+        return (nc_MOV);
     }
 
   simreg.ic++;
