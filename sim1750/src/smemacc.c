@@ -27,27 +27,27 @@
 /***************************************************************************/
 
 
-#include "arch.h"
+#include "cpu.h"
 #include "peekpoke.h"
 
 uint
-get_phys_address (int bank, ushort as, ushort log_addr)
+get_phys_address (struct cpu_state *cpu, int bank, ushort as, ushort log_addr)
 {
-  ushort page = sim_cpu.pagereg[bank][(int) as][(int) (log_addr >> 12) & 0xF].ppa;
+  ushort page = cpu->pagereg[bank][(int) as][(int) (log_addr >> 12) & 0xF].ppa;
   return ((uint) page << 12) | (uint) (log_addr & 0x0FFF);
 }
 
 bool
-get_raw (int bank, ushort as, ushort address, ushort *value)
+get_raw (struct cpu_state *cpu, int bank, ushort as, ushort address, ushort *value)
 {
-  uint phys_address = get_phys_address (bank, as, address);
-  return peek (phys_address, value);
+  uint phys_address = get_phys_address (cpu, bank, as, address);
+  return peek (cpu, phys_address, value);
 }
 
 void
-store_raw (int bank, ushort as, ushort address, ushort value)
+store_raw (struct cpu_state *cpu, int bank, ushort as, ushort address, ushort value)
 {
-  uint phys_address = get_phys_address (bank, as, address);
-  poke (phys_address, value);
+  uint phys_address = get_phys_address (cpu, bank, as, address);
+  poke (cpu, phys_address, value);
 }
 

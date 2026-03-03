@@ -43,7 +43,8 @@
 #include "tekhex.h"
 
 
-extern struct regs sim_cpu.reg;  /* from cpu.c */
+/*extern struct regs simreg;*/  /* from cpu.c */
+extern struct cpu_state *sim_cpu;
 
 /* Internal data */
 
@@ -262,16 +263,16 @@ load_tekline (char *line)
 	  ushort value;
 	  if (i)
 	    {
-	      peek (address, &value);
-	      poke (address, (value & 0xff00)
+	      peek (sim_cpu, address, &value);
+	      poke (sim_cpu, address, (value & 0xff00)
 			   | (ushort) get_xnum (&linep, 2));
 	      i = 0;
 	      address++;
 	    }
 	  else
 	    {
-	      peek (address, &value);
-	      poke (address, (value & 0x00ff)
+	      peek (sim_cpu, address, &value);
+	      poke (sim_cpu, address, (value & 0x00ff)
 			   | (ushort) (get_xnum (&linep, 2) << 8));
 	      i++;
 	    }
@@ -280,7 +281,7 @@ load_tekline (char *line)
 
     case 8:		/* Terminator */
       address = get_xnum (&linep, addr_len);
-      sim_cpu.reg.ic = (ushort) ((address >> 1) & 0xffff);
+      sim_cpu->reg.ic = (ushort) ((address >> 1) & 0xffff);
       break;
 
     default:
@@ -374,7 +375,7 @@ si_save (int argc, char *argv[])
   for (pgndx = 0; pgndx < N_PAGES; pgndx++)
     {
       uint phys_address = pgndx << 12;
-      if ((memptr = mem[pgndx]) == MNULL)
+      if ((memptr = sim_cpu->mem[pgndx]) == MNULL)
 	continue;
       for (locndx = 0; locndx < 4096; locndx++)
 	{
@@ -383,7 +384,7 @@ si_save (int argc, char *argv[])
 	}
     }
 
-  close_tekfile ((uint) sim_cpu.reg.ic);  /* other regs are lost, to be improved */
+  close_tekfile ((uint) sim_cpu->reg.ic);  /* other regs are lost, to be improved */
 
   return OKAY;
 }

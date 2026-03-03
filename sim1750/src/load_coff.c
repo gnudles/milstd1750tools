@@ -27,10 +27,11 @@
 
 #include "peekpoke.h"
 #include "loadfile.h"
-#include "arch.h"
+#include "cpu.h"
 #include "status.h"
 #include "utils.h"
 
+extern struct cpu_state *sim_cpu;
 
 static int optf = 0;   /* print file header */
 static int opts = 1;   /* print section headers */
@@ -804,7 +805,7 @@ process_file (FILE* input_file)
 
       if (verbose)
         printf ("Entry point = 0x%08X\n", entry >> 1);
-      sim_cpu.reg.ic = entry >> 1;
+      sim_cpu->reg.ic = entry >> 1;
     }
 
   get_strings (input_file);
@@ -844,7 +845,7 @@ process_file (FILE* input_file)
           while (j < s_size)
             {
               /* poke a word */
-              poke (address++, ((ushort) raw_data [j] << 8)
+              poke (sim_cpu, address++, ((ushort) raw_data [j] << 8)
                               + (ushort) raw_data [j + 1]);
               j += 2;
             }

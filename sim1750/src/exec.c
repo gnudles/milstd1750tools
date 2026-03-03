@@ -44,7 +44,7 @@ extern char *disassemble (struct cpu_state *cpu);	/* sdisasm.c */
 
 
 static bool
-at_bpt_instruction (cpu)
+at_bpt_instruction (struct cpu_state *cpu)
 {
   ushort opcode;
   if (! get_raw (CODE, cpu->reg.sw & 0xF, cpu->reg.ic, &opcode))
@@ -53,7 +53,7 @@ at_bpt_instruction (cpu)
 }
 
 static int
-execute_without_breakpt (cpu)
+execute_without_breakpt (struct cpu_state *cpu)
 {
   int status;
   int bpi = cpu->bpindex;

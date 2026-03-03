@@ -26,7 +26,7 @@
 /*                                                                         */
 /***************************************************************************/
 
-#include "arch.h"
+#include "cpu.h"
 #include "status.h"
 #include "utils.h"
 #include "flt1750.h"
@@ -46,7 +46,7 @@ bool update_pir = TRUE;  /* evaluated in function arith() */
 /************* utilities for Condition Status in the Status Word *************/
 
 void
-update_cs (short *operand, datatype data_type)
+update_cs (struct cpu_state *cpu, short *operand, datatype data_type)
 {
   bool is_zero;
   ushort sw_save = cpu->reg.sw & 0x8FFF;
@@ -74,7 +74,7 @@ update_cs (short *operand, datatype data_type)
 
 
 void
-compare (datatype data_type, short *operand0, short *operand1)
+compare (struct cpu_state *cpu, datatype data_type, short *operand0, short *operand1)
 {
   ushort sw_save = cpu->reg.sw & 0x0FFF;
   short   op0,  op1;
@@ -142,7 +142,7 @@ static char *operation_name[] = { "ADD", "SUB", "MULS", "MUL", "DIVV", "DIV" };
  */
 
 void
-arith (operation_kind operation,
+arith (struct cpu_state *cpu, operation_kind operation,
        datatype vartyp,    /* Always specify data type of SECOND operand! */
        short *operand0, short *operand1)
 {
