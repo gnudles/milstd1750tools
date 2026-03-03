@@ -49,7 +49,7 @@ void
 update_cs (short *operand, datatype data_type)
 {
   bool is_zero;
-  ushort sw_save = simreg.sw & 0x8FFF;
+  ushort sw_save = cpu->reg.sw & 0x8FFF;
 
   switch (data_type)
     {
@@ -65,18 +65,18 @@ update_cs (short *operand, datatype data_type)
       break;
     }
   if (is_zero)
-    simreg.sw = sw_save | CS_ZERO;
+    cpu->reg.sw = sw_save | CS_ZERO;
   else if (*operand & 0x8000)  /* Check sign bit. Same for all data types. */
-    simreg.sw = sw_save | CS_NEGATIVE;
+    cpu->reg.sw = sw_save | CS_NEGATIVE;
   else
-    simreg.sw = sw_save | CS_POSITIVE;
+    cpu->reg.sw = sw_save | CS_POSITIVE;
 }
 
 
 void
 compare (datatype data_type, short *operand0, short *operand1)
 {
-  ushort sw_save = simreg.sw & 0x0FFF;
+  ushort sw_save = cpu->reg.sw & 0x0FFF;
   short   op0,  op1;
   int    lop0, lop1;
   double fop0, fop1;
@@ -87,41 +87,41 @@ compare (datatype data_type, short *operand0, short *operand1)
       op0 = operand0[0];
       op1 = operand1[0];
       if (op0 < op1)
-        simreg.sw = sw_save | CS_NEGATIVE;
+        cpu->reg.sw = sw_save | CS_NEGATIVE;
       else if (op0 > op1)
-        simreg.sw = sw_save | CS_POSITIVE;
+        cpu->reg.sw = sw_save | CS_POSITIVE;
       else
-        simreg.sw = sw_save | CS_ZERO;
+        cpu->reg.sw = sw_save | CS_ZERO;
       break;
     case VAR_LONG:
       lop0 = ((int) operand0[0] << 16) | ((int) operand0[1] & 0xFFFF);
       lop1 = ((int) operand1[0] << 16) | ((int) operand1[1] & 0xFFFF);
       if (lop0 < lop1)
-        simreg.sw = sw_save | CS_NEGATIVE;
+        cpu->reg.sw = sw_save | CS_NEGATIVE;
       else if (lop0 > lop1)
-        simreg.sw = sw_save | CS_POSITIVE;
+        cpu->reg.sw = sw_save | CS_POSITIVE;
       else
-        simreg.sw = sw_save | CS_ZERO;
+        cpu->reg.sw = sw_save | CS_ZERO;
       break;
     case VAR_FLOAT:
       fop0 = from_1750flt (operand0);
       fop1 = from_1750flt (operand1);
       if (fop0 < fop1)
-        simreg.sw = sw_save | CS_NEGATIVE;
+        cpu->reg.sw = sw_save | CS_NEGATIVE;
       else if (fop0 > fop1)
-        simreg.sw = sw_save | CS_POSITIVE;
+        cpu->reg.sw = sw_save | CS_POSITIVE;
       else
-        simreg.sw = sw_save | CS_ZERO;
+        cpu->reg.sw = sw_save | CS_ZERO;
       break;
     case VAR_DOUBLE:
       fop0 = from_1750eflt (operand0);
       fop1 = from_1750eflt (operand1);
       if (fop0 < fop1)
-        simreg.sw = sw_save | CS_NEGATIVE;
+        cpu->reg.sw = sw_save | CS_NEGATIVE;
       else if (fop0 > fop1)
-        simreg.sw = sw_save | CS_POSITIVE;
+        cpu->reg.sw = sw_save | CS_POSITIVE;
       else
-        simreg.sw = sw_save | CS_ZERO;
+        cpu->reg.sw = sw_save | CS_ZERO;
       break;
     }
 }
@@ -136,8 +136,8 @@ static char *operation_name[] = { "ADD", "SUB", "MULS", "MUL", "DIVV", "DIV" };
    operand0 and operand1 are the input operands (vectors of shorts).
    The `vartyp' argument determines how the input vectors are interpreted.
    The result is stored in operand0.
-   The condition code bits (CPZN) in simreg.sw are updated accordingly.
-   The Pending Interrupt Register (simreg.pir) is also updated in case of
+   The condition code bits (CPZN) in cpu->reg.sw are updated accordingly.
+   The Pending Interrupt Register (cpu->reg.pir) is also updated in case of
    under/overflow conditions during computation.
  */
 
@@ -146,7 +146,7 @@ arith (operation_kind operation,
        datatype vartyp,    /* Always specify data type of SECOND operand! */
        short *operand0, short *operand1)
 {
-  simreg.sw &= ~CS_CARRY;
+  cpu->reg.sw &= ~CS_CARRY;
 
   switch (vartyp)
     {
@@ -166,7 +166,7 @@ arith (operation_kind operation,
                 uaccu = uop0 + uop1;
                 sign_comparison = ((uop0 & 0x8000) == (uop1 & 0x8000));
                 if ((uint) uop0 + (uint) uop1 > 0xFFFF)
-                  simreg.sw |= CS_CARRY;
+                  cpu->reg.sw |= CS_CARRY;
               }
             else
               {
@@ -175,14 +175,14 @@ arith (operation_kind operation,
                 /* Subtraction is performed via 2's complement addition:
                  * A + ~B + 1. Thus, a carry occurs when A >= B. */
                 if (uop0 >= uop1)
-                  simreg.sw |= CS_CARRY;
+                  cpu->reg.sw |= CS_CARRY;
               }
 
             if (sign_comparison && (uop0 & 0x8000) != (uaccu & 0x8000))
               {
                 if (update_pir)
                   {
-                    simreg.pir |= INTR_FIXOFL;
+                    cpu->reg.pir |= INTR_FIXOFL;
                     int lop0 = (int) *operand0, lop1 = (int) *operand1;
                     info ("FIXOFL on integer %s, op0=%hd op1=%hd res=%d",
                           is_add ? "ADD" : "SUB", *operand0, *operand1,
@@ -191,7 +191,7 @@ arith (operation_kind operation,
               }
 
             operand0[0] = uaccu;
-            update_cs (operand0, VAR_INT);
+            update_cs (cpu, operand0, VAR_INT);
           }
 
         elsecase ARI_MUL:
@@ -205,7 +205,7 @@ arith (operation_kind operation,
 
             operand0[0] = (ushort) ((laccu >> 16) & 0xFFFF);
             operand0[1] = (ushort) (laccu & 0xFFFF);
-            update_cs (operand0, VAR_LONG);
+            update_cs (cpu, operand0, VAR_LONG);
           }
 
         elsecase ARI_MULS:
@@ -228,13 +228,13 @@ arith (operation_kind operation,
 
             if (overflow)
               {
-                simreg.pir |= INTR_FIXOFL;
+                cpu->reg.pir |= INTR_FIXOFL;
                 info ("FIXOFL on integer MULS, op0=%d op1=%d res=%d",
                       lop0, lop1, laccu);
               }
 
             operand0[0] = (short) laccu;
-            update_cs (operand0, VAR_INT);
+            update_cs (cpu, operand0, VAR_INT);
           }
 
         elsecase ARI_DIV:
@@ -246,7 +246,7 @@ arith (operation_kind operation,
 
             if (lop1 == 0 || (lop0 == (int)0x80000000 && lop1 == -1))
               {
-                simreg.pir |= INTR_FIXOFL;
+                cpu->reg.pir |= INTR_FIXOFL;
                 info ("FIXOFL on integer DIV, op0=%d op1=%d", lop0, lop1);
               }
             else
@@ -265,7 +265,7 @@ arith (operation_kind operation,
 
                 if (overflow)
                   {
-                    simreg.pir |= INTR_FIXOFL;
+                    cpu->reg.pir |= INTR_FIXOFL;
                     info ("FIXOFL on integer DIV, op0=%d op1=%d", lop0, lop1);
                   }
                 else
@@ -273,7 +273,7 @@ arith (operation_kind operation,
                     int rem = lop0 % lop1;
                     operand0[0] = (short) laccu;
                     operand0[1] = (short) rem;
-                    update_cs (operand0, VAR_INT);
+                    update_cs (cpu, operand0, VAR_INT);
                   }
               }
           }
@@ -289,7 +289,7 @@ arith (operation_kind operation,
                which is -32768. */
             if (lop1 == 0 || (lop0 == -32768 && lop1 == -1))
               {
-                simreg.pir |= INTR_FIXOFL;
+                cpu->reg.pir |= INTR_FIXOFL;
                 info ("FIXOFL on integer DIVV, op0=%d op1=%d res=%d", lop0, lop1);
               }
             else
@@ -298,7 +298,7 @@ arith (operation_kind operation,
                 int rem = lop0 % lop1;
                 operand0[0] = (short) laccu;
                 operand0[1] = (short) rem;
-                update_cs (operand0, VAR_INT);
+                update_cs (cpu, operand0, VAR_INT);
               }
           }
         }
@@ -318,7 +318,7 @@ arith (operation_kind operation,
               ulaccu = ulop0 + ulop1;
               sign_comparison = ((ulop0 & 0x80000000) == (ulop1 & 0x80000000));
               if ((unsigned long long) ulop0 + (unsigned long long) ulop1 > 0xFFFFFFFFULL)
-                simreg.sw |= CS_CARRY;
+                cpu->reg.sw |= CS_CARRY;
             }
           else
             {
@@ -327,12 +327,12 @@ arith (operation_kind operation,
               /* Subtraction is performed via 2's complement addition:
                * A + ~B + 1. Thus, a carry occurs when A >= B. */
               if (ulop0 >= ulop1)
-                simreg.sw |= CS_CARRY;
+                cpu->reg.sw |= CS_CARRY;
             }
 
           if (sign_comparison && (ulop0 & 0x80000000) != (ulaccu & 0x80000000))
             {
-              simreg.pir |= INTR_FIXOFL;
+              cpu->reg.pir |= INTR_FIXOFL;
               info ("FIXOFL on long %s, op0=%d op1=%d res=%d",
                     (operation == ARI_ADD) ? "addition" : "subtraction",
                     (int) ulop0, (int) ulop1, (int) ulaccu);
@@ -340,7 +340,7 @@ arith (operation_kind operation,
 
           operand0[0] = (short) (ulaccu >> 16);
           operand0[1] = (short) (ulaccu & 0x0000FFFF);
-          update_cs (operand0, VAR_LONG);
+          update_cs (cpu, operand0, VAR_LONG);
         }
       else  /* ARI_MUL or ARI_DIV */
         {
@@ -371,14 +371,14 @@ arith (operation_kind operation,
 
               if (overflow)
                 {
-                  simreg.pir |= INTR_FIXOFL;
+                  cpu->reg.pir |= INTR_FIXOFL;
                   info ("FIXOFL on long multiply, op0=%lld op1=%lld res=%lld",
                         lop0, lop1, laccu);
                 }
 
               operand0[0] = (short) (laccu >> 16);
               operand0[1] = (short) (laccu & 0xFFFFLL);
-              update_cs (operand0, VAR_LONG);
+              update_cs (cpu, operand0, VAR_LONG);
             }
           else  /* ARI_DIV */
             {
@@ -386,7 +386,7 @@ arith (operation_kind operation,
                   ((unsigned long long) lop0 == 0xFFFFFFFF80000000ULL
                    && lop1 == -1LL))
                 {
-                  simreg.pir |= INTR_FIXOFL;
+                  cpu->reg.pir |= INTR_FIXOFL;
                   info ("FIXOFL on long division, op0=%lld op1=%lld", lop0, lop1);
                 }
               else
@@ -399,7 +399,7 @@ arith (operation_kind operation,
                     laccu++;
                   operand0[0] = (short) (laccu >> 16);
                   operand0[1] = (short) (laccu & 0xFFFFLL);
-                  update_cs (operand0, VAR_LONG);
+                  update_cs (cpu, operand0, VAR_LONG);
                 }
             }
         }
@@ -432,7 +432,7 @@ arith (operation_kind operation,
 
         if (overflow)
           {
-            simreg.pir |= INTR_FLTOFL;
+            cpu->reg.pir |= INTR_FLTOFL;
             operand0[0] = 0x0000;
             operand0[1] = 0x0000;
 
@@ -445,13 +445,13 @@ arith (operation_kind operation,
 
             if (stat > 0)
               {
-                simreg.pir |= INTR_FLTOFL;
+                cpu->reg.pir |= INTR_FLTOFL;
                 operand0[0] = 0x7FFF;
                 operand0[1] = 0xFF7F;
               }
             else if (stat < 0)
               {
-                simreg.pir |= INTR_FLTUFL;
+                cpu->reg.pir |= INTR_FLTUFL;
                 operand0[0] = 0x4000;
                 operand0[1] = 0x0080;
               }
@@ -461,7 +461,7 @@ arith (operation_kind operation,
                     (stat > 0 ? 'O' : 'U'),
                     operation_name[(int) operation], fop0, fop1, faccu);
 
-            update_cs (operand0, VAR_FLOAT);
+            update_cs (cpu, operand0, VAR_FLOAT);
           }
       }
 
@@ -493,7 +493,7 @@ arith (operation_kind operation,
 
         if (overflow)
           {
-            simreg.pir |= INTR_FLTOFL;
+            cpu->reg.pir |= INTR_FLTOFL;
             operand0[0] = 0x0000;
             operand0[1] = 0x0000;
             operand0[2] = 0x0000;
@@ -507,14 +507,14 @@ arith (operation_kind operation,
 
             if (stat > 0)
               {
-                simreg.pir |= INTR_FLTOFL;
+                cpu->reg.pir |= INTR_FLTOFL;
                 operand0[0] = 0x7FFF;
                 operand0[1] = 0xFF7F;
                 operand0[2] = 0xFFFF;
               }
             else if (stat < 0)
               {
-                simreg.pir |= INTR_FLTUFL;
+                cpu->reg.pir |= INTR_FLTUFL;
                 operand0[0] = 0x0000;
                 operand0[1] = 0x0000;
                 operand0[2] = 0x0000;
@@ -525,7 +525,7 @@ arith (operation_kind operation,
                     (stat > 0 ? 'O' : 'U'),
                     operation_name[(int) operation], fop0, fop1, faccu);
 
-            update_cs (operand0, VAR_DOUBLE);
+            update_cs (cpu, operand0, VAR_DOUBLE);
           }
       }
   }

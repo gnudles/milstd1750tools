@@ -40,62 +40,62 @@
 
 extern void  dis_reg ();	/* cmd.c */
 extern int   sys_int (int);	/* cmd.c */
-extern char *disassemble ();	/* sdisasm.c */
+extern char *disassemble (struct cpu_state *cpu);	/* sdisasm.c */
 
 
 static bool
-at_bpt_instruction ()
+at_bpt_instruction (cpu)
 {
   ushort opcode;
-  if (! get_raw (CODE, simreg.sw & 0xF, simreg.ic, &opcode))
+  if (! get_raw (CODE, cpu->reg.sw & 0xF, cpu->reg.ic, &opcode))
     return FALSE;
   return (opcode == 0xFFFF);
 }
 
 static int
-execute_without_breakpt ()
+execute_without_breakpt (cpu)
 {
   int status;
-  int bpi = bpindex;
+  int bpi = cpu->bpindex;
 
-  bpindex = -1;
+  cpu->bpindex = -1;
   set_inactive (bpi);
-  status = execute ();
+  status = execute (cpu);
   set_active (bpi);
   return status;
 }
 
 
 int
-si_go (int argc, char *argv[])
+si_go (struct cpu_state *cpu, int argc, char *argv[])
 {
   unsigned next;
 
   if (argc > 1)
     {
       sscanf (argv[1], "%x", &next);
-      simreg.ic = (ushort) next;
+      cpu->reg.ic = (ushort) next;
     }
 
-  if (at_bpt_instruction ())
-    simreg.ic++;
-  else if (bpindex >= 0)
-    execute_without_breakpt ();
+  if (at_bpt_instruction (cpu))
+    cpu->reg.ic++;
+  else if (cpu->bpindex >= 0)
+    execute_without_breakpt (cpu);
   while (1)
     {
       if (sys_int (1))
 	return INTERRUPT;
-      if (execute () == MEMERR)
+      if (execute (cpu) == MEMERR)
 	break;
-      if (at_bpt_instruction ())
+      if (at_bpt_instruction (cpu))
 	{
-	  lprintf ("\tBPT at %04hX", simreg.ic);
+	  lprintf ("\tBPT at %04hX", cpu->reg.ic);
 	  break;
 	}
-      else if (bpindex >= 0)
+      else if (cpu->bpindex >= 0)
 	{
 	  info ("\tBreakpoint at %04hX : %s",
-		   simreg.ic, disassemble ());
+		   cpu->reg.ic, disassemble (cpu));
 	  break;
 	}
     }
@@ -104,7 +104,7 @@ si_go (int argc, char *argv[])
 
 
 int
-si_snglstp (int argc, char *argv[])
+si_snglstp (struct cpu_state *cpu, int argc, char *argv[])
 {
   int    count = 1;
   bool   step_over = FALSE;
@@ -115,43 +115,43 @@ si_snglstp (int argc, char *argv[])
       if (*argv[1] == '*')
 	{
 	  step_over = TRUE;
-	  target_addr = simreg.ic + 2;
+	  target_addr = cpu->reg.ic + 2;
 	}
       else
 	sscanf (argv[1], "%d", &count);
     }
 
-  if (at_bpt_instruction ())
-    simreg.ic++;
+  if (at_bpt_instruction (cpu))
+    cpu->reg.ic++;
 
   if (step_over)
     {
-      if (bpindex >= 0)
+      if (cpu->bpindex >= 0)
 	{
 	  info ("\tStepping past breakpoint at IC : %04hX   %s",
-		   simreg.ic, disassemble ());
-	  execute_without_breakpt ();
+		   cpu->reg.ic, disassemble (cpu));
+	  execute_without_breakpt (cpu);
 	}
-      while (simreg.ic != target_addr)
+      while (cpu->reg.ic != target_addr)
 	{
 	  if (sys_int (1))
 	    return (INTERRUPT);
-	  if (execute () == MEMERR)
+	  if (execute (cpu) == MEMERR)
 	    break;
-	  if (at_bpt_instruction ())
+	  if (at_bpt_instruction (cpu))
 	    {
-	      lprintf ("\tBPT at %04hX", simreg.ic);
+	      lprintf ("\tBPT at %04hX", cpu->reg.ic);
 	      break;
 	    }
-	  else if (bpindex >= 0)
+	  else if (cpu->bpindex >= 0)
 	    {
 	      info ("\tBreakpoint at %04hX : %s",
-		       simreg.ic, disassemble ());
+		       cpu->reg.ic, disassemble (cpu));
 	      break;
 	    }
 	}
-      if (! at_bpt_instruction () && bpindex < 0)
-	info ("\tStep at %04hX : %s", simreg.ic, disassemble ());
+      if (! at_bpt_instruction (cpu) && cpu->bpindex < 0)
+	info ("\tStep at %04hX : %s", cpu->reg.ic, disassemble (cpu));
     }
   else
     {
@@ -159,20 +159,20 @@ si_snglstp (int argc, char *argv[])
 	{
 	  if (sys_int (1))
 	    return (INTERRUPT);
-	  if (at_bpt_instruction ())
+	  if (at_bpt_instruction (cpu))
 	    {
-	      info ("\tStepping past BPT at IC : %04hX", simreg.ic);
-	      simreg.ic++;
+	      info ("\tStepping past BPT at IC : %04hX", cpu->reg.ic);
+	      cpu->reg.ic++;
 	    }
-	  else if (bpindex >= 0)
+	  else if (cpu->bpindex >= 0)
 	    {
 	      info ("\tStepping past breakpoint at IC : %04hX   %s",
-		       simreg.ic, disassemble ());
-	      execute_without_breakpt ();
+		       cpu->reg.ic, disassemble (cpu));
+	      execute_without_breakpt (cpu);
 	    }
-	  else if (execute () == MEMERR)
+	  else if (execute (cpu) == MEMERR)
 	    break;
-	  info ("\tIC : %04hX   %s", simreg.ic, disassemble ());
+	  info ("\tIC : %04hX   %s", cpu->reg.ic, disassemble (cpu));
 	}
     }
 
@@ -181,7 +181,7 @@ si_snglstp (int argc, char *argv[])
 
 
 int
-si_trace (int argc, char *argv[])
+si_trace (struct cpu_state *cpu, int argc, char *argv[])
 {
   int count = 1;
 
@@ -198,13 +198,13 @@ si_trace (int argc, char *argv[])
       if (sys_int (1))
 	return (INTERRUPT);
 
-      if (at_bpt_instruction ())
-	simreg.ic++;
-      else if (bpindex >= 0)
-	execute_without_breakpt ();
-      else if (execute () == MEMERR)
+      if (at_bpt_instruction (cpu))
+	cpu->reg.ic++;
+      else if (cpu->bpindex >= 0)
+	execute_without_breakpt (cpu);
+      else if (execute (cpu) == MEMERR)
 	break;
-      lprintf ("\tIC : %04hX   %s", simreg.ic, disassemble ());
+      lprintf ("\tIC : %04hX   %s", cpu->reg.ic, disassemble (cpu));
       dis_reg (0);
     }
 
@@ -213,7 +213,7 @@ si_trace (int argc, char *argv[])
 
 
 int
-si_bt (int argc, char *argv[])
+si_bt (struct cpu_state *cpu, int argc, char *argv[])
 {
   /* Backtrace the given number of instructions */
 
@@ -230,21 +230,21 @@ si_bt (int argc, char *argv[])
         sscanf (argv[1], "%x %x", &back, &count);
     }
 
-  if (count > bt_cnt)
-    count = bt_cnt;
+  if (count > cpu->bt_cnt)
+    count = cpu->bt_cnt;
 
   /* save current regs */
-  save = simreg;
+  save = cpu->reg;
 
   /* step back through backtrace buffer */
-  t = bt_next - back;
+  t = cpu->bt_next - back;
   if (t < 0)
     t += BT_SIZE;
 
   while (count-- > 0)
     {
-      simreg = bt_buff [t];
-      lprintf ("\tIC : %04hX   %s", simreg.ic, disassemble ());
+      cpu->reg = cpu->bt_buff [t];
+      lprintf ("\tIC : %04hX   %s", cpu->reg.ic, disassemble (cpu));
       dis_reg (0);
 
       t++;
@@ -253,7 +253,7 @@ si_bt (int argc, char *argv[])
     }
 
   /* restore old regs */
-  simreg = save;
+  cpu->reg = save;
 
   return (OKAY);
 }

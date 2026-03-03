@@ -43,7 +43,7 @@
 #include "tekhex.h"
 
 
-extern struct regs simreg;  /* from cpu.c */
+extern struct regs sim_cpu.reg;  /* from cpu.c */
 
 /* Internal data */
 
@@ -280,7 +280,7 @@ load_tekline (char *line)
 
     case 8:		/* Terminator */
       address = get_xnum (&linep, addr_len);
-      simreg.ic = (ushort) ((address >> 1) & 0xffff);
+      sim_cpu.reg.ic = (ushort) ((address >> 1) & 0xffff);
       break;
 
     default:
@@ -383,7 +383,7 @@ si_save (int argc, char *argv[])
 	}
     }
 
-  close_tekfile ((uint) simreg.ic);  /* other regs are lost, to be improved */
+  close_tekfile ((uint) sim_cpu.reg.ic);  /* other regs are lost, to be improved */
 
   return OKAY;
 }

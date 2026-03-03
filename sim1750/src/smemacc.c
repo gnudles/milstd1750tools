@@ -33,7 +33,7 @@
 uint
 get_phys_address (int bank, ushort as, ushort log_addr)
 {
-  ushort page = pagereg[bank][(int) as][(int) (log_addr >> 12) & 0xF].ppa;
+  ushort page = sim_cpu.pagereg[bank][(int) as][(int) (log_addr >> 12) & 0xF].ppa;
   return ((uint) page << 12) | (uint) (log_addr & 0x0FFF);
 }
 

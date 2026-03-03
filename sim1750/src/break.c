@@ -90,7 +90,7 @@ set_active (int bp_index)
 
 
 int
-si_brkset (int argc, char *argv[])
+si_brkset (struct cpu_state *cpu, int argc, char **argv)
 {
   uint address;
   breaktype type = READ_WRITE;
@@ -99,7 +99,7 @@ si_brkset (int argc, char *argv[])
     return error ("address argument missing");
   if (n_breakpts >= MAX_BREAK)
     return error ("too many breakpoints");
-  if (parse_address (argv[1], &address) != OKAY)
+  if (parse_address (cpu, argv[1], &address) != OKAY)
     {
       if (isalpha (*argv[1]) || *argv[1] == '_')
         {
@@ -138,7 +138,7 @@ si_brkset (int argc, char *argv[])
 static const char *typestr[] = { "RW", "R", "W" };
 
 int
-si_brklist (int argc, char *argv[])
+si_brklist (struct cpu_state *cpu, int argc, char **argv)
 {
   int i;
 
@@ -153,7 +153,7 @@ si_brklist (int argc, char *argv[])
 
 
 int
-si_brkclear (int argc, char *argv[])
+si_brkclear (struct cpu_state *cpu, int argc, char **argv)
 {
   int i;
   uint addr;
@@ -167,7 +167,7 @@ si_brkclear (int argc, char *argv[])
       n_breakpts = 0;
       return OKAY;
     }
-  if (parse_address (argv[1], &addr))
+  if (parse_address (cpu, argv[1], &addr))
     return info ("invalid address syntax");
   for (i = 0; i < n_breakpts; i++)
     if (breakpt[i].addr == addr)
@@ -187,7 +187,7 @@ si_brkclear (int argc, char *argv[])
 
 
 int
-si_brksave (int argc, char *argv[])
+si_brksave (struct cpu_state *cpu, int argc, char **argv)
 {
   int i;
   FILE *savefile;

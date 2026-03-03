@@ -122,7 +122,7 @@ struct regs
     ushort sys;    /* system configuration register */
   };
 
-extern struct regs simreg;  /* defined in cpu.c */
+/* extern struct regs simreg; defined in cpu.c */
 
 /* MMU related */
 struct mmureg
@@ -133,7 +133,7 @@ struct mmureg
     ushort al       : 4;
   };
 
-extern struct mmureg pagereg[2][16][16];  /* defined in cpu.c */
+/* extern struct mmureg pagereg[2][16][16]; defined in cpu.c */
 
 #endif
 

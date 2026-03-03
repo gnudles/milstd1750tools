@@ -11,10 +11,10 @@ char *
 disassemble ()
 {
   static char disasm_text[80];
-  ushort words[2], as = simreg.sw & 0xF;
-  get_raw (CODE, as, simreg.ic, &words[0]);
-  if (simreg.ic < 0xFFFF)
-    get_raw (CODE, as, simreg.ic + 1, &words[1]);
+  ushort words[2], as = sim_cpu.reg.sw & 0xF;
+  get_raw (CODE, as, sim_cpu.reg.ic, &words[0]);
+  if (sim_cpu.reg.ic < 0xFFFF)
+    get_raw (CODE, as, sim_cpu.reg.ic + 1, &words[1]);
   dism1750 (disasm_text, words);
   return disasm_text;
 }
@@ -22,6 +22,6 @@ disassemble ()
 char *
 find_label (int bank, ushort address)
 {
-  return find_labelname (get_phys_address (bank, simreg.sw & 0xF, address));
+  return find_labelname (get_phys_address (bank, sim_cpu.reg.sw & 0xF, address));
 }
 

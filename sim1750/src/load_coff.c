@@ -804,7 +804,7 @@ process_file (FILE* input_file)
 
       if (verbose)
         printf ("Entry point = 0x%08X\n", entry >> 1);
-      simreg.ic = entry >> 1;
+      sim_cpu.reg.ic = entry >> 1;
     }
 
   get_strings (input_file);

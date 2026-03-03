@@ -71,6 +71,11 @@ print_optionhelp ()
 int
 main (int argc, char *argv[])
 {
+  struct cpu_state cpu = {
+    .bpindex = -1,
+    .disable_timers = false,
+    .total_time_in_us = 0.0
+  };
   char *batchfile = NULL, *loadfile = NULL, *chip;
   loadfile_t filetype = NONE;
 
@@ -139,13 +144,13 @@ main (int argc, char *argv[])
       switch (filetype)
         {
         case     COFF:
-          ans = si_lcf (f_argc, f_argv);
+          ans = si_lcf (&cpu, f_argc, f_argv);
         elsecase TEK_HEX:
-          ans = si_lo  (f_argc, f_argv);
+          ans = si_lo  (&cpu, f_argc, f_argv);
         elsecase TLD_LDM:
-          ans = si_tld (f_argc, f_argv);
+          ans = si_tld (&cpu, f_argc, f_argv);
         elsecase XTC_LDM:
-          ans = si_xtc (f_argc, f_argv);
+          ans = si_xtc (&cpu, f_argc, f_argv);
 	  break;
 	default:
 	  ans = ERROR;
@@ -154,7 +159,7 @@ main (int argc, char *argv[])
 	problem ("Could not run (see above)");
       f_argc = 0;
       f_argv [0] = NULL;
-      ans = si_go (f_argc, f_argv);
+      ans = si_go (&cpu, f_argc, f_argv);
       return ans;
     }
 
@@ -175,7 +180,7 @@ main (int argc, char *argv[])
       printf ("Copyright 1994-97 Daimler-Benz Aerospace AG\n");
     }
 
-  interpreter (batchfile);  /* let's spend the night together */
+  interpreter (&cpu, batchfile);  /* let's spend the night together */
 
   init_system (1);          /* tidy up before leaving */
 
