@@ -78,7 +78,7 @@ static int   int_count = 0;	/* number of interrupts from keyboard     */
 static char  logfilename[128];
 static int   leave = 0;			/* leave command interpreter */
 
-#define MAX_CPUS 10 
+#define MAX_CPUS 10
 struct cpu_context cpu_contexts[MAX_CPUS] = {
      {
     .bpindex = -1,
@@ -96,6 +96,7 @@ struct cpu_context *sim_cpu_ctx = &cpu_contexts[0];	/* pointer to current cpu in
 static int co_batch P, co_logopen P, co_logclose P, co_sh P, co_exit P;
 static int co_echo P, co_help P, co_info P, co_speed P, co_timers P;
 static int co_version P, co_shoc P, co_war P;
+static int co_cpu P;
 static int si_dispreg P, si_disasm P, si_dispmem P, si_dispflt P;
 static int si_dispeflt P, si_dispchar P, si_changemem P, si_changereg P;
 static int si_init P, si_reset P, si_tr P, si_page P, si_fill P;
@@ -130,6 +131,8 @@ static const struct {
    { "ss *",                    si_snglstp,  "step over subroutine call",
        "" },
 
+   { "cpu <subcmd>",           co_cpu,      "manage CPUs (list, create, select, rename)",
+                                "\tcpu list\n\tcpu create <name>\n\tcpu select <id>\n\tcpu rename <name>\n" },
    { "break <address>",        si_brkset,   "set breakpoint",
        "Set breakpoint at the given address. For the syntax of the address\n"
        "expression, see the help info on the TR command. Additionally,\n"
@@ -942,6 +945,70 @@ parse_address (struct cpu_context *cpu_ctx, char *str, uint *phys_address)
   return OKAY;
 }
 
+
+static int
+co_cpu (int argc, char *argv[])
+{
+  int i;
+  if (argc < 2)
+    {
+      return error ("cpu subcommand missing (try 'help cpu')");
+    }
+
+  if (strmatch (argv[1], "list"))
+    {
+      lprintf (" ID   Name\n");
+      lprintf ("----  ------------------------------\n");
+      for (i = 0; i < ncpus; i++)
+        {
+          lprintf ("%s%2d   %s\n", (&cpu_contexts[i] == sim_cpu_ctx) ? "*" : " ", i, cpu_contexts[i].name);
+        }
+    }
+  else if (strmatch (argv[1], "create"))
+    {
+      if (argc < 3)
+        return error ("cpu name missing");
+      if (ncpus >= MAX_CPUS)
+        return error ("max CPUs reached");
+
+      struct cpu_context *new_cpu = &cpu_contexts[ncpus];
+      memset(new_cpu, 0, sizeof(struct cpu_context));
+      strncpy(new_cpu->name, argv[2], sizeof(new_cpu->name) - 1);
+      new_cpu->name[sizeof(new_cpu->name) - 1] = '\0';
+      new_cpu->bpindex = -1;
+      new_cpu->disable_timers = false;
+      init_simulator (new_cpu, 0);
+
+      lprintf ("Created CPU %d ('%s')\n", ncpus, new_cpu->name);
+      ncpus++;
+    }
+  else if (strmatch (argv[1], "select"))
+    {
+      if (argc < 3)
+        return error ("cpu id missing");
+      int id = atoi(argv[2]);
+      if (id < 0 || id >= ncpus)
+        return error ("invalid cpu id");
+
+      sim_cpu_ctx = &cpu_contexts[id];
+      lprintf ("Selected CPU %d ('%s')\n", id, sim_cpu_ctx->name);
+    }
+  else if (strmatch (argv[1], "rename"))
+    {
+      if (argc < 3)
+        return error ("cpu name missing");
+
+      strncpy(sim_cpu_ctx->name, argv[2], sizeof(sim_cpu_ctx->name) - 1);
+      sim_cpu_ctx->name[sizeof(sim_cpu_ctx->name) - 1] = '\0';
+      lprintf ("Renamed current CPU to '%s'\n", sim_cpu_ctx->name);
+    }
+  else
+    {
+      return error ("unknown cpu subcommand");
+    }
+
+  return (OKAY);
+}
 
 static int
 si_disasm (int argc, char *argv[])
