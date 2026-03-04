@@ -59,11 +59,12 @@
 #include "status.h"
 #include "tekops.h"
 #include "utils.h"
+#include "targsys.h"
 
 /* imports not mentioned in includefiles */
 
 extern int  dism1750 (char *, ushort *);  /* dism1750.c */
-extern char *disassemble ();		  /* sdisasm.c */
+extern char *disassemble (struct cpu_state *cpu);		  /* sdisasm.c */
 
 /* private stuff */
 
@@ -77,10 +78,25 @@ static int   int_count = 0;	/* number of interrupts from keyboard     */
 static char  logfilename[128];
 static int   leave = 0;			/* leave command interpreter */
 
+#define MAX_CPUS 10
+struct cpu_context cpu_contexts[MAX_CPUS] = {
+     {
+    .bpindex = -1,
+    .disable_timers = false,
+    .state = {.instcnt = 0, .total_cycles = 0},
+    .name = "default",
+    .n_breakpts = 0
+     }
+
+};
+int ncpus = 1;			/* number of cpus in cpus[] array */
+struct cpu_context *sim_cpu_ctx = &cpu_contexts[0];	/* pointer to current cpu in cpus[] array */
+
 #define P (int argc, char *argv[])
 static int co_batch P, co_logopen P, co_logclose P, co_sh P, co_exit P;
 static int co_echo P, co_help P, co_info P, co_speed P, co_timers P;
 static int co_version P, co_shoc P, co_war P;
+static int co_cpu P;
 static int si_dispreg P, si_disasm P, si_dispmem P, si_dispflt P;
 static int si_dispeflt P, si_dispchar P, si_changemem P, si_changereg P;
 static int si_init P, si_reset P, si_tr P, si_page P, si_fill P;
@@ -88,7 +104,7 @@ static int si_init P, si_reset P, si_tr P, si_page P, si_fill P;
 
 static const struct {
 		      char *name;
-		      int  (*function) (int, char **);
+		      int  (*function) ( int, char **);
 		      char *brief_description;
 		      char *helptext;
 		    } comtab[] =
@@ -115,6 +131,8 @@ static const struct {
    { "ss *",                    si_snglstp,  "step over subroutine call",
        "" },
 
+   { "cpu <subcmd>",           co_cpu,      "manage CPUs (list, create, select, rename)",
+                                "\tcpu list\n\tcpu create <name>\n\tcpu select <id>\n\tcpu rename <name>\n" },
    { "break <address>",        si_brkset,   "set breakpoint",
        "Set breakpoint at the given address. For the syntax of the address\n"
        "expression, see the help info on the TR command. Additionally,\n"
@@ -486,7 +504,7 @@ init_system (int mode)
   int retval = 0;
 
   retval += init_io (mode);
-  retval += init_simulator (mode);
+  retval += init_simulator (sim_cpu_ctx, mode);
   return retval;
 }
 
@@ -750,12 +768,12 @@ co_info (int argc, char *argv[])
   lprintf ("\tAllocation:\t%d words of simulation memory\n", allocated/2);
   lprintf ("\tOptimization in favor of (speed|features):\t%s\n",
 	   need_speed ? "Speed" : "Features");
-  lprintf ("\tInstruction Count:\t%d\n", instcnt);
-  lprintf ("\tExecution time (uSec):\t%0.3f\n", total_time_in_us);
+  lprintf ("\tInstruction Count:\t%d\n", sim_cpu_ctx->state.instcnt);
+  lprintf ("\tExecution time (uSec):\t%0.3f\n", (sim_cpu_ctx->state.total_cycles * uP_CYCLE_IN_NS ) / 1000.0);
   lprintf ("\tMemory regions used:\n");
   for (i = 0; i < N_PAGES; i++)
     {
-      if (mem[i] == MNULL)
+      if (sim_cpu_ctx->state.mem[i] == MNULL)
 	{
 	  if (seen_start)
 	    {
@@ -768,14 +786,14 @@ co_info (int argc, char *argv[])
       end_addr = (((uint) i + 1) << 12) - 1;
       do
 	{
-	  if (was_written (addr))
+	  if (was_written (&sim_cpu_ctx->state, addr))
 	    {
 	      if (! seen_start)
 		{
 		  seen_start = TRUE;
 		  lprintf ("\t\t\t%05lX - ", addr);
 		}
-	      while (addr < end_addr && was_written (++addr))
+	      while (addr < end_addr && was_written (&sim_cpu_ctx->state, ++addr))
 	        ;
 	      if (addr < end_addr)
 		{
@@ -786,8 +804,8 @@ co_info (int argc, char *argv[])
 	} while (addr++ < end_addr);
     }
 
-  instcnt = 0;
-  total_time_in_us = 0.0;
+  sim_cpu_ctx->state.instcnt = 0;
+  sim_cpu_ctx->state.total_cycles = 0;
   return (0);
 }
 
@@ -821,15 +839,15 @@ co_timers (int argc, char *argv[])
   if (argc > 1)
     {
       if (eq (argv[1], "on"))
-	disable_timers = FALSE;
+	sim_cpu_ctx->disable_timers = FALSE;
       else if (eq (argv[1], "off"))
-	disable_timers = TRUE;
+	sim_cpu_ctx->disable_timers = TRUE;
       else
 	return error ("invalid parameter -- must be 'on' or 'off'");
     }
   else
-    disable_timers = ! disable_timers;
-  info ("Timers A/B are now %sabled", disable_timers ? "dis" : "en");
+    sim_cpu_ctx->disable_timers = ! sim_cpu_ctx->disable_timers;
+  info ("Timers A/B are now %sabled", sim_cpu_ctx->disable_timers ? "dis" : "en");
   return (OKAY);
 }
 
@@ -898,12 +916,11 @@ co_war (int argc, char *argv[])
    Return OKAY for success or ERROR on invalid syntax of the input string.
  */
 bool
-parse_address (char *str, uint *phys_address)
+parse_address (struct cpu_context *cpu_ctx, char *str, uint *phys_address)
 {
   char *i_o = strpbrk (str, "io");
   int  hexdigit;
-  ushort as = simreg.sw & 0xF;
-
+  ushort as = cpu_ctx->state.reg.sw & 0xF;
   if (i_o != NULL)
     {
       if (i_o > str)
@@ -923,11 +940,75 @@ parse_address (char *str, uint *phys_address)
       str++;
     }
   if (i_o != NULL)
-    *phys_address = get_phys_address (*i_o == 'i' ? CODE : DATA,
+    *phys_address = get_phys_address (&cpu_ctx->state, *i_o == 'i' ? CODE : DATA,
 					as, (ushort) *phys_address);
   return OKAY;
 }
 
+
+static int
+co_cpu (int argc, char *argv[])
+{
+  int i;
+  if (argc < 2)
+    {
+      return error ("cpu subcommand missing (try 'help cpu')");
+    }
+
+  if (strmatch (argv[1], "list"))
+    {
+      lprintf (" ID   Name\n");
+      lprintf ("----  ------------------------------\n");
+      for (i = 0; i < ncpus; i++)
+        {
+          lprintf ("%s%2d   %s\n", (&cpu_contexts[i] == sim_cpu_ctx) ? "*" : " ", i, cpu_contexts[i].name);
+        }
+    }
+  else if (strmatch (argv[1], "create"))
+    {
+      if (argc < 3)
+        return error ("cpu name missing");
+      if (ncpus >= MAX_CPUS)
+        return error ("max CPUs reached");
+
+      struct cpu_context *new_cpu = &cpu_contexts[ncpus];
+      memset(new_cpu, 0, sizeof(struct cpu_context));
+      strncpy(new_cpu->name, argv[2], sizeof(new_cpu->name) - 1);
+      new_cpu->name[sizeof(new_cpu->name) - 1] = '\0';
+      new_cpu->bpindex = -1;
+      new_cpu->disable_timers = false;
+      init_simulator (new_cpu, 0);
+
+      lprintf ("Created CPU %d ('%s')\n", ncpus, new_cpu->name);
+      ncpus++;
+    }
+  else if (strmatch (argv[1], "select"))
+    {
+      if (argc < 3)
+        return error ("cpu id missing");
+      int id = atoi(argv[2]);
+      if (id < 0 || id >= ncpus)
+        return error ("invalid cpu id");
+
+      sim_cpu_ctx = &cpu_contexts[id];
+      lprintf ("Selected CPU %d ('%s')\n", id, sim_cpu_ctx->name);
+    }
+  else if (strmatch (argv[1], "rename"))
+    {
+      if (argc < 3)
+        return error ("cpu name missing");
+
+      strncpy(sim_cpu_ctx->name, argv[2], sizeof(sim_cpu_ctx->name) - 1);
+      sim_cpu_ctx->name[sizeof(sim_cpu_ctx->name) - 1] = '\0';
+      lprintf ("Renamed current CPU to '%s'\n", sim_cpu_ctx->name);
+    }
+  else
+    {
+      return error ("unknown cpu subcommand");
+    }
+
+  return (OKAY);
+}
 
 static int
 si_disasm (int argc, char *argv[])
@@ -941,7 +1022,7 @@ si_disasm (int argc, char *argv[])
 
   if (argc > 1)
     {
-      if (parse_address (argv[1], &address) != OKAY)
+      if (parse_address (sim_cpu_ctx, argv[1], &address) != OKAY)
 	return error ("invalid address syntax");
       if (argc > 2)
 	{
@@ -960,12 +1041,12 @@ si_disasm (int argc, char *argv[])
       if ((sym = find_labelname (address)) != NULL)
 	lprintf ("                      %s\n", sym);
       lprintf ("%05lX     ", address);
-      if (! peek (address, &words[0]))
+      if (! peek (&sim_cpu_ctx->state, address, &words[0]))
 	{
 	  verbose = verbose_save;
 	  return error ("<no code loaded here>");
 	}
-      peek (address + 1, &words[1]);
+      peek (&sim_cpu_ctx->state, address + 1, &words[1]);
       n_words = dism1750 (disasm_text, words);
       lprintf ("%04hX ", words[0]);
       if (! n_words)
@@ -991,35 +1072,35 @@ si_disasm (int argc, char *argv[])
 
 
 void
-dis_reg ()
+dis_reg (struct cpu_state *cpu)
 {
   int i;
-#define state(flag)  ((simreg.sys & flag) ? 'E' : 'D')
+#define state(flag)  ((cpu->reg.sys & flag) ? 'E' : 'D')
 
   for (i = 0; i < 16; i++)
     {
-      lprintf ("R%02d:%04X", i, (unsigned) simreg.r[i] & 0xFFFF);
+      lprintf ("R%02d:%04X", i, (unsigned) cpu->reg.r[i] & 0xFFFF);
       if (i == 7 || i == 15)
 	lprintf ("\n");
       else
 	lprintf ("  ");
     }
-  lprintf ("PIR:%04hX  ", simreg.pir);
-  lprintf ("MK: %04hX  ", simreg.mk);
-  lprintf ("FT: %04hX  ", simreg.ft);
-  lprintf ("SW: %04hX  ", simreg.sw);
-  lprintf ("TA: %04hX  ", simreg.ta);
-  lprintf ("TB: %04hX  ", simreg.tb);
-  lprintf ("GO: %04hX\n", simreg.go);
+  lprintf ("PIR:%04hX  ", cpu->reg.pir);
+  lprintf ("MK: %04hX  ", cpu->reg.mk);
+  lprintf ("FT: %04hX  ", cpu->reg.ft);
+  lprintf ("SW: %04hX  ", cpu->reg.sw);
+  lprintf ("TA: %04hX  ", cpu->reg.ta);
+  lprintf ("TB: %04hX  ", cpu->reg.tb);
+  lprintf ("GO: %04hX\n", cpu->reg.go);
 
-  lprintf (" IC:%04hX%c %-20s", simreg.ic,
-	   was_written (get_phys_address (CODE, simreg.sw & 0xF, simreg.ic))
-	   ? ' ' : '!', disassemble ());
+  lprintf (" IC:%04hX%c %-20s", cpu->reg.ic,
+	   was_written (cpu, get_phys_address (cpu, CODE, cpu->reg.sw & 0xF, cpu->reg.ic))
+	   ? ' ' : '!', disassemble (cpu));
   lprintf ("CS:%c   ",
-	    simreg.sw & CS_CARRY    ? 'C' :
-	    simreg.sw & CS_POSITIVE ? 'P' :
-	    simreg.sw & CS_ZERO     ? 'Z' :
-	    simreg.sw & CS_NEGATIVE ? 'N' : '0');
+	    cpu->reg.sw & CS_CARRY    ? 'C' :
+	    cpu->reg.sw & CS_POSITIVE ? 'P' :
+	    cpu->reg.sw & CS_ZERO     ? 'Z' :
+	    cpu->reg.sw & CS_NEGATIVE ? 'N' : '0');
   lprintf ("INT:%c DMA:%c", state(SYS_INT), state(SYS_DMA));
   lprintf (" TA:%c TB:%c\n", state(SYS_TA), state(SYS_TB));
 }
@@ -1028,7 +1109,7 @@ static int
 si_dispreg (int argc, char *argv[])
 {
   info ("\t\tREGISTER DUMP\n");
-  dis_reg ();
+  dis_reg (&sim_cpu_ctx->state);
 
   return (OKAY);
 }
@@ -1044,7 +1125,7 @@ si_dispmem (int argc, char *argv[])
 
   if (argc > 1)
     {
-      if (parse_address (argv[1], &address) != OKAY)
+      if (parse_address (sim_cpu_ctx, argv[1], &address) != OKAY)
 	return error ("invalid address syntax");
       if (argc > 2)
 	{
@@ -1063,7 +1144,7 @@ si_dispmem (int argc, char *argv[])
 	return (INTERRUPT);
       if (i % DUMPLEN == 0)
 	lprintf ("%05lX    ", address);
-      if (! peek (address, &value))
+      if (! peek (&sim_cpu_ctx->state, address, &value))
 	lprintf ("%04hX!  ", value);
       else
 	lprintf ("%04hX   ", value);
@@ -1093,10 +1174,10 @@ si_dispflt (int argc, char *argv[])
 	  sscanf (argv[1] + 1, "%d", &n);
 	  if (n < 0 || n > 14)
 	    return error ("invalid register number");
-	  lprintf ("%.7g\n", from_1750flt (&simreg.r[n]));
+	  lprintf ("%.7g\n", from_1750flt (&sim_cpu_ctx->state.reg.r[n]));
 	  return OKAY;
 	}
-      if (parse_address (argv[1], &address) != OKAY)
+      if (parse_address (sim_cpu_ctx, argv[1], &address) != OKAY)
 	return error ("invalid address syntax");
       if (argc > 2)
 	{
@@ -1114,8 +1195,8 @@ si_dispflt (int argc, char *argv[])
       if (sys_int (1))
 	return (INTERRUPT);
       lprintf ("%05lX    ", address);
-      word0_was_written = peek (address, (ushort *) &fltwords[0]);
-      word1_was_written = peek (address + 1, (ushort *) &fltwords[1]);
+      word0_was_written = peek (&sim_cpu_ctx->state, address, (ushort *) &fltwords[0]);
+      word1_was_written = peek (&sim_cpu_ctx->state, address + 1, (ushort *) &fltwords[1]);
       if (word0_was_written && word1_was_written)
 	lprintf ("%.7g\n", from_1750flt (fltwords));
       else
@@ -1138,7 +1219,7 @@ si_dispeflt (int argc, char *argv[])
 
   if (argc > 1)
     {
-      if (parse_address (argv[1], &address) != OKAY)
+      if (parse_address (sim_cpu_ctx, argv[1], &address) != OKAY)
 	return error ("invalid address syntax");
       if (argc > 2)
 	{
@@ -1156,9 +1237,9 @@ si_dispeflt (int argc, char *argv[])
       if (sys_int (1))
 	return (INTERRUPT);
       lprintf ("%05lX    ", address);
-      word0_was_written = peek (address, (ushort *) &fltwords[0]);
-      word1_was_written = peek (address + 1, (ushort *) &fltwords[1]);
-      word2_was_written = peek (address + 2, (ushort *) &fltwords[2]);
+      word0_was_written = peek (&sim_cpu_ctx->state, address, (ushort *) &fltwords[0]);
+      word1_was_written = peek (&sim_cpu_ctx->state, address + 1, (ushort *) &fltwords[1]);
+      word2_was_written = peek (&sim_cpu_ctx->state, address + 2, (ushort *) &fltwords[2]);
       if (word0_was_written && word1_was_written && word2_was_written)
 	lprintf ("%.7g\n", from_1750eflt (fltwords));
       else
@@ -1186,7 +1267,7 @@ si_dispchar (int argc, char *argv[])
 
   if (argc > 1)
     {
-      if (parse_address (argv[1], &address) != OKAY)
+      if (parse_address (sim_cpu_ctx, argv[1], &address) != OKAY)
 	return error ("invalid address syntax");
       if (argc > 2)
 	{
@@ -1209,7 +1290,7 @@ si_dispchar (int argc, char *argv[])
       if (j == 0)
 	lprintf ("%05lX    ", address);
 
-      if (! peek (address, &word))
+      if (! peek (&sim_cpu_ctx->state, address, &word))
 	{
 	  verbose = verbose_save;
 	  return error (" <uninitialized>");
@@ -1275,13 +1356,13 @@ si_changemem (int argc, char *argv[])
   if (argc <= 1)
     return error ("address missing");
 
-  if (parse_address (argv[1], &address) != OKAY)
+  if (parse_address (sim_cpu_ctx, argv[1], &address) != OKAY)
     return error ("invalid address syntax");
 
   verbose = FALSE;
   while (TRUE)
     {
-      peek (address, &word);
+      peek (&sim_cpu_ctx->state, address, &word);
       lprintf ("%05lX\t%04hX => ", address, word);
       if (fgets (mline, 255, infiles[actinfile]) == NULL)
 	break;
@@ -1297,7 +1378,7 @@ si_changemem (int argc, char *argv[])
 	  if (strlen (mline) > 1)
 	    {
 	      sscanf (mline, "%x", &number);
-	      poke (address, (ushort) number);
+	      poke (&sim_cpu_ctx->state, address, (ushort) number);
 	    }
 	  address++;
 	}
@@ -1331,45 +1412,43 @@ si_changereg (int argc, char *argv[])
   if (i == REGS)
     return error ("illegal name");
   sscanf (argv[2], "%x", &readreg);
-  *((ushort *) (&simreg) + i) = (ushort) (readreg & 0xffff);
+  *((ushort *) (&sim_cpu_ctx->state.reg) + i) = (ushort) (readreg & 0xffff);
 
   return (OKAY);
 }
 
 
-extern int  n_breakpts;  /* break.c */
-
 int
-init_simulator (int mode)
+init_simulator (struct cpu_context *cpu_ctx, int mode)
 {
   int i, as;
 
   if (!mode)
     {
-      init_mem ();
+      init_mem (&cpu_ctx->state);
       /* initialize MMU regs */
 #define WORD 2
-      memset ((void *) pagereg, 0, 512 * WORD);
+      memset ((void *) cpu_ctx->state.pagereg, 0, 512 * WORD);
 #undef WORD
-      /* initialize pagereg.ppa to "quasi-non-MMU". */
+      /* initialize cpu_ctx->state.pagereg.ppa to "quasi-non-MMU". */
       i = 0;
       for (as = 0; as <= 15; as++)
 	{
 	  int logaddr_hinibble = 0;
 	  for (; logaddr_hinibble <= 0xF; logaddr_hinibble++)
 	    {
-	      pagereg[CODE][as][logaddr_hinibble].ppa = i;
-	      pagereg[DATA][as][logaddr_hinibble].ppa = i++;
+	      cpu_ctx->state.pagereg[CODE][as][logaddr_hinibble].ppa = i;
+	      cpu_ctx->state.pagereg[DATA][as][logaddr_hinibble].ppa = i++;
 	    }
 	}
       /* Write zeros to 1750 regs */
-      memset ((void *) &simreg, 0, sizeof (struct regs));
+      memset ((void *) &cpu_ctx->state.reg, 0, sizeof (struct regs));
       /* Reset breakpoint counter */
-      n_breakpts = 0;
+      cpu_ctx->n_breakpts = 0;
       /* Reset counter of total instructions executed */
-      instcnt = 0;
+      cpu_ctx->state.instcnt = 0;
       /* Reset simulation time tracking */
-      total_time_in_us = 0.0;
+      cpu_ctx->state.total_cycles = 0;
       /* Do loadfile processing initializations */
       init_load_formats ();
     }
@@ -1384,14 +1463,14 @@ init_simulator (int mode)
 static int
 si_init (int argc, char *argv[])
 {
-  return init_simulator (0);
+  return init_simulator (sim_cpu_ctx, 0);
 }
 
 
 static int
 si_reset (int argc, char *argv[])
 {
-  init_cpu ();
+  init_cpu (&sim_cpu_ctx->state);
   return (OKAY);
 }
 
@@ -1404,7 +1483,7 @@ si_tr (int argc, char *argv[])
   if (argc < 2)
     return error ("address missing");
 
-  if (parse_address (argv[1], &address) != OKAY)
+  if (parse_address (sim_cpu_ctx, argv[1], &address) != OKAY)
     return error ("invalid address syntax (see 'help tr')");
 
   lprintf ("logical address %s => physical %05lX\n", argv[1], address);
@@ -1417,8 +1496,7 @@ si_tr (int argc, char *argv[])
 static int
 si_page (int argc, char *argv[])
 {
-  int i, as = simreg.sw & 0x000F;
-
+  int i, as = sim_cpu_ctx->state.reg.sw & 0x000F;
   if (argc > 1)
     {
       sscanf (argv[1], "%i", &as);
@@ -1427,11 +1505,11 @@ si_page (int argc, char *argv[])
     }
   lprintf ("\n\t  AS%d Instruction:\n\t  ", as);
   for (i = 0; i < 16; i++)
-    lprintf ("  %02hX", pagereg[CODE][as][i].ppa);
+    lprintf ("  %02hX", sim_cpu_ctx->state.pagereg[CODE][as][i].ppa);
   lprintf ("\n");
   lprintf ("\t  AS%d Operand:\n\t  ", as);
   for (i = 0; i < 16; i++)
-    lprintf ("  %02hX", pagereg[DATA][as][i].ppa);
+    lprintf ("  %02hX", sim_cpu_ctx->state.pagereg[DATA][as][i].ppa);
   lprintf ("\n");
   return (0);
 }
@@ -1468,7 +1546,7 @@ apply (reprec r)
 
   if (r->rep_fact == 0)  /* value leaf */
     {
-      poke (phys_addr++, (ushort) r->u.t.value);
+      poke (&sim_cpu_ctx->state, phys_addr++, (ushort) r->u.t.value);
       r->u.t.value += r->u.t.increment;
       return;
     }
@@ -1625,7 +1703,7 @@ si_fill (int argc, char *argv[])
 
   if (argc < 3)
     return error ("parameter missing");
-  if (parse_address (argv[1], &phys_addr) != OKAY)
+  if (parse_address (sim_cpu_ctx, argv[1], &phys_addr) != OKAY)
     return error ("invalid address syntax");
   expr = argv[2];
   if ((r = parse (&expr)) == RNULL)

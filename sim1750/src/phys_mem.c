@@ -32,35 +32,36 @@
 #include <string.h>
 
 #include "phys_mem.h"
+#include "cpu.h"
 
-mem_t *mem[256];  /* 1 Mword address space */
+/*mem_t *mem[256];*/  /* 1 Mword address space */
 
 uint allocated = 0;  /* statistic of total amount allocated by xalloc() */
 
 void
-init_mem ()
+init_mem (struct cpu_state *cpu)
 {
   int i;
 
   /* allocate the first 4Kword page (just for convenience) */
-  if (mem[0] == MNULL)
-    mem[0] = (mem_t *) xalloc (1, sizeof (mem_t));
+  if (cpu->mem[0] == MNULL)
+    cpu->mem[0] = (mem_t *) xalloc (1, sizeof (mem_t));
   /* fill simulation memory with zeros */
   for (i = 0; i < 256; i++)
-    if (mem[i] != MNULL)
-      memset ((void *) mem[i], 0, sizeof (mem_t));
+    if (cpu->mem[i] != MNULL)
+      memset ((void *) cpu->mem[i], 0, sizeof (mem_t));
 }
 
 
 bool
-was_written (uint phys_address)
+was_written (struct cpu_state *cpu, uint phys_address)
 {
   unsigned page = (unsigned) (phys_address >> 12);
   unsigned address = (unsigned) (phys_address & 0x0FFF);
 
-  if (mem[page] == MNULL)
+  if (cpu->mem[page] == MNULL)
     return 0;
-  return (mem[page]->was_written[address / 32] & (1 << (address % 32))) != 0;
+  return (cpu->mem[page]->was_written[address / 32] & (1 << (address % 32))) != 0;
 }
 
 

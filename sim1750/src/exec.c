@@ -40,28 +40,29 @@
 
 extern void  dis_reg ();	/* cmd.c */
 extern int   sys_int (int);	/* cmd.c */
-extern char *disassemble ();	/* sdisasm.c */
+extern char *disassemble (struct cpu_state *cpu);	/* sdisasm.c */
 
+extern struct cpu_context *sim_cpu_ctx;
 
 static bool
-at_bpt_instruction ()
+at_bpt_instruction (struct cpu_state *cpu)
 {
   ushort opcode;
-  if (! get_raw (CODE, simreg.sw & 0xF, simreg.ic, &opcode))
+  if (! get_raw (cpu, CODE, cpu->reg.sw & 0xF, cpu->reg.ic, &opcode))
     return FALSE;
   return (opcode == 0xFFFF);
 }
 
 static int
-execute_without_breakpt ()
+execute_without_breakpt (struct cpu_context *cpu_ctx)
 {
   int status;
-  int bpi = bpindex;
+  int bpi = cpu_ctx->bpindex;
 
-  bpindex = -1;
-  set_inactive (bpi);
-  status = execute ();
-  set_active (bpi);
+  cpu_ctx->bpindex = -1;
+  set_inactive (cpu_ctx, bpi);
+  status = execute (cpu_ctx);
+  set_active (cpu_ctx, bpi);
   return status;
 }
 
@@ -74,28 +75,28 @@ si_go (int argc, char *argv[])
   if (argc > 1)
     {
       sscanf (argv[1], "%x", &next);
-      simreg.ic = (ushort) next;
+      sim_cpu_ctx->state.reg.ic = (ushort) next;
     }
 
-  if (at_bpt_instruction ())
-    simreg.ic++;
-  else if (bpindex >= 0)
-    execute_without_breakpt ();
+  if (at_bpt_instruction (&sim_cpu_ctx->state))
+    sim_cpu_ctx->state.reg.ic++;
+  else if (sim_cpu_ctx->bpindex >= 0)
+    execute_without_breakpt (sim_cpu_ctx);
   while (1)
     {
       if (sys_int (1))
 	return INTERRUPT;
-      if (execute () == MEMERR)
+      if (execute (sim_cpu_ctx) == MEMERR)
 	break;
-      if (at_bpt_instruction ())
+      if (at_bpt_instruction (&sim_cpu_ctx->state))
 	{
-	  lprintf ("\tBPT at %04hX", simreg.ic);
+	  lprintf ("\tBPT at %04hX", sim_cpu_ctx->state.reg.ic);
 	  break;
 	}
-      else if (bpindex >= 0)
+      else if (sim_cpu_ctx->bpindex >= 0)
 	{
 	  info ("\tBreakpoint at %04hX : %s",
-		   simreg.ic, disassemble ());
+		   sim_cpu_ctx->state.reg.ic, disassemble (&sim_cpu_ctx->state));
 	  break;
 	}
     }
@@ -115,43 +116,45 @@ si_snglstp (int argc, char *argv[])
       if (*argv[1] == '*')
 	{
 	  step_over = TRUE;
-	  target_addr = simreg.ic + 2;
+	  target_addr = sim_cpu_ctx->state.reg.ic + 2;
 	}
       else
 	sscanf (argv[1], "%d", &count);
     }
 
-  if (at_bpt_instruction ())
-    simreg.ic++;
+  if (at_bpt_instruction (&sim_cpu_ctx->state))
+  {
+    sim_cpu_ctx->state.reg.ic++;
+  }
 
   if (step_over)
     {
-      if (bpindex >= 0)
+      if (sim_cpu_ctx->bpindex >= 0)
 	{
 	  info ("\tStepping past breakpoint at IC : %04hX   %s",
-		   simreg.ic, disassemble ());
-	  execute_without_breakpt ();
+		   sim_cpu_ctx->state.reg.ic, disassemble (&sim_cpu_ctx->state));
+	  execute_without_breakpt (sim_cpu_ctx);
 	}
-      while (simreg.ic != target_addr)
+      while (sim_cpu_ctx->state.reg.ic != target_addr)
 	{
 	  if (sys_int (1))
 	    return (INTERRUPT);
-	  if (execute () == MEMERR)
+	  if (execute (sim_cpu_ctx) == MEMERR)
 	    break;
-	  if (at_bpt_instruction ())
+	  if (at_bpt_instruction (&sim_cpu_ctx->state))
 	    {
-	      lprintf ("\tBPT at %04hX", simreg.ic);
+	      lprintf ("\tBPT at %04hX", sim_cpu_ctx->state.reg.ic);
 	      break;
 	    }
-	  else if (bpindex >= 0)
+	  else if (sim_cpu_ctx->bpindex >= 0)
 	    {
 	      info ("\tBreakpoint at %04hX : %s",
-		       simreg.ic, disassemble ());
+		       sim_cpu_ctx->state.reg.ic, disassemble (&sim_cpu_ctx->state));
 	      break;
 	    }
 	}
-      if (! at_bpt_instruction () && bpindex < 0)
-	info ("\tStep at %04hX : %s", simreg.ic, disassemble ());
+      if (! at_bpt_instruction (&sim_cpu_ctx->state) && sim_cpu_ctx->bpindex < 0)
+	info ("\tStep at %04hX : %s", sim_cpu_ctx->state.reg.ic, disassemble (&sim_cpu_ctx->state));
     }
   else
     {
@@ -159,20 +162,20 @@ si_snglstp (int argc, char *argv[])
 	{
 	  if (sys_int (1))
 	    return (INTERRUPT);
-	  if (at_bpt_instruction ())
+	  if (at_bpt_instruction (&sim_cpu_ctx->state))
 	    {
-	      info ("\tStepping past BPT at IC : %04hX", simreg.ic);
-	      simreg.ic++;
+	      info ("\tStepping past BPT at IC : %04hX", sim_cpu_ctx->state.reg.ic);
+	      sim_cpu_ctx->state.reg.ic++;
 	    }
-	  else if (bpindex >= 0)
+	  else if (sim_cpu_ctx->bpindex >= 0)
 	    {
 	      info ("\tStepping past breakpoint at IC : %04hX   %s",
-		       simreg.ic, disassemble ());
-	      execute_without_breakpt ();
+		       sim_cpu_ctx->state.reg.ic, disassemble (&sim_cpu_ctx->state));
+	      execute_without_breakpt (sim_cpu_ctx);
 	    }
-	  else if (execute () == MEMERR)
+	  else if (execute (sim_cpu_ctx) == MEMERR)
 	    break;
-	  info ("\tIC : %04hX   %s", simreg.ic, disassemble ());
+	  info ("\tIC : %04hX   %s", sim_cpu_ctx->state.reg.ic, disassemble (&sim_cpu_ctx->state));
 	}
     }
 
@@ -198,13 +201,13 @@ si_trace (int argc, char *argv[])
       if (sys_int (1))
 	return (INTERRUPT);
 
-      if (at_bpt_instruction ())
-	simreg.ic++;
-      else if (bpindex >= 0)
-	execute_without_breakpt ();
-      else if (execute () == MEMERR)
+      if (at_bpt_instruction (&sim_cpu_ctx->state))
+	sim_cpu_ctx->state.reg.ic++;
+      else if (sim_cpu_ctx->bpindex >= 0)
+	execute_without_breakpt (sim_cpu_ctx);
+      else if (execute (sim_cpu_ctx) == MEMERR)
 	break;
-      lprintf ("\tIC : %04hX   %s", simreg.ic, disassemble ());
+      lprintf ("\tIC : %04hX   %s", sim_cpu_ctx->state.reg.ic, disassemble (&sim_cpu_ctx->state));
       dis_reg (0);
     }
 
@@ -230,21 +233,20 @@ si_bt (int argc, char *argv[])
         sscanf (argv[1], "%x %x", &back, &count);
     }
 
-  if (count > bt_cnt)
-    count = bt_cnt;
+  if (count > sim_cpu_ctx->bt_cnt)
+    count = sim_cpu_ctx->bt_cnt;
 
   /* save current regs */
-  save = simreg;
-
+  save = sim_cpu_ctx->state.reg;
   /* step back through backtrace buffer */
-  t = bt_next - back;
+  t = sim_cpu_ctx->bt_next - back;
   if (t < 0)
     t += BT_SIZE;
 
   while (count-- > 0)
     {
-      simreg = bt_buff [t];
-      lprintf ("\tIC : %04hX   %s", simreg.ic, disassemble ());
+      sim_cpu_ctx->state.reg = sim_cpu_ctx->bt_buff [t];
+      lprintf ("\tIC : %04hX   %s", sim_cpu_ctx->state.reg.ic, disassemble (&sim_cpu_ctx->state));
       dis_reg (0);
 
       t++;
@@ -253,7 +255,7 @@ si_bt (int argc, char *argv[])
     }
 
   /* restore old regs */
-  simreg = save;
+  sim_cpu_ctx->state.reg = save;
 
   return (OKAY);
 }
