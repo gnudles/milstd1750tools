@@ -160,8 +160,8 @@ load_tldline (char *line)
   switch (cmd)
     {
     case 'A':
-      sim_cpu.reg.sw &= 0xFFF0;
-      sim_cpu.reg.sw |= (ushort) get_word (line + DATASTART) & 0x000F;
+      cpu->reg.sw &= 0xFFF0;
+      cpu->reg.sw |= (ushort) get_word (line + DATASTART) & 0x000F;
       break;
     case 'I':
     case 'O':
@@ -176,7 +176,7 @@ load_tldline (char *line)
 	if ((address = get_nibbles (line + ADDRESS + 2, 3)) == -1)
 	  return error ("line %d: /%c error in logical address",
 			linecnt, cmd);
-	address |= (int) sim_cpu.pagereg[bank][as][logaddr_hinibble].ppa << 12;
+	address |= (int) cpu->pagereg[bank][as][logaddr_hinibble].ppa << 12;
 	if ((datacnt = xtoi (line[COUNT])) == -1)
 	  return error ("line %d: /%c error in data count", linecnt, cmd);
 	for (i = 0; i < datacnt; i++)
@@ -190,29 +190,29 @@ load_tldline (char *line)
       break;
     case 'L':
       {
-	int i, bank, as, sim_cpu.pagereg_number;
+	int i, bank, as, pagereg_number;
 	if ((as = xtoi (line[ADDRESS])) == -1)
 	  return error ("line %d: /L error in load address state", linecnt);
 	if ((bank = xtoi (line[ADDRESS + 3])) == -1)
 	  return error ("line %d: /L error in load address bank", linecnt);
-	if ((sim_cpu.pagereg_number = xtoi (line[ADDRESS + 4])) == -1)
-	  return error ("line %d: /L error in sim_cpu.pagereg number", linecnt);
+	if ((pagereg_number = xtoi (line[ADDRESS + 4])) == -1)
+	  return error ("line %d: /L error in cpu->pagereg number", linecnt);
 	if ((datacnt = xtoi (line[COUNT])) == -1)
 	  return error ("line %d: /L error in data count", linecnt);
 	for (i = 0; i < datacnt; i++)
 	  {
 	    const int allocation_type = xtoi (line[DATASTART + (4 * i)]);
-	    int sim_cpu.pagereg_contents;
+	    int pagereg_contents;
 	    if (allocation_type == -1)
 	      return error ("line %d: /L error in allocation type", linecnt);
 	    if (allocation_type != 2)
 	      return error ("line %d: /L allocation type %d unimplemented",
 			    linecnt, allocation_type);
-	    sim_cpu.pagereg_contents = get_nibbles (line + DATASTART + (4 * i) + 1, 3);
-	    if (sim_cpu.pagereg_contents == -1 || sim_cpu.pagereg_contents > 0xFF)
-	      return error ("line %d: /L sim_cpu.pagereg contents error", linecnt);
-	    sim_cpu.pagereg[bank][as][sim_cpu.pagereg_number].ppa = (ushort) sim_cpu.pagereg_contents;
-	    if (++sim_cpu.pagereg_number > 0xF)
+	    pagereg_contents = get_nibbles (line + DATASTART + (4 * i) + 1, 3);
+	    if (pagereg_contents == -1 || pagereg_contents > 0xFF)
+	      return error ("line %d: /L cpu->pagereg contents error", linecnt);
+	    cpu->pagereg[bank][as][pagereg_number].ppa = (ushort) pagereg_contents;
+	    if (++pagereg_number > 0xF)
 	      break;
 	  }
       }
@@ -243,7 +243,7 @@ load_tldline (char *line)
 	if ((address = get_nibbles (line + ADDRESS, 5)) < 0)
 	  return error ("line %d: /%c data error in address field", linecnt, cmd);
 	if (address > 0xFF)
-	  return error ("line %d: /%c starting sim_cpu.pagereg number too large",
+	  return error ("line %d: /%c starting cpu->pagereg number too large",
 			linecnt, cmd);
 	if ((datacnt = xtoi (line[COUNT])) == -1)
 	  return error ("line %d: /%c error in data count", linecnt, cmd);
@@ -251,11 +251,11 @@ load_tldline (char *line)
 	  {
 	    const int as = (int) address >> 4;
 	    const int pagenum = (int) address & 0xF;
-	    ushort *entire_sim_cpu.pagereg = (ushort *) & sim_cpu.pagereg[bank][as][pagenum];
+	    ushort *entire_pagereg = (ushort *) & cpu->pagereg[bank][as][pagenum];
 	    int word = get_word (line + DATASTART + (4 * i));
 	    if (word == -1)
 	      return error ("line %d: /%c data error", linecnt, cmd);
-	    *entire_sim_cpu.pagereg = (ushort) word;
+	    *entire_pagereg = (ushort) word;
 	    address++;
 	  }
       }
@@ -263,7 +263,7 @@ load_tldline (char *line)
     case 'T':
       if ((address = get_nibbles (line + ADDRESS, 5)) == -1)
 	return error ("LDM: numeric syntax error in transfer address");
-      sim_cpu.reg.ic = (ushort) address;
+      cpu->reg.ic = (ushort) address;
       if (address > 0xFFFF)
 	return error ("LDM: cannot handle transfer address (too high)");
       break;

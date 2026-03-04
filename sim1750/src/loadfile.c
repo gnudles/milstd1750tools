@@ -130,7 +130,7 @@ si_dispsym (int argc, char *argv[])
 /* load absolute binary PROM image file */
 
 int
-si_prolo (int argc, char *argv[])
+si_prolo (struct cpu_state *cpu, int argc, char *argv[])
 {
   ushort word;
   uint  abs_addr = 0;
@@ -150,7 +150,7 @@ si_prolo (int argc, char *argv[])
   verbose = FALSE;  /* avoid info messages from poke() */
   while (get_hilo16 (&word, loadfile) != EOF)
     {
-      poke (abs_addr, word);
+      poke (cpu, abs_addr, word);
       abs_addr++;
     }
   fclose (loadfile);
@@ -162,7 +162,7 @@ si_prolo (int argc, char *argv[])
 /* load binary file in IBM User Console PS (Program Store) format */
 
 int
-si_pslo (int argc, char *argv[])
+si_pslo (struct cpu_state *cpu, int argc, char *argv[])
 {
   ushort loadaddr_hiword, loadaddr_loword, n_words, i, word;
   uint  abs_addr = 0;
@@ -211,7 +211,7 @@ si_pslo (int argc, char *argv[])
 	      status = error ("pslo: unexpected EOF while reading data");
 	      break;
 	    }
-	  poke (abs_addr++, word);
+	  poke (cpu, abs_addr++, word);
 	}
       if (status == ERROR)
 	break;

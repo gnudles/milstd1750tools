@@ -36,7 +36,7 @@
 #include "cpu.h"
 #include "utils.h"
 #include "loadfile.h"
-extern struct cpu_state *sim_cpu;
+
 
 static int linecnt;
 
@@ -140,7 +140,7 @@ check_tldline (char *line)
 /* Analyze and load a line from a TLD Load Module file */
 
 static int
-load_tldline (char *line)
+load_tldline (struct cpu_state *cpu, char *line)
 {
   int cmd, actual_chksum, datacnt;
   int claimed_chksum, address;
@@ -160,8 +160,8 @@ load_tldline (char *line)
   switch (cmd)
     {
     case 'A':
-      sim_cpu->reg.sw &= 0xFFF0;
-      sim_cpu->reg.sw |= (ushort) get_word (line + DATASTART) & 0x000F;
+      cpu->reg.sw &= 0xFFF0;
+      cpu->reg.sw |= (ushort) get_word (line + DATASTART) & 0x000F;
       break;
     case 'I':
     case 'O':
@@ -176,7 +176,7 @@ load_tldline (char *line)
 	if ((address = get_nibbles (line + TLDADDR + 2, 3)) == -1)
 	  return error ("line %d: /%c error in logical address",
 			linecnt, cmd);
-	address |= (int) sim_cpu->pagereg[bank][as][logaddr_hinibble].ppa << 12;
+	address |= (int) cpu->pagereg[bank][as][logaddr_hinibble].ppa << 12;
 	if ((datacnt = xtoi (line[COUNT])) == -1)
 	  return error ("line %d: /%c error in data count", linecnt, cmd);
 	for (i = 0; i < datacnt; i++)
@@ -184,7 +184,7 @@ load_tldline (char *line)
 	    int word = get_word (line + DATASTART + (4 * i));
 	    if (word == -1)
 	      return error ("line %d: /%c data error", linecnt, cmd);
-	    poke (sim_cpu, address++, (ushort) word);
+	    poke (cpu, address++, (ushort) word);
 	  }
       }
       break;
@@ -211,7 +211,7 @@ load_tldline (char *line)
 	    pagereg_contents = get_nibbles (line + DATASTART + (4 * i) + 1, 3);
 	    if (pagereg_contents == -1 || pagereg_contents > 0xFF)
 	      return error ("line %d: /L pagereg contents error", linecnt);
-	    sim_cpu->pagereg[bank][as][pagereg_number].ppa = (ushort) pagereg_contents;
+	    cpu->pagereg[bank][as][pagereg_number].ppa = (ushort) pagereg_contents;
 	    if (++pagereg_number > 0xF)
 	      break;
 	  }
@@ -232,7 +232,7 @@ load_tldline (char *line)
 	    int word = get_word (line + DATASTART + (4 * i));
 	    if (word == -1)
 	      return error ("line %d: /M data error", linecnt);
-	    poke (sim_cpu, address++, (ushort) word);
+	    poke (cpu, address++, (ushort) word);
 	  }
       }
       break;
@@ -251,7 +251,7 @@ load_tldline (char *line)
 	  {
 	    const int as = (int) address >> 4;
 	    const int pagenum = (int) address & 0xF;
-	    ushort *entire_pagereg = (ushort *) & sim_cpu->pagereg[bank][as][pagenum];
+	    ushort *entire_pagereg = (ushort *) & cpu->pagereg[bank][as][pagenum];
 	    int word = get_word (line + DATASTART + (4 * i));
 	    if (word == -1)
 	      return error ("line %d: /%c data error", linecnt, cmd);
@@ -263,7 +263,7 @@ load_tldline (char *line)
     case 'T':
       if ((address = get_nibbles (line + TLDADDR, 5)) == -1)
 	return error ("TLD LDM: numeric syntax error in transfer address");
-      sim_cpu->reg.ic = (ushort) address;
+      cpu->reg.ic = (ushort) address;
       if (address > 0xFFFF)
 	return error ("TLD LDM: cannot handle transfer address (too high)");
       break;
@@ -338,7 +338,7 @@ check_xtcline (char *line)
 /* Analyze and load a line from an XTC Load Module file */
 
 static int
-load_xtcline (char *line)
+load_xtcline (struct cpu_state *cpu, char *line)
 {
   int cmd, actual_chksum, datacnt;
   int claimed_chksum, address;
@@ -366,7 +366,7 @@ load_xtcline (char *line)
     case 'I':		/* Instruction/Operand memory */
     case 'O':
       {
-        int bank = (cmd == 'I') ? CODE : DATA, as = sim_cpu->reg.sw & 0xF;
+        int bank = (cmd == 'I') ? CODE : DATA, as = cpu->reg.sw & 0xF;
 	int logaddr_hinibble = xtoi (line[XTCADDR]), i;
 	if (logaddr_hinibble == -1)
 	  return error ("line %d: /%c error in logical address MS-nibble",
@@ -374,7 +374,7 @@ load_xtcline (char *line)
 	if ((address = get_nibbles (line + XTCADDR + 1, 3)) == -1)
 	  return error ("line %d: /%c error in logical address",
 			linecnt, cmd);
-	address |= (int) sim_cpu->pagereg[bank][as][logaddr_hinibble].ppa << 12;
+	address |= (int) cpu->pagereg[bank][as][logaddr_hinibble].ppa << 12;
 	if ((datacnt = xtoi (line[COUNT])) == -1)
 	  return error ("line %d: /%c error in data count", linecnt, cmd);
 	for (i = 0; i < datacnt; i++)
@@ -382,14 +382,14 @@ load_xtcline (char *line)
 	    int word = get_word (line + DATASTART + (4 * i));
 	    if (word == -1)
 	      return error ("line %d: /%c data error", linecnt, cmd);
-	    poke (sim_cpu, address++, (ushort) word);
+	    poke (cpu, address++, (ushort) word);
 	  }
       }
       break;
     case 'T':		/* Transfer address */
       if ((address = get_nibbles (line + XTCADDR, 4)) == -1)
 	return error ("XTC LDM: numeric syntax error in transfer address");
-      sim_cpu->reg.ic = (ushort) address;
+      cpu->reg.ic = (ushort) address;
       break;
     default:
       warning ("XTC LDM: unimplemented command type '%c' (ignored)", cmd);
@@ -401,11 +401,11 @@ load_xtcline (char *line)
 
 /* load file in TLD or XTC Load Module format */
 
-static int (*load_ldmline[]) (char *) = { load_tldline, load_xtcline };
+static int (*load_ldmline[]) (struct cpu_state *cpu, char *) = { load_tldline, load_xtcline };
 
 
 static int
-load_ldm (char *filename)
+load_ldm (struct cpu_state *cpu, char *filename)
 {
   FILE *loadfile;
   char lline[128];
@@ -425,7 +425,7 @@ load_ldm (char *filename)
       ++linecnt;
       if (strlen (lline) < 2)
 	continue;
-      if ((retval = (*load_ldmline[(int) loadfile_type]) (lline)) != OKAY)
+      if ((retval = (*load_ldmline[(int) loadfile_type]) (cpu, lline)) != OKAY)
 	break;
     }
   fclose (loadfile);
@@ -435,7 +435,7 @@ load_ldm (char *filename)
 
 
 int
-si_tld (int argc, char *argv[])
+si_tld (struct cpu_state *cpu, int argc, char *argv[])
 {
   char *filename = argv[1];
 
@@ -448,12 +448,12 @@ si_tld (int argc, char *argv[])
       *(filename + strlen (filename) - 1) = '\0';
     }
 
-  return load_ldm (filename);
+  return load_ldm (cpu, filename);
 }
 
 
 int
-si_xtc (int argc, char *argv[])
+si_xtc (struct cpu_state *cpu, int argc, char *argv[])
 {
   char *filename = argv[1];
 
@@ -466,6 +466,6 @@ si_xtc (int argc, char *argv[])
       *(filename + strlen (filename) - 1) = '\0';
     }
 
-  return load_ldm (filename);
+  return load_ldm (cpu, filename);
 }
 

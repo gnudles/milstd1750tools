@@ -226,18 +226,18 @@ workout_interrupts (struct cpu_state *cpu)
   cpu->reg.sys &= ~SYS_INT;  /* clear the Master Interrupt Enable */
   /************** Switch to the interrupt context ***************/
   cpu->reg.sw &= 0xFFF0;      /* LP and SVP in AS 0 */
-  get_raw (CODE, 0, 0x20 + intnum * 2, &lp);
-  get_raw (CODE, 0, 0x21 + intnum * 2, &svp);
+  get_raw (cpu, CODE, 0, 0x20 + intnum * 2, &lp);
+  get_raw (cpu, CODE, 0, 0x21 + intnum * 2, &svp);
   /* get new MK/SW/IC */
-  get_raw (DATA, 0, svp, &cpu->reg.mk);
-  get_raw (DATA, 0, svp + 1, &cpu->reg.sw);
-  get_raw (DATA, 0, svp + 2 + (intnum == 5 ? bex_index : 0),
+  get_raw (cpu, DATA, 0, svp, &cpu->reg.mk);
+  get_raw (cpu, DATA, 0, svp + 1, &cpu->reg.sw);
+  get_raw (cpu, DATA, 0, svp + 2 + (intnum == 5 ? bex_index : 0),
            &cpu->reg.ic); /* bex_index: see ex_bex() */
   /* save old MK/SW/IC in new AS */
   as = cpu->reg.sw & 0x000F;
-  store_raw (DATA, as, lp, old_mk);
-  store_raw (DATA, as, lp + 1, old_sw);
-  store_raw (DATA, as, lp + 2, old_ic);
+  store_raw (cpu, DATA, as, lp, old_mk);
+  store_raw (cpu, DATA, as, lp + 1, old_sw);
+  store_raw (cpu, DATA, as, lp + 2, old_ic);
   return 1;
 }
 
@@ -282,7 +282,7 @@ get_word (struct cpu_state *cpu,int bank, ushort address, short *data)
 		bankname[bank], as, address);
       return MEMERR;
     }
-  phys_address = get_phys_address (bank, as, address);
+  phys_address = get_phys_address (cpu, bank, as, address);
 #ifndef BSVC
   /* Check for breakpoint */
   if ((bpindex = find_breakpt (READ, phys_address)) >= 0)
@@ -330,7 +330,7 @@ store_word (struct cpu_state *cpu, int bank, ushort address, ushort data)
 		bankname[bank], as, address);
       return MEMERR;
     }
-  phys_address = get_phys_address (bank, as, address);
+  phys_address = get_phys_address (cpu, bank, as, address);
 #ifndef BSVC
   /* Check for breakpoint */
   if ((bpindex = find_breakpt (WRITE, phys_address)) >= 0)

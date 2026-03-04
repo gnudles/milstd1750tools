@@ -31,7 +31,7 @@
 #include "status.h"
 #include "utils.h"
 
-extern struct cpu_state *sim_cpu;
+
 
 static int optf = 0;   /* print file header */
 static int opts = 1;   /* print section headers */
@@ -777,7 +777,7 @@ pretty_print_dst ()
 
 
 static int
-process_file (FILE* input_file)
+process_file (struct cpu_state *cpu, FILE* input_file)
 {
   /*
    * Read the file header and any sections
@@ -805,7 +805,7 @@ process_file (FILE* input_file)
 
       if (verbose)
         printf ("Entry point = 0x%08X\n", entry >> 1);
-      sim_cpu->reg.ic = entry >> 1;
+      cpu->reg.ic = entry >> 1;
     }
 
   get_strings (input_file);
@@ -845,7 +845,7 @@ process_file (FILE* input_file)
           while (j < s_size)
             {
               /* poke a word */
-              poke (sim_cpu, address++, ((ushort) raw_data [j] << 8)
+              poke (cpu, address++, ((ushort) raw_data [j] << 8)
                               + (ushort) raw_data [j + 1]);
               j += 2;
             }
@@ -864,7 +864,7 @@ process_file (FILE* input_file)
 
 
 static int
-load_coff (char *filename)
+load_coff (struct cpu_state *cpu, char *filename)
 {
   FILE *loadfile;
   /* char lline [strlen (filename) + 5]; */
@@ -896,7 +896,7 @@ load_coff (char *filename)
         }
     }
 
-  retval = process_file (loadfile);
+  retval = process_file (cpu, loadfile);
   free (lline);
   fclose (loadfile);
   return retval;
@@ -904,7 +904,7 @@ load_coff (char *filename)
 
 
 int
-si_lcf (int argc, char *argv[])
+si_lcf (struct cpu_state *cpu, int argc, char *argv[])
 {
   char *filename = argv [1];
 
@@ -919,7 +919,7 @@ si_lcf (int argc, char *argv[])
       *(filename + strlen (filename) - 1) = '\0';
     }
 
-  return load_coff (filename);
+  return load_coff (cpu, filename);
 }
 
 

@@ -47,7 +47,7 @@ static bool
 at_bpt_instruction (struct cpu_state *cpu)
 {
   ushort opcode;
-  if (! get_raw (CODE, cpu->reg.sw & 0xF, cpu->reg.ic, &opcode))
+  if (! get_raw (cpu, CODE, cpu->reg.sw & 0xF, cpu->reg.ic, &opcode))
     return FALSE;
   return (opcode == 0xFFFF);
 }
