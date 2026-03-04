@@ -31,7 +31,7 @@
 #include <ctype.h>
 #include <string.h>
 
-#include "arch.h"
+#include "cpu_ctx.h"
 #include "status.h"
 #include "utils.h"
 #include "cmd.h"	/* for function parse_address() */
@@ -42,64 +42,54 @@
 #include "break.h"
 
 
-/* Maximum number of breakpoints: */
-#define MAX_BREAK 64
+extern struct cpu_context *sim_cpu_ctx;
 
-static struct
-  {
-    breaktype type;
-    uint addr;
-    char *label;
-    bool is_active;
-  } breakpt[MAX_BREAK];	/* breakpoint array */
-
-int n_breakpts = 0;	/* breakpoint counter */
 
 
 /* Return breakpoint index if breakpoint found for given
    type/bank/address_state/logical_address, or -1 if no breakpoint found. */
 int
-find_breakpt (breaktype type, uint phys_address)
+find_breakpt (struct cpu_context *cpu_ctx, breaktype type, uint phys_address)
 {
-  int i = n_breakpts;
+  int i = cpu_ctx->n_breakpts;
 
   while (i-- > 0)
     {
-      if (breakpt[i].is_active && breakpt[i].addr == phys_address
-	  && (breakpt[i].type == READ_WRITE || breakpt[i].type == type))
+      if (cpu_ctx->breakpt[i].is_active && cpu_ctx->breakpt[i].addr == phys_address
+	  && (cpu_ctx->breakpt[i].type == READ_WRITE || cpu_ctx->breakpt[i].type == type))
 	break;
     }
   return (i);
 }
 
 void
-set_inactive (int bp_index)
+set_inactive (struct cpu_context *cpu_ctx, int bp_index)
 {
   if (bp_index < 0)
     return;
-  breakpt[bp_index].is_active = FALSE;
+  cpu_ctx->breakpt[bp_index].is_active = FALSE;
 }
 
 void
-set_active (int bp_index)
+set_active (struct cpu_context *cpu_ctx, int bp_index)
 {
   if (bp_index < 0)
     return;
-  breakpt[bp_index].is_active = TRUE;
+  cpu_ctx->breakpt[bp_index].is_active = TRUE;
 }
 
 
 int
-si_brkset (struct cpu_state *cpu, int argc, char **argv)
+si_brkset (int argc, char **argv)
 {
   uint address;
   breaktype type = READ_WRITE;
 
   if (argc <= 1)
     return error ("address argument missing");
-  if (n_breakpts >= MAX_BREAK)
+  if (sim_cpu_ctx->n_breakpts >= MAX_BREAK)
     return error ("too many breakpoints");
-  if (parse_address (cpu, argv[1], &address) != OKAY)
+  if (parse_address (sim_cpu_ctx, argv[1], &address) != OKAY)
     {
       if (isalpha (*argv[1]) || *argv[1] == '_')
         {
@@ -125,12 +115,12 @@ si_brkset (struct cpu_state *cpu, int argc, char **argv)
         return error ("unknown brkpt. type %s (allowed values: R or W)",
 			 argv[2]);
     }
-  if (find_breakpt (READ_WRITE, address) >= 0)
+  if (find_breakpt (sim_cpu_ctx, READ_WRITE, address) >= 0)
     return error ("breakpoint already set");
-  breakpt[n_breakpts].type = type;
-  breakpt[n_breakpts].addr = address;
-  breakpt[n_breakpts].is_active = TRUE;
-  n_breakpts++;
+  sim_cpu_ctx->breakpt[sim_cpu_ctx->n_breakpts].type = type;
+  sim_cpu_ctx->breakpt[sim_cpu_ctx->n_breakpts].addr = address;
+  sim_cpu_ctx->breakpt[sim_cpu_ctx->n_breakpts].is_active = TRUE;
+  sim_cpu_ctx->n_breakpts++;
 
   return OKAY;
 }
@@ -138,47 +128,47 @@ si_brkset (struct cpu_state *cpu, int argc, char **argv)
 static const char *typestr[] = { "RW", "R", "W" };
 
 int
-si_brklist (struct cpu_state *cpu, int argc, char **argv)
+si_brklist (int argc, char **argv)
 {
   int i;
 
-  if (n_breakpts == 0)
+  if (sim_cpu_ctx->n_breakpts == 0)
     return error ("no breakpoints set");
   lprintf ("\n\t\tBreakpoint List\n");
-  for (i = 0; i < n_breakpts; i++)
-    lprintf ("\t%05lX  %s\n", breakpt[i].addr, typestr[breakpt[i].type]);
+  for (i = 0; i < sim_cpu_ctx->n_breakpts; i++)
+    lprintf ("\t%05lX  %s\n", sim_cpu_ctx->breakpt[i].addr, typestr[sim_cpu_ctx->breakpt[i].type]);
 
   return (OKAY);
 }
 
 
 int
-si_brkclear (struct cpu_state *cpu, int argc, char **argv)
+si_brkclear (int argc, char **argv)
 {
   int i;
   uint addr;
 
   if (argc <= 1)
     return error ("address argument missing");
-  if (n_breakpts == 0)
+  if (sim_cpu_ctx->n_breakpts == 0)
     return error ("no breakpoints set");
   if (*argv[1] == '*')
     {
-      n_breakpts = 0;
+      sim_cpu_ctx->n_breakpts = 0;
       return OKAY;
     }
-  if (parse_address (cpu, argv[1], &addr))
+  if (parse_address (sim_cpu_ctx, argv[1], &addr))
     return info ("invalid address syntax");
-  for (i = 0; i < n_breakpts; i++)
-    if (breakpt[i].addr == addr)
+  for (i = 0; i < sim_cpu_ctx->n_breakpts; i++)
+    if (sim_cpu_ctx->breakpt[i].addr == addr)
       break;
-  if (i == n_breakpts)
+  if (i == sim_cpu_ctx->n_breakpts)
     return info ("\tno breakpoint at that address");
-  n_breakpts--;
-  while (i < n_breakpts)
+  sim_cpu_ctx->n_breakpts--;
+  while (i < sim_cpu_ctx->n_breakpts)
     {
-      breakpt[i].type = breakpt[i+1].type;
-      breakpt[i].addr = breakpt[i+1].addr;
+      sim_cpu_ctx->breakpt[i].type = sim_cpu_ctx->breakpt[i+1].type;
+      sim_cpu_ctx->breakpt[i].addr = sim_cpu_ctx->breakpt[i+1].addr;
       i++;
     }
 
@@ -187,7 +177,7 @@ si_brkclear (struct cpu_state *cpu, int argc, char **argv)
 
 
 int
-si_brksave (struct cpu_state *cpu, int argc, char **argv)
+si_brksave (int argc, char **argv)
 {
   int i;
   FILE *savefile;
@@ -201,9 +191,9 @@ si_brksave (struct cpu_state *cpu, int argc, char **argv)
       else
 	{
 	  fprintf (savefile, "#\t\tsaved BREAKPOINT LIST\n");
-	  for (i = 0; i < n_breakpts; i++)
+	  for (i = 0; i < sim_cpu_ctx->n_breakpts; i++)
 	    fprintf (savefile, "br  %05X  %s\n",
-		     breakpt[i].addr, typestr[breakpt[i].type]);
+		     sim_cpu_ctx->breakpt[i].addr, typestr[sim_cpu_ctx->breakpt[i].type]);
 	}
     }
   fclose (savefile);

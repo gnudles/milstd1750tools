@@ -71,10 +71,6 @@ print_optionhelp ()
 int
 main (int argc, char *argv[])
 {
-struct cpu_state cpu;
-memset(&cpu, 0, sizeof(cpu));
-cpu.bpindex = -1;
-cpu.disable_timers = FALSE;
   char *batchfile = NULL, *loadfile = NULL, *chip;
   loadfile_t filetype = NONE;
 
@@ -143,13 +139,13 @@ cpu.disable_timers = FALSE;
       switch (filetype)
         {
         case     COFF:
-          ans = si_lcf (&cpu, f_argc, f_argv);
+          ans = si_lcf (f_argc, f_argv);
         elsecase TEK_HEX:
-          ans = si_lo  (&cpu, f_argc, f_argv);
+          ans = si_lo  (f_argc, f_argv);
         elsecase TLD_LDM:
-          ans = si_tld (&cpu, f_argc, f_argv);
+          ans = si_tld (f_argc, f_argv);
         elsecase XTC_LDM:
-          ans = si_xtc (&cpu, f_argc, f_argv);
+          ans = si_xtc (f_argc, f_argv);
 	  break;
 	default:
 	  ans = ERROR;
@@ -179,7 +175,7 @@ cpu.disable_timers = FALSE;
       printf ("Copyright 1994-97 Daimler-Benz Aerospace AG\n");
     }
 
-  interpreter (&cpu, batchfile);  /* let's spend the night together */
+  interpreter (batchfile);  /* let's spend the night together */
 
   init_system (1);          /* tidy up before leaving */
 

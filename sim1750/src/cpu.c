@@ -67,15 +67,15 @@ bool  disable_timers = 0;
 
 
 static void
-add_to_backtrace (struct cpu_state *cpu)
+add_to_backtrace (struct cpu_context *cpu_ctx)
 {
-  cpu->bt_buff [cpu->bt_next] = cpu->reg;
-  cpu->bt_next++;
-  if (cpu->bt_next >= BT_SIZE)
-    cpu->bt_next = 0;
+  cpu_ctx->bt_buff [cpu_ctx->bt_next] = cpu_ctx->state.reg;
+  cpu_ctx->bt_next++;
+  if (cpu_ctx->bt_next >= BT_SIZE)
+    cpu_ctx->bt_next = 0;
 
-  if (cpu->bt_cnt < BT_SIZE)
-    cpu->bt_cnt++;
+  if (cpu_ctx->bt_cnt < BT_SIZE)
+    cpu_ctx->bt_cnt++;
 }
 
 
@@ -121,7 +121,7 @@ init_cpu (struct cpu_state *cpu)
   /* Reset counter of total instructions executed */
   cpu->instcnt = 0;
   /* Reset counter of total simulation time */
-  cpu->total_time_in_us = 0.0;
+  cpu->total_cycles = 0;
   cpu->timers.one_tatick_in_ns = 0;
   cpu->timers.one_tbtick_in_tatix = 0;
   cpu->timers.one_gotick_in_10usec = 0;
@@ -250,9 +250,9 @@ static char *bankname[] = { "Code", "Data" };
    OKAY, BREAKPT, or MEMERR. */
 
 static int
-get_word (struct cpu_state *cpu,int bank, ushort address, short *data)
+get_word (struct cpu_context *cpu_ctx, int bank, ushort address, short *data)
 {
-  ushort al, ak = (cpu->reg.sw >> 4) & 0xF, as = cpu->reg.sw & 0xF;
+  ushort al, ak = (cpu_ctx->state.reg.sw >> 4) & 0xF, as = cpu_ctx->state.reg.sw & 0xF;
   uint phys_address;
 
   if (bank != CODE && bank != DATA)
@@ -262,35 +262,35 @@ get_word (struct cpu_state *cpu,int bank, ushort address, short *data)
     }
   if (ak != 0)
     {
-      al = cpu->pagereg[bank][(int) as][(int)(address >> 12)].al;
+      al = cpu_ctx->state.pagereg[bank][(int) as][(int)(address >> 12)].al;
       if (al != 0xF && ak != al)
 	{
-	  cpu->reg.pir |= INTR_MACHERR;
-	  cpu->reg.ft |= FT_MEMPROT;
+	  cpu_ctx->state.reg.pir |= INTR_MACHERR;
+	  cpu_ctx->state.reg.ft |= FT_MEMPROT;
 	  error
 	   ("MACHINE ERR: AL %hX / AK %hX during %s fetch from %hX:%04hX\n",
 		    al, ak, bankname[bank], as, address);
 	  return MEMERR;
 	}
     }
-  if (cpu->pagereg[bank][(int) as][(int)(address >> 12)].e_w)
+  if (cpu_ctx->state.pagereg[bank][(int) as][(int)(address >> 12)].e_w)
     {
-      cpu->reg.pir |= INTR_MACHERR;
-      cpu->reg.ft |= FT_MEMPROT;
+      cpu_ctx->state.reg.pir |= INTR_MACHERR;
+      cpu_ctx->state.reg.ft |= FT_MEMPROT;
       error
 	("MACHINE ERR: attempt to fetch %s from protected address %hX:%04hX\n",
 		bankname[bank], as, address);
       return MEMERR;
     }
-  phys_address = get_phys_address (cpu, bank, as, address);
+  phys_address = get_phys_address (&cpu_ctx->state, bank, as, address);
 #ifndef BSVC
   /* Check for breakpoint */
-  if ((bpindex = find_breakpt (READ, phys_address)) >= 0)
+  if ((bpindex = find_breakpt (cpu_ctx, READ, phys_address)) >= 0)
     return BREAKPT;
 #endif
-  if (peek (cpu, phys_address, (ushort *) data) == 0)
+  if (peek (&cpu_ctx->state, phys_address, (ushort *) data) == 0)
     {
-      error ("read error at ic = %04X\n", cpu->reg.ic);
+      error ("read error at ic = %04X\n", cpu_ctx->state.reg.ic);
       return MEMERR;
     }
   return OKAY;
@@ -298,9 +298,9 @@ get_word (struct cpu_state *cpu,int bank, ushort address, short *data)
 
 
 static int
-store_word (struct cpu_state *cpu, int bank, ushort address, ushort data)
+store_word (struct cpu_context *cpu_ctx, int bank, ushort address, ushort data)
 {
-  ushort al, ak = (cpu->reg.sw >> 4) & 0xF, as = cpu->reg.sw & 0xF;
+  ushort al, ak = (cpu_ctx->state.reg.sw >> 4) & 0xF, as = cpu_ctx->state.reg.sw & 0xF;
   uint phys_address;
 
   if (bank != CODE && bank != DATA)
@@ -310,44 +310,44 @@ store_word (struct cpu_state *cpu, int bank, ushort address, ushort data)
     }
   if (ak != 0)
     {
-      al = cpu->pagereg[bank][(int) as][(int)(address >> 12)].al;
+      al = cpu_ctx->state.pagereg[bank][(int) as][(int)(address >> 12)].al;
       if (al != 0xF && ak != al)
 	{
-	  cpu->reg.pir |= INTR_MACHERR;
-	  cpu->reg.ft |= FT_MEMPROT;
+	  cpu_ctx->state.reg.pir |= INTR_MACHERR;
+	  cpu_ctx->state.reg.ft |= FT_MEMPROT;
 	  error
 	   ("MACHINE ERR: AL=%hX / AK=%hX on storing %s to address %hX:%04hX\n",
 		    al, ak, bankname[bank], as, address);
 	  return MEMERR;
 	}
     }
-  if (cpu->pagereg[bank][(int) as][(int)(address >> 12)].e_w)
+  if (cpu_ctx->state.pagereg[bank][(int) as][(int)(address >> 12)].e_w)
     {
-      cpu->reg.pir |= INTR_MACHERR;
-      cpu->reg.ft |= FT_MEMPROT;
+      cpu_ctx->state.reg.pir |= INTR_MACHERR;
+      cpu_ctx->state.reg.ft |= FT_MEMPROT;
       error
 	("MACHINE ERR: attempt to store %s to protected address %hX:%04hX\n",
 		bankname[bank], as, address);
       return MEMERR;
     }
-  phys_address = get_phys_address (cpu, bank, as, address);
+  phys_address = get_phys_address (&cpu_ctx->state, bank, as, address);
 #ifndef BSVC
   /* Check for breakpoint */
-  if ((bpindex = find_breakpt (WRITE, phys_address)) >= 0)
+  if ((bpindex = find_breakpt (cpu_ctx, WRITE, phys_address)) >= 0)
     return BREAKPT;
 #endif
-  poke (cpu, phys_address, data);
+  poke (&cpu_ctx->state, phys_address, data);
   return OKAY;
 }
 
 
-#define BASEREG(opcode) (ushort) cpu->reg.r[12 + (((opcode) & 0x0300) >> 8)]
-#define CHK_RX()        (lower > 0 ? (ushort) cpu->reg.r[lower] : 0)
+#define BASEREG(opcode) (ushort) cpu_ctx->state.reg.r[12 + (((opcode) & 0x0300) >> 8)]
+#define CHK_RX()        (lower > 0 ? (ushort) cpu_ctx->state.reg.r[lower] : 0)
 static int ans;
 #define GET(bank,addr,receiver) \
-	  if ((ans = get_word (cpu, bank, addr, receiver)) != OKAY) return ans
+	  if ((ans = get_word (cpu_ctx, bank, addr, receiver)) != OKAY) return ans
 #define PUT(bank,addr,emittee)  \
-	  if ((ans = store_word (cpu, bank, addr, emittee)) != OKAY) return ans
+	  if ((ans = store_word (cpu_ctx, bank, addr, emittee)) != OKAY) return ans
 
 //static ushort opcode, upper, lower;
 /* `upper' and `lower' are bits 8..11 and 12..15 respectively of the opcode */
@@ -355,72 +355,72 @@ static int ans;
 /*************************** CPU instructions *******************************/
 
 static int
-ex_ill (struct cpu_state *cpu, ushort opcode) /* illegal opcode */
+ex_ill (struct cpu_context *cpu_ctx, ushort opcode) /* illegal opcode */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  info ("opcode %04hX not implemented (IC=%04hX)\n", opcode, cpu->reg.ic);
+  info ("opcode %04hX not implemented (IC=%04hX)\n", opcode, cpu_ctx->state.reg.ic);
   return (MEMERR);
 }
 
 static int
-ex_lb (struct cpu_state *cpu, ushort opcode) /* 0[0-3]xy */
+ex_lb (struct cpu_context *cpu_ctx, ushort opcode) /* 0[0-3]xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr = BASEREG (opcode) + (opcode & 0xFF);
 
-  GET (DATA, addr, &cpu->reg.r[2]);
-  update_cs (cpu, &cpu->reg.r[2], VAR_INT);
+  GET (DATA, addr, &cpu_ctx->state.reg.r[2]);
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[2], VAR_INT);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_LB);
 }
 
 static int
-ex_dlb (struct cpu_state *cpu, ushort opcode) /* 0[4-7]xy */
+ex_dlb (struct cpu_context *cpu_ctx, ushort opcode) /* 0[4-7]xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr = BASEREG (opcode) + (opcode & 0xFF);
 
-  GET (DATA, addr, &cpu->reg.r[0]);
-  GET (DATA, addr + 1, &cpu->reg.r[1]);
-  update_cs (cpu, &cpu->reg.r[0], VAR_LONG);
+  GET (DATA, addr, &cpu_ctx->state.reg.r[0]);
+  GET (DATA, addr + 1, &cpu_ctx->state.reg.r[1]);
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[0], VAR_LONG);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_DLB);
 }
 
 static int
-ex_stb (struct cpu_state *cpu, ushort opcode) /* 0[9-B]xy */
+ex_stb (struct cpu_context *cpu_ctx, ushort opcode) /* 0[9-B]xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr = BASEREG (opcode) + (opcode & 0xFF);
 
-  PUT (DATA, addr, cpu->reg.r[2]);
+  PUT (DATA, addr, cpu_ctx->state.reg.r[2]);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_STB);
 }
 
 static int
-ex_dstb (struct cpu_state *cpu, ushort opcode) /* 0[A-F]xy */
+ex_dstb (struct cpu_context *cpu_ctx, ushort opcode) /* 0[A-F]xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr = BASEREG (opcode) + (opcode & 0xFF);
 
-  PUT (DATA, addr, cpu->reg.r[0]);
-  PUT (DATA, addr + 1, cpu->reg.r[1]);
+  PUT (DATA, addr, cpu_ctx->state.reg.r[0]);
+  PUT (DATA, addr + 1, cpu_ctx->state.reg.r[1]);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_DSTB);
 }
 
 static int
-ex_ab (struct cpu_state *cpu, ushort opcode) /* 1[0-3]xy */
+ex_ab (struct cpu_context *cpu_ctx, ushort opcode) /* 1[0-3]xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
@@ -428,14 +428,14 @@ ex_ab (struct cpu_state *cpu, ushort opcode) /* 1[0-3]xy */
   short help;
 
   GET (DATA, addr, &help);
-  arith (cpu, ARI_ADD, VAR_INT, &cpu->reg.r[2], &help);
+  arith (&cpu_ctx->state, ARI_ADD, VAR_INT, &cpu_ctx->state.reg.r[2], &help);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_AB);
 }
 
 static int
-ex_sbb (struct cpu_state *cpu, ushort opcode) /* 1[4-7]xy */
+ex_sbb (struct cpu_context *cpu_ctx, ushort opcode) /* 1[4-7]xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
@@ -443,14 +443,14 @@ ex_sbb (struct cpu_state *cpu, ushort opcode) /* 1[4-7]xy */
   short help;
 
   GET (DATA, addr, &help);
-  arith (cpu, ARI_SUB, VAR_INT, &cpu->reg.r[2], &help);
+  arith (&cpu_ctx->state, ARI_SUB, VAR_INT, &cpu_ctx->state.reg.r[2], &help);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_SBB);
 }
 
 static int
-ex_mb (struct cpu_state *cpu, ushort opcode) /* 1[8-B]xy */
+ex_mb (struct cpu_context *cpu_ctx, ushort opcode) /* 1[8-B]xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
@@ -458,14 +458,14 @@ ex_mb (struct cpu_state *cpu, ushort opcode) /* 1[8-B]xy */
   short help;
 
   GET (DATA, addr, &help);
-  arith (cpu, ARI_MUL, VAR_INT, &cpu->reg.r[2], &help);
+  arith (&cpu_ctx->state, ARI_MUL, VAR_INT, &cpu_ctx->state.reg.r[2], &help);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_MB);
 }
 
 static int
-ex_db (struct cpu_state *cpu, ushort opcode) /* 1[C-F]xy */
+ex_db (struct cpu_context *cpu_ctx, ushort opcode) /* 1[C-F]xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
@@ -473,14 +473,14 @@ ex_db (struct cpu_state *cpu, ushort opcode) /* 1[C-F]xy */
   short help;
 
   GET (DATA, addr, &help);
-  arith (cpu, ARI_DIV, VAR_INT, &cpu->reg.r[2], &help);
+  arith (&cpu_ctx->state, ARI_DIV, VAR_INT, &cpu_ctx->state.reg.r[2], &help);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_DB);
 }
 
 static int
-ex_fab (struct cpu_state *cpu, ushort opcode) /* 2[0-3]xy */
+ex_fab (struct cpu_context *cpu_ctx, ushort opcode) /* 2[0-3]xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
@@ -489,14 +489,14 @@ ex_fab (struct cpu_state *cpu, ushort opcode) /* 2[0-3]xy */
 
   GET (DATA, addr, &help[0]);
   GET (DATA, addr + 1, &help[1]);
-  arith (cpu, ARI_ADD, VAR_FLOAT, &cpu->reg.r[0], help);
+  arith (&cpu_ctx->state, ARI_ADD, VAR_FLOAT, &cpu_ctx->state.reg.r[0], help);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_FAB);
 }
 
 static int
-ex_fsb (struct cpu_state *cpu, ushort opcode) /* 2[4-7]xy */
+ex_fsb (struct cpu_context *cpu_ctx, ushort opcode) /* 2[4-7]xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
@@ -505,14 +505,14 @@ ex_fsb (struct cpu_state *cpu, ushort opcode) /* 2[4-7]xy */
 
   GET (DATA, addr, &help[0]);
   GET (DATA, addr + 1, &help[1]);
-  arith (cpu, ARI_SUB, VAR_FLOAT, &cpu->reg.r[0], help);
+  arith (&cpu_ctx->state, ARI_SUB, VAR_FLOAT, &cpu_ctx->state.reg.r[0], help);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_FSB);
 }
 
 static int
-ex_fmb (struct cpu_state *cpu, ushort opcode) /* 2[8-B]xy */
+ex_fmb (struct cpu_context *cpu_ctx, ushort opcode) /* 2[8-B]xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
@@ -521,14 +521,14 @@ ex_fmb (struct cpu_state *cpu, ushort opcode) /* 2[8-B]xy */
 
   GET (DATA, addr, &help[0]);
   GET (DATA, addr + 1, &help[1]);
-  arith (cpu, ARI_MUL, VAR_FLOAT, &cpu->reg.r[0], help);
+  arith (&cpu_ctx->state, ARI_MUL, VAR_FLOAT, &cpu_ctx->state.reg.r[0], help);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_FMB);
 }
 
 static int
-ex_fdb (struct cpu_state *cpu, ushort opcode) /* 2[C-F]xy */
+ex_fdb (struct cpu_context *cpu_ctx, ushort opcode) /* 2[C-F]xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
@@ -537,14 +537,14 @@ ex_fdb (struct cpu_state *cpu, ushort opcode) /* 2[C-F]xy */
 
   GET (DATA, addr, &help[0]);
   GET (DATA, addr + 1, &help[1]);
-  arith (cpu, ARI_DIV, VAR_FLOAT, &cpu->reg.r[0], help);
+  arith (&cpu_ctx->state, ARI_DIV, VAR_FLOAT, &cpu_ctx->state.reg.r[0], help);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_FDB);
 }
 
 static int
-ex_orb (struct cpu_state *cpu, ushort opcode) /* 3[0-3]xy */
+ex_orb (struct cpu_context *cpu_ctx, ushort opcode) /* 3[0-3]xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
@@ -552,15 +552,15 @@ ex_orb (struct cpu_state *cpu, ushort opcode) /* 3[0-3]xy */
   short help;
 
   GET (DATA, addr, &help);
-  cpu->reg.r[2] |= help;
-  update_cs (cpu, &cpu->reg.r[2], VAR_INT);
+  cpu_ctx->state.reg.r[2] |= help;
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[2], VAR_INT);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_ORB);
 }
 
 static int
-ex_andb (struct cpu_state *cpu, ushort opcode) /* 3[4-7]xy */
+ex_andb (struct cpu_context *cpu_ctx, ushort opcode) /* 3[4-7]xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
@@ -568,15 +568,15 @@ ex_andb (struct cpu_state *cpu, ushort opcode) /* 3[4-7]xy */
   short help;
 
   GET (DATA, addr, &help);
-  cpu->reg.r[2] &= help;
-  update_cs (cpu, &cpu->reg.r[2], VAR_INT);
+  cpu_ctx->state.reg.r[2] &= help;
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[2], VAR_INT);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_ANDB);
 }
 
 static int
-ex_cb (struct cpu_state *cpu, ushort opcode) /* 3[8-B]xy */
+ex_cb (struct cpu_context *cpu_ctx, ushort opcode) /* 3[8-B]xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
@@ -584,14 +584,14 @@ ex_cb (struct cpu_state *cpu, ushort opcode) /* 3[8-B]xy */
   short help;
 
   GET (DATA, addr, &help);
-  compare (cpu, VAR_INT, &cpu->reg.r[2], &help);
+  compare (&cpu_ctx->state, VAR_INT, &cpu_ctx->state.reg.r[2], &help);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_CB);
 }
 
 static int
-ex_fcb (struct cpu_state *cpu, ushort opcode) /* 3[C-F]xy */
+ex_fcb (struct cpu_context *cpu_ctx, ushort opcode) /* 3[C-F]xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
@@ -600,71 +600,71 @@ ex_fcb (struct cpu_state *cpu, ushort opcode) /* 3[C-F]xy */
 
   GET (DATA, addr, &help[0]);
   GET (DATA, addr + 1, &help[1]);
-  compare (cpu, VAR_FLOAT, &cpu->reg.r[0], help);
+  compare (&cpu_ctx->state, VAR_FLOAT, &cpu_ctx->state.reg.r[0], help);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_FCB);
 }
 
 
 static int
-ex_lbx (struct cpu_state *cpu, ushort opcode) /* 4[0-3]0y */
+ex_lbx (struct cpu_context *cpu_ctx, ushort opcode) /* 4[0-3]0y */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr = BASEREG (opcode) + CHK_RX ();
 
-  GET (DATA, addr, &cpu->reg.r[2]);
-  update_cs (cpu, &cpu->reg.r[2], VAR_INT);
+  GET (DATA, addr, &cpu_ctx->state.reg.r[2]);
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[2], VAR_INT);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_LBX);
 }
 
 static int
-ex_dlbx (struct cpu_state *cpu, ushort opcode) /* 4[0-3]1y */
+ex_dlbx (struct cpu_context *cpu_ctx, ushort opcode) /* 4[0-3]1y */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr = BASEREG (opcode) + CHK_RX ();
 
-  GET (DATA, addr, &cpu->reg.r[0]);
-  GET (DATA, addr + 1, &cpu->reg.r[1]);
-  update_cs (cpu, &cpu->reg.r[0], VAR_LONG);
+  GET (DATA, addr, &cpu_ctx->state.reg.r[0]);
+  GET (DATA, addr + 1, &cpu_ctx->state.reg.r[1]);
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[0], VAR_LONG);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_DLBX);
 }
 
 static int
-ex_stbx (struct cpu_state *cpu, ushort opcode) /* 4[0-3]2y */
+ex_stbx (struct cpu_context *cpu_ctx, ushort opcode) /* 4[0-3]2y */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr = BASEREG (opcode) + CHK_RX ();
 
-  PUT (DATA, addr, cpu->reg.r[2]);
+  PUT (DATA, addr, cpu_ctx->state.reg.r[2]);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_STBX);
 }
 
 static int
-ex_dstx (struct cpu_state *cpu, ushort opcode) /* 4[0-3]3y */
+ex_dstx (struct cpu_context *cpu_ctx, ushort opcode) /* 4[0-3]3y */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr = BASEREG (opcode) + CHK_RX ();
 
-  PUT (DATA, addr, cpu->reg.r[0]);
-  PUT (DATA, addr + 1, cpu->reg.r[1]);
+  PUT (DATA, addr, cpu_ctx->state.reg.r[0]);
+  PUT (DATA, addr + 1, cpu_ctx->state.reg.r[1]);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_DSTX);
 }
 
 static int
-ex_abx (struct cpu_state *cpu, ushort opcode) /* 4[0-3]4y */
+ex_abx (struct cpu_context *cpu_ctx, ushort opcode) /* 4[0-3]4y */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
@@ -672,14 +672,14 @@ ex_abx (struct cpu_state *cpu, ushort opcode) /* 4[0-3]4y */
   short help;
 
   GET (DATA, addr, &help);
-  arith (cpu, ARI_ADD, VAR_INT, &cpu->reg.r[2], &help);
+  arith (&cpu_ctx->state, ARI_ADD, VAR_INT, &cpu_ctx->state.reg.r[2], &help);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_ABX);
 }
 
 static int
-ex_sbbx (struct cpu_state *cpu, ushort opcode) /* 4[0-3]5y */
+ex_sbbx (struct cpu_context *cpu_ctx, ushort opcode) /* 4[0-3]5y */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
@@ -687,14 +687,14 @@ ex_sbbx (struct cpu_state *cpu, ushort opcode) /* 4[0-3]5y */
   short help;
 
   GET (DATA, addr, &help);
-  arith (cpu, ARI_SUB, VAR_INT, &cpu->reg.r[2], &help);
+  arith (&cpu_ctx->state, ARI_SUB, VAR_INT, &cpu_ctx->state.reg.r[2], &help);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_SBBX);
 }
 
 static int
-ex_mbx (struct cpu_state *cpu, ushort opcode) /* 4[0-3]6y */
+ex_mbx (struct cpu_context *cpu_ctx, ushort opcode) /* 4[0-3]6y */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
@@ -702,14 +702,14 @@ ex_mbx (struct cpu_state *cpu, ushort opcode) /* 4[0-3]6y */
   short help;
 
   GET (DATA, addr, &help);
-  arith (cpu, ARI_MUL, VAR_INT, &cpu->reg.r[2], &help);
+  arith (&cpu_ctx->state, ARI_MUL, VAR_INT, &cpu_ctx->state.reg.r[2], &help);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_MBX);
 }
 
 static int
-ex_dbx (struct cpu_state *cpu, ushort opcode) /* 4[0-3]7y */
+ex_dbx (struct cpu_context *cpu_ctx, ushort opcode) /* 4[0-3]7y */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
@@ -717,14 +717,14 @@ ex_dbx (struct cpu_state *cpu, ushort opcode) /* 4[0-3]7y */
   short help;
 
   GET (DATA, addr, &help);
-  arith (cpu, ARI_DIV, VAR_INT, &cpu->reg.r[2], &help);
+  arith (&cpu_ctx->state, ARI_DIV, VAR_INT, &cpu_ctx->state.reg.r[2], &help);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_DBX);
 }
 
 static int
-ex_fabx (struct cpu_state *cpu, ushort opcode) /* 4[0-3]8y */
+ex_fabx (struct cpu_context *cpu_ctx, ushort opcode) /* 4[0-3]8y */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
@@ -733,14 +733,14 @@ ex_fabx (struct cpu_state *cpu, ushort opcode) /* 4[0-3]8y */
 
   GET (DATA, addr, &help[0]);
   GET (DATA, addr + 1, &help[1]);
-  arith (cpu, ARI_ADD, VAR_FLOAT, &cpu->reg.r[0], help);
+  arith (&cpu_ctx->state, ARI_ADD, VAR_FLOAT, &cpu_ctx->state.reg.r[0], help);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_FABX);
 }
 
 static int
-ex_fsbx (struct cpu_state *cpu, ushort opcode) /* 4[0-3]9y */
+ex_fsbx (struct cpu_context *cpu_ctx, ushort opcode) /* 4[0-3]9y */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
@@ -749,14 +749,14 @@ ex_fsbx (struct cpu_state *cpu, ushort opcode) /* 4[0-3]9y */
 
   GET (DATA, addr, &help[0]);
   GET (DATA, addr + 1, &help[1]);
-  arith (cpu, ARI_SUB, VAR_FLOAT, &cpu->reg.r[0], help);
+  arith (&cpu_ctx->state, ARI_SUB, VAR_FLOAT, &cpu_ctx->state.reg.r[0], help);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_FSBX);
 }
 
 static int
-ex_fmbx (struct cpu_state *cpu, ushort opcode) /* 4[0-3]Ay */
+ex_fmbx (struct cpu_context *cpu_ctx, ushort opcode) /* 4[0-3]Ay */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
@@ -765,14 +765,14 @@ ex_fmbx (struct cpu_state *cpu, ushort opcode) /* 4[0-3]Ay */
 
   GET (DATA, addr, &help[0]);
   GET (DATA, addr + 1, &help[1]);
-  arith (cpu, ARI_MUL, VAR_FLOAT, &cpu->reg.r[0], help);
+  arith (&cpu_ctx->state, ARI_MUL, VAR_FLOAT, &cpu_ctx->state.reg.r[0], help);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_FMBX);
 }
 
 static int
-ex_fdbx (struct cpu_state *cpu, ushort opcode) /* 4[0-3]By */
+ex_fdbx (struct cpu_context *cpu_ctx, ushort opcode) /* 4[0-3]By */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
@@ -781,14 +781,14 @@ ex_fdbx (struct cpu_state *cpu, ushort opcode) /* 4[0-3]By */
 
   GET (DATA, addr, &help[0]);
   GET (DATA, addr + 1, &help[1]);
-  arith (cpu, ARI_DIV, VAR_FLOAT, &cpu->reg.r[0], help);
+  arith (&cpu_ctx->state, ARI_DIV, VAR_FLOAT, &cpu_ctx->state.reg.r[0], help);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_FDBX);
 }
 
 static int
-ex_cbx (struct cpu_state *cpu, ushort opcode) /* 4[0-3]Cy */
+ex_cbx (struct cpu_context *cpu_ctx, ushort opcode) /* 4[0-3]Cy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
@@ -796,14 +796,14 @@ ex_cbx (struct cpu_state *cpu, ushort opcode) /* 4[0-3]Cy */
   short help;
   
   GET (DATA, addr, &help);
-  compare (cpu, VAR_INT, &cpu->reg.r[2], &help);
+  compare (&cpu_ctx->state, VAR_INT, &cpu_ctx->state.reg.r[2], &help);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_CBX);
 }
 
 static int
-ex_fcbx (struct cpu_state *cpu, ushort opcode) /* 4[0-3]Dy */
+ex_fcbx (struct cpu_context *cpu_ctx, ushort opcode) /* 4[0-3]Dy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
@@ -812,14 +812,14 @@ ex_fcbx (struct cpu_state *cpu, ushort opcode) /* 4[0-3]Dy */
 
   GET (DATA, addr, &help[0]);
   GET (DATA, addr + 1, &help[1]);
-  compare (cpu, VAR_FLOAT, &cpu->reg.r[0], help);
+  compare (&cpu_ctx->state, VAR_FLOAT, &cpu_ctx->state.reg.r[0], help);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_FCBX);
 }
 
 static int
-ex_andx (struct cpu_state *cpu, ushort opcode) /* 4[0-3]Ey */
+ex_andx (struct cpu_context *cpu_ctx, ushort opcode) /* 4[0-3]Ey */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
@@ -827,15 +827,15 @@ ex_andx (struct cpu_state *cpu, ushort opcode) /* 4[0-3]Ey */
   short help;
 
   GET (DATA, addr, &help);
-  cpu->reg.r[2] &= help;
-  update_cs (cpu, &cpu->reg.r[2], VAR_INT);
+  cpu_ctx->state.reg.r[2] &= help;
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[2], VAR_INT);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_ANDX);
 }
 
 static int
-ex_orbx (struct cpu_state *cpu, ushort opcode) /* 4[0-3]Fy */
+ex_orbx (struct cpu_context *cpu_ctx, ushort opcode) /* 4[0-3]Fy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
@@ -843,25 +843,25 @@ ex_orbx (struct cpu_state *cpu, ushort opcode) /* 4[0-3]Fy */
   short help;
 
   GET (DATA, addr, &help);
-  cpu->reg.r[2] |= help;
-  update_cs (cpu, &cpu->reg.r[2], VAR_INT);
+  cpu_ctx->state.reg.r[2] |= help;
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[2], VAR_INT);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_ORBX);
 }
 
 static int
-ex_brx (struct cpu_state *cpu, ushort opcode) /* opcode 4x distributor */
+ex_brx (struct cpu_context *cpu_ctx, ushort opcode) /* opcode 4x distributor */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
-  static int (*start_4x[16]) (struct cpu_state *cpu, ushort opcode) =
+  static int (*start_4x[16]) (struct cpu_context *cpu_ctx, ushort opcode) =
     {
        ex_lbx,  ex_dlbx, ex_stbx, ex_dstx,
        ex_abx,  ex_sbbx, ex_mbx,  ex_dbx,
        ex_fabx, ex_fsbx, ex_fmbx, ex_fdbx,
        ex_cbx,  ex_fcbx, ex_andx, ex_orbx
     };
-  return (*start_4x[(unsigned) upper]) (cpu, opcode);
+  return (*start_4x[(unsigned) upper]) (cpu_ctx, opcode);
 }
 
 
@@ -870,7 +870,7 @@ ex_brx (struct cpu_state *cpu, ushort opcode) /* opcode 4x distributor */
 extern void do_xio (ushort, ushort *);	/* User XIO definition, do_xio.c */
 
 static void
-realize_xio (struct cpu_state *cpu, ushort xio_address, ushort *transfer)
+realize_xio (struct cpu_context *cpu_ctx, ushort xio_address, ushort *transfer)
 {
   int i, bank;
   ushort addr_hibyte = xio_address & 0xFF00;
@@ -882,12 +882,12 @@ realize_xio (struct cpu_state *cpu, ushort xio_address, ushort *transfer)
     case X_WIPR:
     case X_WOPR:
       bank = (addr_hibyte == X_WIPR) ? CODE : DATA;
-      cpu->pagereg[bank][xio_upper][xio_lower].ppa = *transfer & 0xff;
+      cpu_ctx->state.pagereg[bank][xio_upper][xio_lower].ppa = *transfer & 0xff;
       return;
     case X_RIPR:
     case X_ROPR:
       bank = (addr_hibyte == X_RIPR) ? CODE : DATA;
-      *transfer = cpu->pagereg[bank][xio_upper][xio_lower].ppa;
+      *transfer = cpu_ctx->state.pagereg[bank][xio_upper][xio_lower].ppa;
       return;
     }
   for (i = 0; xio[i].value; i++)
@@ -899,62 +899,62 @@ realize_xio (struct cpu_state *cpu, ushort xio_address, ushort *transfer)
       switch (xio_address)
 	{
 	case     X_ENBL:
-	  cpu->reg.sys |= SYS_INT;
+	  cpu_ctx->state.reg.sys |= SYS_INT;
 	elsecase X_DSBL:
-	  cpu->reg.sys &= ~SYS_INT;
+	  cpu_ctx->state.reg.sys &= ~SYS_INT;
 	elsecase X_DMAE:
-	  cpu->reg.sys |= SYS_DMA;
+	  cpu_ctx->state.reg.sys |= SYS_DMA;
 	elsecase X_DMAD:
-	  cpu->reg.sys &= ~SYS_DMA;
+	  cpu_ctx->state.reg.sys &= ~SYS_DMA;
 	elsecase X_TAH:
-	  cpu->reg.sys &= ~SYS_TA;
+	  cpu_ctx->state.reg.sys &= ~SYS_TA;
 	elsecase X_TBH:
-	  cpu->reg.sys &= ~SYS_TB;
+	  cpu_ctx->state.reg.sys &= ~SYS_TB;
 	elsecase X_TAS:
-	  cpu->reg.sys |= SYS_TA;
+	  cpu_ctx->state.reg.sys |= SYS_TA;
 	elsecase X_OTA:
-	  cpu->reg.sys |= SYS_TA;
-	  cpu->reg.ta = *transfer;
+	  cpu_ctx->state.reg.sys |= SYS_TA;
+	  cpu_ctx->state.reg.ta = *transfer;
 	elsecase X_ITA:
-	  *transfer = cpu->reg.ta;
+	  *transfer = cpu_ctx->state.reg.ta;
 	elsecase X_TBS:
-	  cpu->reg.sys |= SYS_TB;
+	  cpu_ctx->state.reg.sys |= SYS_TB;
 	elsecase X_OTB:
-	  cpu->reg.sys |= SYS_TB;
-	  cpu->reg.tb = *transfer;
+	  cpu_ctx->state.reg.sys |= SYS_TB;
+	  cpu_ctx->state.reg.tb = *transfer;
 	elsecase X_ITB:
-	  *transfer = cpu->reg.tb;
+	  *transfer = cpu_ctx->state.reg.tb;
 	elsecase X_GO:
-	  cpu->reg.go = 0;
+	  cpu_ctx->state.reg.go = 0;
 	elsecase X_RSW:
-	  *transfer = cpu->reg.sw;
+	  *transfer = cpu_ctx->state.reg.sw;
 	elsecase X_WSW:
-	  cpu->reg.sw = *transfer;
+	  cpu_ctx->state.reg.sw = *transfer;
 #ifdef NO_EXTENDED_MEMORY
-          if (cpu->reg.sw & 0xF)
+          if (cpu_ctx->state.reg.sw & 0xF)
             {
-              cpu->reg.ft |= 0x10;  /* address state fault: bit 11 */
-              cpu->reg.sw &= 0xFFF0;
+              cpu_ctx->state.reg.ft |= 0x10;  /* address state fault: bit 11 */
+              cpu_ctx->state.reg.sw &= 0xFFF0;
             }
 #endif
 	elsecase X_RPI:
-	  cpu->reg.pir &= ~(0x8000 >> *transfer);
+	  cpu_ctx->state.reg.pir &= ~(0x8000 >> *transfer);
 	  if (*transfer == 1)
-	    cpu->reg.ft = 0;
+	    cpu_ctx->state.reg.ft = 0;
 	elsecase X_SPI:
-	  cpu->reg.pir |= *transfer;
+	  cpu_ctx->state.reg.pir |= *transfer;
 	elsecase X_RMK:
-	  *transfer = cpu->reg.mk;
+	  *transfer = cpu_ctx->state.reg.mk;
 	elsecase X_SMK:
-	  cpu->reg.mk = *transfer;
+	  cpu_ctx->state.reg.mk = *transfer;
 	elsecase X_RPIR:
-	  *transfer = cpu->reg.pir;
+	  *transfer = cpu_ctx->state.reg.pir;
 	elsecase X_RCFR:
-	  *transfer = cpu->reg.ft;
-	  cpu->reg.ft = 0;
-	  cpu->reg.pir &= ~INTR_MACHERR;
+	  *transfer = cpu_ctx->state.reg.ft;
+	  cpu_ctx->state.reg.ft = 0;
+	  cpu_ctx->state.reg.pir &= ~INTR_MACHERR;
 	elsecase X_CLIR:
-	  cpu->reg.ft = cpu->reg.pir = 0;
+	  cpu_ctx->state.reg.ft = cpu_ctx->state.reg.pir = 0;
 	elsecase X_CO:
 #ifdef BSVC
 	  info (".");
@@ -981,44 +981,44 @@ realize_xio (struct cpu_state *cpu, ushort xio_address, ushort *transfer)
 }
 
 static int
-ex_xio (struct cpu_state *cpu, ushort opcode) /* 48xy */
+ex_xio (struct cpu_context *cpu_ctx, ushort opcode) /* 48xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  unsigned ak = (unsigned) (cpu->reg.sw >> 4) & 0xF; /* privileged instruction */
+  unsigned ak = (unsigned) (cpu_ctx->state.reg.sw >> 4) & 0xF; /* privileged instruction */
   ushort xio_address;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &xio_address);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &xio_address);
   xio_address += CHK_RX ();
 
   if (ak != 0)
     {
-      cpu->reg.pir |= INTR_MACHERR;
-      cpu->reg.ft |= FT_PRIV_INSTR;
+      cpu_ctx->state.reg.pir |= INTR_MACHERR;
+      cpu_ctx->state.reg.ft |= FT_PRIV_INSTR;
     }
   else
-    realize_xio (cpu, xio_address, (ushort *) &cpu->reg.r[upper]);
+    realize_xio (cpu_ctx, xio_address, (ushort *) &cpu_ctx->state.reg.r[upper]);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_XIO);
 }
 
 static int
-ex_vio (struct cpu_state *cpu, ushort opcode) /* 49xy */
+ex_vio (struct cpu_context *cpu_ctx, ushort opcode) /* 49xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  unsigned ak = (unsigned) (cpu->reg.sw >> 4) & 0xF; /* privileged instruction */
+  unsigned ak = (unsigned) (cpu_ctx->state.reg.sw >> 4) & 0xF; /* privileged instruction */
   ushort vio_address, vec_sel, i = 0, n, transfer, iocmd, iodata;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &vio_address);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &vio_address);
   vio_address += CHK_RX ();
   GET (CODE, vio_address + 1, (short *) &vec_sel);
 
   if (ak != 0)
     {
-      cpu->reg.pir |= INTR_MACHERR;
-      cpu->reg.ft |= FT_PRIV_INSTR;
+      cpu_ctx->state.reg.pir |= INTR_MACHERR;
+      cpu_ctx->state.reg.ft |= FT_PRIV_INSTR;
     }
   else
     {
@@ -1027,10 +1027,10 @@ ex_vio (struct cpu_state *cpu, ushort opcode) /* 49xy */
 	  if (vec_sel & (1 << (15 - n)))
 	    {
 	      GET (DATA, vio_address, (short *) &iocmd);
-	      iocmd += n * (ushort) cpu->reg.r[upper];
+	      iocmd += n * (ushort) cpu_ctx->state.reg.r[upper];
 	      transfer = vio_address + 2 + i;
 	      GET (DATA, transfer, (short *) &iodata);
-	      realize_xio (cpu, iocmd, &iodata);
+	      realize_xio (cpu_ctx, iocmd, &iodata);
 	      if (iocmd & 0x8000)  /* XIO read */
 		PUT (DATA, transfer, iodata);
 	      i++;
@@ -1038,227 +1038,227 @@ ex_vio (struct cpu_state *cpu, ushort opcode) /* 49xy */
 	}
     }
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_VIO);
 }
 
 
 static int
-ex_aim (struct cpu_state *cpu, ushort opcode) /* 4Ax1 */
+ex_aim (struct cpu_context *cpu_ctx, ushort opcode) /* 4Ax1 */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   short help;
 
-  GET (CODE, cpu->reg.ic + 1, &help);
-  arith (cpu, ARI_ADD, VAR_INT, &cpu->reg.r[upper], &help);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, &help);
+  arith (&cpu_ctx->state, ARI_ADD, VAR_INT, &cpu_ctx->state.reg.r[upper], &help);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_AIM);
 }
 
 static int
-ex_sim (struct cpu_state *cpu, ushort opcode) /* 4Ax2 */
+ex_sim (struct cpu_context *cpu_ctx, ushort opcode) /* 4Ax2 */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   short help;
 
-  GET (CODE, cpu->reg.ic + 1, &help);
-  arith (cpu, ARI_SUB, VAR_INT, &cpu->reg.r[upper], &help);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, &help);
+  arith (&cpu_ctx->state, ARI_SUB, VAR_INT, &cpu_ctx->state.reg.r[upper], &help);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_SIM);
 }
 
 static int
-ex_mim (struct cpu_state *cpu, ushort opcode) /* 4Ax3 */
+ex_mim (struct cpu_context *cpu_ctx, ushort opcode) /* 4Ax3 */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   short help;
 
-  GET (CODE, cpu->reg.ic + 1, &help);
-  arith (cpu, ARI_MUL, VAR_INT, &cpu->reg.r[upper], &help);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, &help);
+  arith (&cpu_ctx->state, ARI_MUL, VAR_INT, &cpu_ctx->state.reg.r[upper], &help);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_MIM);
 }
 
 static int
-ex_msim (struct cpu_state *cpu, ushort opcode) /* 4Ax4 */
+ex_msim (struct cpu_context *cpu_ctx, ushort opcode) /* 4Ax4 */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   short help;
 
-  GET (CODE, cpu->reg.ic + 1, &help);
-  arith (cpu, ARI_MULS, VAR_INT, &cpu->reg.r[upper], &help);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, &help);
+  arith (&cpu_ctx->state, ARI_MULS, VAR_INT, &cpu_ctx->state.reg.r[upper], &help);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_MSIM);
 }
 
 static int
-ex_dim (struct cpu_state *cpu, ushort opcode) /* 4Ax5 */
+ex_dim (struct cpu_context *cpu_ctx, ushort opcode) /* 4Ax5 */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   short help;
 
-  GET (CODE, cpu->reg.ic + 1, &help);
-  arith (cpu, ARI_DIV, VAR_INT, &cpu->reg.r[upper], &help);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, &help);
+  arith (&cpu_ctx->state, ARI_DIV, VAR_INT, &cpu_ctx->state.reg.r[upper], &help);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_DIM);
 }
 
 static int
-ex_dvim (struct cpu_state *cpu, ushort opcode) /* 4Ax6 */
+ex_dvim (struct cpu_context *cpu_ctx, ushort opcode) /* 4Ax6 */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   short help;
 
-  GET (CODE, cpu->reg.ic + 1, &help);
-  arith (cpu, ARI_DIVV, VAR_INT, &cpu->reg.r[upper], &help);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, &help);
+  arith (&cpu_ctx->state, ARI_DIVV, VAR_INT, &cpu_ctx->state.reg.r[upper], &help);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_DVIM);
 }
 
 static int
-ex_andm (struct cpu_state *cpu, ushort opcode) /* 4Ax7 */
+ex_andm (struct cpu_context *cpu_ctx, ushort opcode) /* 4Ax7 */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   short help;
 
-  GET (CODE, cpu->reg.ic + 1, &help);
-  cpu->reg.r[upper] &= help;
-  update_cs (cpu, &cpu->reg.r[upper], VAR_INT);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, &help);
+  cpu_ctx->state.reg.r[upper] &= help;
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_INT);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_ANDM);
 }
 
 static int
-ex_orim (struct cpu_state *cpu, ushort opcode) /* 4Ax8 */
+ex_orim (struct cpu_context *cpu_ctx, ushort opcode) /* 4Ax8 */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   short help;
 
-  GET (CODE, cpu->reg.ic + 1, &help);
-  cpu->reg.r[upper] |= help;
-  update_cs (cpu, &cpu->reg.r[upper], VAR_INT);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, &help);
+  cpu_ctx->state.reg.r[upper] |= help;
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_INT);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_ORIM);
 }
 
 static int
-ex_xorm (struct cpu_state *cpu, ushort opcode) /* 4Ax9 */
+ex_xorm (struct cpu_context *cpu_ctx, ushort opcode) /* 4Ax9 */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   short help;
 
-  GET (CODE, cpu->reg.ic + 1, &help);
-  cpu->reg.r[upper] ^= help;
-  update_cs (cpu, &cpu->reg.r[upper], VAR_INT);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, &help);
+  cpu_ctx->state.reg.r[upper] ^= help;
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_INT);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_XORM);
 }
 
 static int
-ex_cim (struct cpu_state *cpu, ushort opcode) /* 4AxA */
+ex_cim (struct cpu_context *cpu_ctx, ushort opcode) /* 4AxA */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   short help;
 
-  GET (CODE, cpu->reg.ic + 1, &help);
-  compare (cpu, VAR_INT, &cpu->reg.r[upper], &help); /* side effect on CS */
+  GET (CODE, cpu_ctx->state.reg.ic + 1, &help);
+  compare (&cpu_ctx->state, VAR_INT, &cpu_ctx->state.reg.r[upper], &help); /* side effect on CS */
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_CIM);
 }
 
 static int
-ex_nim (struct cpu_state *cpu, ushort opcode) /* 4AxB */
+ex_nim (struct cpu_context *cpu_ctx, ushort opcode) /* 4AxB */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   short help;
 
-  GET (CODE, cpu->reg.ic + 1, &help);
-  cpu->reg.r[upper] = ~(cpu->reg.r[upper] & help);
-  update_cs (cpu, &cpu->reg.r[upper], VAR_INT);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, &help);
+  cpu_ctx->state.reg.r[upper] = ~(cpu_ctx->state.reg.r[upper] & help);
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_INT);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_NIM);
 }
 
 static int
-ex_imml (struct cpu_state *cpu, ushort opcode) /* opcode 4A distributor */
+ex_imml (struct cpu_context *cpu_ctx, ushort opcode) /* opcode 4A distributor */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  static int (*start_4a[16])(struct cpu_state *cpu, ushort opcode) =
+  static int (*start_4a[16])(struct cpu_context *cpu_ctx, ushort opcode) =
     {
        ex_ill,  ex_aim,  ex_sim,  ex_mim,
        ex_msim, ex_dim,  ex_dvim, ex_andm,
        ex_orim, ex_xorm, ex_cim,  ex_nim,
        ex_ill,  ex_ill,  ex_ill,  ex_ill
     };
-  return (*start_4a[(unsigned) lower]) (cpu, opcode);
+  return (*start_4a[(unsigned) lower]) (cpu_ctx, opcode);
 }
 
 
 static int
-ex_esqr (struct cpu_state *cpu, ushort opcode) /* 4Dxy */
+ex_esqr (struct cpu_context *cpu_ctx, ushort opcode) /* 4Dxy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  double input = from_1750eflt (&cpu->reg.r[upper]);
+  double input = from_1750eflt (&cpu_ctx->state.reg.r[upper]);
 
   if (input < 0.0)
-    cpu->reg.pir |= INTR_FIXOFL;
+    cpu_ctx->state.reg.pir |= INTR_FIXOFL;
   else
     {
-      to_1750eflt (sqrt (input), &cpu->reg.r[upper]);
-      update_cs (cpu, &cpu->reg.r[upper], VAR_DOUBLE);
+      to_1750eflt (sqrt (input), &cpu_ctx->state.reg.r[upper]);
+      update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_DOUBLE);
     }
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (180);  /* GVSC, a wild guess */
 }
 
 
 static int
-ex_sqrt (struct cpu_state *cpu, ushort opcode) /* 4Exy */
+ex_sqrt (struct cpu_context *cpu_ctx, ushort opcode) /* 4Exy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  double input = from_1750flt (&cpu->reg.r[upper]);
+  double input = from_1750flt (&cpu_ctx->state.reg.r[upper]);
 
   if (input < 0.0)
-    cpu->reg.pir |= INTR_FIXOFL;
+    cpu_ctx->state.reg.pir |= INTR_FIXOFL;
   else
     {
-      to_1750flt (sqrt (input), &cpu->reg.r[upper]);
-      update_cs (cpu, &cpu->reg.r[upper], VAR_FLOAT);
+      to_1750flt (sqrt (input), &cpu_ctx->state.reg.r[upper]);
+      update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_FLOAT);
     }
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (130);  /* GVSC, a wild guess */
 }
 
 
 static int
-ex_bif (struct cpu_state *cpu, ushort opcode) /* 4Fxy */
+ex_bif (struct cpu_context *cpu_ctx, ushort opcode) /* 4Fxy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
@@ -1267,44 +1267,44 @@ ex_bif (struct cpu_state *cpu, ushort opcode) /* 4Fxy */
 
 
 static int
-ex_sb (struct cpu_state *cpu, ushort opcode) /* 50xy */
+ex_sb (struct cpu_context *cpu_ctx, ushort opcode) /* 50xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
   short data;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr, &data);
 
   data |= 1 << (15 - upper);
   PUT (DATA, addr, data);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_SB);
 }
 
 static int
-ex_sbr (struct cpu_state *cpu, ushort opcode) /* 51xy */
+ex_sbr (struct cpu_context *cpu_ctx, ushort opcode) /* 51xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  cpu->reg.r[lower] |= 1 << (15 - upper);
+  cpu_ctx->state.reg.r[lower] |= 1 << (15 - upper);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_SBR);
 }
 
 static int
-ex_sbi (struct cpu_state *cpu, ushort opcode) /* 52xy */
+ex_sbi (struct cpu_context *cpu_ctx, ushort opcode) /* 52xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
   short data;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr, (short *) &addr);
   GET (DATA, addr, &data);
@@ -1312,49 +1312,49 @@ ex_sbi (struct cpu_state *cpu, ushort opcode) /* 52xy */
   data |= 1 << (15 - upper);
   PUT (DATA, addr, data);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_SBI);
 }
 
 static int
-ex_rb (struct cpu_state *cpu, ushort opcode) /* 53xy */
+ex_rb (struct cpu_context *cpu_ctx, ushort opcode) /* 53xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
   short data;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr, &data);
 
   data &= ~(1 << (15 - upper));
   PUT (DATA, addr, data);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_RB);
 }
 
 static int
-ex_rbr (struct cpu_state *cpu, ushort opcode) /* 54xy */
+ex_rbr (struct cpu_context *cpu_ctx, ushort opcode) /* 54xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  cpu->reg.r[lower] &= ~(1 << (15 - upper));
+  cpu_ctx->state.reg.r[lower] &= ~(1 << (15 - upper));
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_RBR);
 }
 
 static int
-ex_rbi (struct cpu_state *cpu, ushort opcode) /* 55xy */
+ex_rbi (struct cpu_context *cpu_ctx, ushort opcode) /* 55xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
   short data;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr, (short *) &addr);
   GET (DATA, addr, &data);
@@ -1362,147 +1362,147 @@ ex_rbi (struct cpu_state *cpu, ushort opcode) /* 55xy */
   data &= ~(1 << (15 - upper));
   PUT (DATA, addr, data);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_RBI);
 }
 
 static int
-ex_tb (struct cpu_state *cpu, ushort opcode) /* 56xy */
+ex_tb (struct cpu_context *cpu_ctx, ushort opcode) /* 56xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  ushort addr, sw_save = cpu->reg.sw & 0x0FFF;
+  ushort addr, sw_save = cpu_ctx->state.reg.sw & 0x0FFF;
   short data;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr, &data);
 
   if (data & (1 << (15 - upper)))
-    cpu->reg.sw = sw_save | (upper ? CS_POSITIVE : CS_NEGATIVE);
+    cpu_ctx->state.reg.sw = sw_save | (upper ? CS_POSITIVE : CS_NEGATIVE);
   else
-    cpu->reg.sw = sw_save | CS_ZERO;
+    cpu_ctx->state.reg.sw = sw_save | CS_ZERO;
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_TB);
 }
 
 static int
-ex_tbr (struct cpu_state *cpu, ushort opcode) /* 57xy */
+ex_tbr (struct cpu_context *cpu_ctx, ushort opcode) /* 57xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  ushort sw_save = cpu->reg.sw & 0x0FFF;
+  ushort sw_save = cpu_ctx->state.reg.sw & 0x0FFF;
 
-  if (cpu->reg.r[lower] & (1 << (15 - upper)))
-    cpu->reg.sw = sw_save | (upper ? CS_POSITIVE : CS_NEGATIVE);
+  if (cpu_ctx->state.reg.r[lower] & (1 << (15 - upper)))
+    cpu_ctx->state.reg.sw = sw_save | (upper ? CS_POSITIVE : CS_NEGATIVE);
   else
-    cpu->reg.sw = sw_save | CS_ZERO;
+    cpu_ctx->state.reg.sw = sw_save | CS_ZERO;
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_TBR);
 }
 
 static int
-ex_tbi (struct cpu_state *cpu, ushort opcode) /* 58xy */
+ex_tbi (struct cpu_context *cpu_ctx, ushort opcode) /* 58xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  ushort addr, sw_save = cpu->reg.sw & 0x0FFF;
+  ushort addr, sw_save = cpu_ctx->state.reg.sw & 0x0FFF;
   short data;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr, (short *) &addr);
   GET (DATA, addr, &data);
 
   if (data & (1 << (15 - upper)))
-    cpu->reg.sw = sw_save | (upper ? CS_POSITIVE : CS_NEGATIVE);
+    cpu_ctx->state.reg.sw = sw_save | (upper ? CS_POSITIVE : CS_NEGATIVE);
   else
-    cpu->reg.sw = sw_save | CS_ZERO;
+    cpu_ctx->state.reg.sw = sw_save | CS_ZERO;
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_TBI);
 }
 
 static int
-ex_tsb (struct cpu_state *cpu, ushort opcode) /* 59xy */
+ex_tsb (struct cpu_context *cpu_ctx, ushort opcode) /* 59xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  ushort addr, sw_save = cpu->reg.sw & 0x0FFF;
+  ushort addr, sw_save = cpu_ctx->state.reg.sw & 0x0FFF;
   short data, bit_set = 1 << (15 - upper);
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr, &data);
   PUT (DATA, addr, data | bit_set);
 
   if (data & bit_set)
-    cpu->reg.sw = sw_save | (upper ? CS_POSITIVE : CS_NEGATIVE);
+    cpu_ctx->state.reg.sw = sw_save | (upper ? CS_POSITIVE : CS_NEGATIVE);
   else
-    cpu->reg.sw = sw_save | CS_ZERO;
+    cpu_ctx->state.reg.sw = sw_save | CS_ZERO;
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_TSB);
 }
 
 static int
-ex_svbr (struct cpu_state *cpu, ushort opcode) /* 5Axy */
+ex_svbr (struct cpu_context *cpu_ctx, ushort opcode) /* 5Axy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  cpu->reg.r[lower] |= 1 << (15 - (cpu->reg.r[upper] & 0xF));
+  cpu_ctx->state.reg.r[lower] |= 1 << (15 - (cpu_ctx->state.reg.r[upper] & 0xF));
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_SVBR);
 }
 
 static int
-ex_rvbr (struct cpu_state *cpu, ushort opcode) /* 5Cxy */
+ex_rvbr (struct cpu_context *cpu_ctx, ushort opcode) /* 5Cxy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  cpu->reg.r[lower] &= ~(1 << (15 - (cpu->reg.r[upper] & 0xF)));
+  cpu_ctx->state.reg.r[lower] &= ~(1 << (15 - (cpu_ctx->state.reg.r[upper] & 0xF)));
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_RVBR);
 }
 
 static int
-ex_tvbr (struct cpu_state *cpu, ushort opcode) /* 5Exy */
+ex_tvbr (struct cpu_context *cpu_ctx, ushort opcode) /* 5Exy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  ushort data = cpu->reg.r[lower] & (1 << (15 - (cpu->reg.r[upper] & 0xF)));
-  ushort sw_save = cpu->reg.sw & 0x0FFF;
+  ushort data = cpu_ctx->state.reg.r[lower] & (1 << (15 - (cpu_ctx->state.reg.r[upper] & 0xF)));
+  ushort sw_save = cpu_ctx->state.reg.sw & 0x0FFF;
 
   if (data)
-    cpu->reg.sw = sw_save | (cpu->reg.r[upper] & 0xF ? CS_POSITIVE : CS_NEGATIVE);
+    cpu_ctx->state.reg.sw = sw_save | (cpu_ctx->state.reg.r[upper] & 0xF ? CS_POSITIVE : CS_NEGATIVE);
   else
-    cpu->reg.sw = sw_save | CS_ZERO;
+    cpu_ctx->state.reg.sw = sw_save | CS_ZERO;
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_TVBR);
 }
 
 
 static int
-ex_sll (struct cpu_state *cpu, ushort opcode) /* 60xy */
+ex_sll (struct cpu_context *cpu_ctx, ushort opcode) /* 60xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   int n_shifts = (int) upper + 1;
 
-  cpu->reg.r[lower] <<= n_shifts;
-  update_cs (cpu, &cpu->reg.r[lower], VAR_INT);
+  cpu_ctx->state.reg.r[lower] <<= n_shifts;
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[lower], VAR_INT);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_SLL);
 }
 
 static int
-ex_srl (struct cpu_state *cpu, ushort opcode) /* 61xy */
+ex_srl (struct cpu_context *cpu_ctx, ushort opcode) /* 61xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
@@ -1513,266 +1513,266 @@ ex_srl (struct cpu_state *cpu, ushort opcode) /* 61xy */
    But a separate buffer variable of unsigned type does the job! */
   ushort buf;
 
-  buf = (ushort) cpu->reg.r[lower];  /* Needed to get a `logical shift right' */
-  cpu->reg.r[lower] = buf >> n_shifts;
-  update_cs (cpu, &cpu->reg.r[lower], VAR_INT);
+  buf = (ushort) cpu_ctx->state.reg.r[lower];  /* Needed to get a `logical shift right' */
+  cpu_ctx->state.reg.r[lower] = buf >> n_shifts;
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[lower], VAR_INT);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_SRL);
 }
 
 static int
-ex_sra (struct cpu_state *cpu, ushort opcode) /* 62xy */
+ex_sra (struct cpu_context *cpu_ctx, ushort opcode) /* 62xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   int n_shifts = (int) upper + 1;
 
-  cpu->reg.r[lower] >>= n_shifts;
-  update_cs (cpu, &cpu->reg.r[lower], VAR_INT);
+  cpu_ctx->state.reg.r[lower] >>= n_shifts;
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[lower], VAR_INT);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_SRA);
 }
 
 static int
-ex_slc (struct cpu_state *cpu, ushort opcode) /* 63xy */
+ex_slc (struct cpu_context *cpu_ctx, ushort opcode) /* 63xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   int n_shifts = (int) upper + 1;
   ushort buf;
 
-  buf = (ushort) cpu->reg.r[lower];  /* Needed to get a `logical shift right' */
-  cpu->reg.r[lower] = (buf << n_shifts) | (buf >> (16 - n_shifts));
-  update_cs (cpu, &cpu->reg.r[lower], VAR_INT);
+  buf = (ushort) cpu_ctx->state.reg.r[lower];  /* Needed to get a `logical shift right' */
+  cpu_ctx->state.reg.r[lower] = (buf << n_shifts) | (buf >> (16 - n_shifts));
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[lower], VAR_INT);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_SLC);
 }
 
 static int
-ex_dsll (struct cpu_state *cpu, ushort opcode) /* 65xy */
+ex_dsll (struct cpu_context *cpu_ctx, ushort opcode) /* 65xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   int n_shifts = (int) upper + 1;
-  uint buf = ((uint) cpu->reg.r[lower] << 16)
-  | ((uint) cpu->reg.r[lower + 1] & 0xFFFF);
+  uint buf = ((uint) cpu_ctx->state.reg.r[lower] << 16)
+  | ((uint) cpu_ctx->state.reg.r[lower + 1] & 0xFFFF);
 
   buf <<= n_shifts;
-  cpu->reg.r[lower] = (short) (buf >> 16);
-  cpu->reg.r[lower + 1] = (short) (buf & 0xFFFF);
-  update_cs (cpu, &cpu->reg.r[lower], VAR_LONG);
+  cpu_ctx->state.reg.r[lower] = (short) (buf >> 16);
+  cpu_ctx->state.reg.r[lower + 1] = (short) (buf & 0xFFFF);
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[lower], VAR_LONG);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_DSLL);
 }
 
 static int
-ex_dsrl (struct cpu_state *cpu, ushort opcode) /* 66xy */
+ex_dsrl (struct cpu_context *cpu_ctx, ushort opcode) /* 66xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   int n_shifts = (int) upper + 1;
-  uint buf = ((uint) cpu->reg.r[lower] << 16)
-  | ((uint) cpu->reg.r[lower + 1] & 0xFFFF);
+  uint buf = ((uint) cpu_ctx->state.reg.r[lower] << 16)
+  | ((uint) cpu_ctx->state.reg.r[lower + 1] & 0xFFFF);
 
   buf >>= n_shifts;                       /* Attention: buf is unsigned, */
-  cpu->reg.r[lower] = (short) (buf >> 16);   /* i.e. *logical* shift right */
-  cpu->reg.r[lower + 1] = (short) (buf & 0xFFFF);
-  update_cs (cpu, &cpu->reg.r[lower], VAR_LONG);
+  cpu_ctx->state.reg.r[lower] = (short) (buf >> 16);   /* i.e. *logical* shift right */
+  cpu_ctx->state.reg.r[lower + 1] = (short) (buf & 0xFFFF);
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[lower], VAR_LONG);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_DSRL);
 }
 
 static int
-ex_dsra (struct cpu_state *cpu, ushort opcode) /* 67xy */
+ex_dsra (struct cpu_context *cpu_ctx, ushort opcode) /* 67xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   int n_shifts = (int) upper + 1;
-  int buf = ((int) cpu->reg.r[lower] << 16)
-          | ((int) cpu->reg.r[lower + 1] & 0xFFFF);
+  int buf = ((int) cpu_ctx->state.reg.r[lower] << 16)
+          | ((int) cpu_ctx->state.reg.r[lower + 1] & 0xFFFF);
 
   buf >>= n_shifts;
-  cpu->reg.r[lower] = (short) (buf >> 16);
-  cpu->reg.r[lower + 1] = (short) (buf & 0xFFFF);
-  update_cs (cpu, &cpu->reg.r[lower], VAR_LONG);
+  cpu_ctx->state.reg.r[lower] = (short) (buf >> 16);
+  cpu_ctx->state.reg.r[lower + 1] = (short) (buf & 0xFFFF);
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[lower], VAR_LONG);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_DSRA);
 }
 
 static int
-ex_dslc (struct cpu_state *cpu, ushort opcode) /* 68xy */
+ex_dslc (struct cpu_context *cpu_ctx, ushort opcode) /* 68xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   int n_shifts = (int) upper + 1;
-  uint buf = ((uint) cpu->reg.r[lower] << 16)  /* This variable is needed to */
-  | ((uint) cpu->reg.r[lower + 1] & 0xFFFF);   /* get a `logical shift right' */
+  uint buf = ((uint) cpu_ctx->state.reg.r[lower] << 16)  /* This variable is needed to */
+  | ((uint) cpu_ctx->state.reg.r[lower + 1] & 0xFFFF);   /* get a `logical shift right' */
 
   buf = (buf << n_shifts) | (buf >> (32 - n_shifts));
-  cpu->reg.r[lower] = (short) (buf >> 16);
-  cpu->reg.r[lower + 1] = (short) (buf & 0xFFFF);
-  update_cs (cpu, &cpu->reg.r[lower], VAR_LONG);
+  cpu_ctx->state.reg.r[lower] = (short) (buf >> 16);
+  cpu_ctx->state.reg.r[lower + 1] = (short) (buf & 0xFFFF);
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[lower], VAR_LONG);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_DSLC);
 }
 
 static int
-ex_slr (struct cpu_state *cpu, ushort opcode) /* 6Axy */
+ex_slr (struct cpu_context *cpu_ctx, ushort opcode) /* 6Axy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  short shc = cpu->reg.r[lower];
+  short shc = cpu_ctx->state.reg.r[lower];
   int n_shifts = (int) shc;
   ushort buf;
 
-  buf = (ushort) cpu->reg.r[upper];  /* Needed to get a `logical shift right' */
+  buf = (ushort) cpu_ctx->state.reg.r[upper];  /* Needed to get a `logical shift right' */
   if (shc < 0)                  /* negative => shift right */
     {
       if ((shc = -shc) > 16)
 	{
-	  cpu->reg.pir |= INTR_FIXOFL;
+	  cpu_ctx->state.reg.pir |= INTR_FIXOFL;
 	  /* behavior to be verified */
 	}
-      cpu->reg.r[upper] = buf >> shc;
+      cpu_ctx->state.reg.r[upper] = buf >> shc;
     }
   else
     /* positive => shift left  */
     {
       if (shc > 16)
 	{
-	  cpu->reg.pir |= INTR_FIXOFL;
+	  cpu_ctx->state.reg.pir |= INTR_FIXOFL;
 	  /* behavior to be verified */
 	}
-      cpu->reg.r[upper] = buf << shc;
+      cpu_ctx->state.reg.r[upper] = buf << shc;
     }
-  update_cs (cpu, &cpu->reg.r[upper], VAR_INT);
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_INT);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_SLR);
 }
 
 static int
-ex_sar (struct cpu_state *cpu, ushort opcode) /* 6Bxy */
+ex_sar (struct cpu_context *cpu_ctx, ushort opcode) /* 6Bxy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  short shc = cpu->reg.r[lower];
+  short shc = cpu_ctx->state.reg.r[lower];
   int n_shifts = (int) shc;
 
   if (shc < 0)                  /* negative => shift right */
     {
       if ((shc = -shc) > 16)
 	{
-	  cpu->reg.pir |= INTR_FIXOFL;
+	  cpu_ctx->state.reg.pir |= INTR_FIXOFL;
 	  /*  behavior to be verified */
 	}
-      cpu->reg.r[upper] >>= shc;
+      cpu_ctx->state.reg.r[upper] >>= shc;
     }
   else
     /* positive => shift left  */
     {
       if (shc > 16)
 	{
-	  cpu->reg.pir |= INTR_FIXOFL;
+	  cpu_ctx->state.reg.pir |= INTR_FIXOFL;
 	  /* behavior to be verified */
 	}
-      cpu->reg.r[upper] <<= shc;
+      cpu_ctx->state.reg.r[upper] <<= shc;
     }
-  update_cs (cpu, &cpu->reg.r[upper], VAR_INT);
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_INT);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_SAR);
 }
 
 static int
-ex_scr (struct cpu_state *cpu, ushort opcode) /* 6Cxy */
+ex_scr (struct cpu_context *cpu_ctx, ushort opcode) /* 6Cxy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  short shc = cpu->reg.r[lower];
+  short shc = cpu_ctx->state.reg.r[lower];
   int n_shifts = (int) shc;
   ushort buf;
 
-  buf = (ushort) cpu->reg.r[upper];   /* Needed to get a `logical shift right' */
+  buf = (ushort) cpu_ctx->state.reg.r[upper];   /* Needed to get a `logical shift right' */
   if (shc < 0)                  /* negative , rotate right */
     {
       if ((shc = -shc) > 16)
 	{
-	  cpu->reg.pir |= INTR_FIXOFL;
+	  cpu_ctx->state.reg.pir |= INTR_FIXOFL;
 	  /* behavior to be verified */
 	}
-      cpu->reg.r[upper] = (buf >> shc) | (buf << (16 - shc));
+      cpu_ctx->state.reg.r[upper] = (buf >> shc) | (buf << (16 - shc));
     }
   else
     /* positive , rotate left  */
     {
       if (shc > 16)
 	{
-	  cpu->reg.pir |= INTR_FIXOFL;
+	  cpu_ctx->state.reg.pir |= INTR_FIXOFL;
 	  /* behavior to be verified */
 	}
-      cpu->reg.r[upper] = (buf << shc) | (buf >> (16 - shc));
+      cpu_ctx->state.reg.r[upper] = (buf << shc) | (buf >> (16 - shc));
     }
-  update_cs (cpu, &cpu->reg.r[upper], VAR_INT);
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_INT);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_SCR);
 }
 
 static int
-ex_dslr (struct cpu_state *cpu, ushort opcode) /* 6Dxy */
+ex_dslr (struct cpu_context *cpu_ctx, ushort opcode) /* 6Dxy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  short shc = cpu->reg.r[lower];
+  short shc = cpu_ctx->state.reg.r[lower];
   int n_shifts = (int) shc;
-  uint buf = ((uint) cpu->reg.r[upper] << 16)   /* This variable is needed */
-  | ((uint) cpu->reg.r[upper + 1] & 0xFFFF);     /* to get a LOGICAL shift */
+  uint buf = ((uint) cpu_ctx->state.reg.r[upper] << 16)   /* This variable is needed */
+  | ((uint) cpu_ctx->state.reg.r[upper + 1] & 0xFFFF);     /* to get a LOGICAL shift */
 
   if (shc < 0)                  /* negative => shift right */
     {
       if ((shc = -shc) > 32)
-	cpu->reg.pir |= INTR_FIXOFL;
+	cpu_ctx->state.reg.pir |= INTR_FIXOFL;
       else
 	buf >>= shc;
     }
   else				/* positive => shift left  */
     {
       if (shc > 32)
-	cpu->reg.pir |= INTR_FIXOFL;
+	cpu_ctx->state.reg.pir |= INTR_FIXOFL;
       else
 	buf <<= shc;
     }
-  cpu->reg.r[upper] = (short) (buf >> 16);
-  cpu->reg.r[upper + 1] = (short) (buf & 0xFFFF);
+  cpu_ctx->state.reg.r[upper] = (short) (buf >> 16);
+  cpu_ctx->state.reg.r[upper + 1] = (short) (buf & 0xFFFF);
 
-  update_cs (cpu, &cpu->reg.r[upper], VAR_LONG);
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_LONG);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_DSLR);
 }
 
 static int
-ex_dsar (struct cpu_state *cpu, ushort opcode) /* 6Exy */
+ex_dsar (struct cpu_context *cpu_ctx, ushort opcode) /* 6Exy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  short shc = cpu->reg.r[lower];
+  short shc = cpu_ctx->state.reg.r[lower];
   int n_shifts = (int) shc;
-  int buf = ((int) cpu->reg.r[upper] << 16)
-	  | ((int) cpu->reg.r[upper + 1] & 0xFFFF);
+  int buf = ((int) cpu_ctx->state.reg.r[upper] << 16)
+	  | ((int) cpu_ctx->state.reg.r[upper + 1] & 0xFFFF);
 
   if (shc < 0)                  /* negative => shift right */
     {
       if ((shc = -shc) > 32)
-	cpu->reg.pir |= INTR_FIXOFL;
+	cpu_ctx->state.reg.pir |= INTR_FIXOFL;
       else if (shc == 32)
 	{
 	 if (buf < 0)
@@ -1786,36 +1786,36 @@ ex_dsar (struct cpu_state *cpu, ushort opcode) /* 6Exy */
   else				/* positive => shift left  */
     {
       if (shc > 32)
-	cpu->reg.pir |= INTR_FIXOFL;
+	cpu_ctx->state.reg.pir |= INTR_FIXOFL;
       else if (shc == 32)
 	buf = 0;
       else
 	buf <<= shc;
     }
-  cpu->reg.r[upper] = (short) (buf >> 16);
-  cpu->reg.r[upper + 1] = (short) (buf & 0xFFFF);
+  cpu_ctx->state.reg.r[upper] = (short) (buf >> 16);
+  cpu_ctx->state.reg.r[upper + 1] = (short) (buf & 0xFFFF);
 
-  update_cs (cpu, &cpu->reg.r[upper], VAR_LONG);
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_LONG);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_DSAR);
 }
 
 static int
-ex_dscr (struct cpu_state *cpu, ushort opcode) /* 6Fxy */
+ex_dscr (struct cpu_context *cpu_ctx, ushort opcode) /* 6Fxy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  short shc = cpu->reg.r[lower];
+  short shc = cpu_ctx->state.reg.r[lower];
   int n_shifts = (int) shc;
-  uint buf = ((uint) cpu->reg.r[upper] << 16)   /* This variable is needed */
-  | ((uint) cpu->reg.r[upper + 1] & 0xFFFF);     /* to get a LOGICAL shift */
+  uint buf = ((uint) cpu_ctx->state.reg.r[upper] << 16)   /* This variable is needed */
+  | ((uint) cpu_ctx->state.reg.r[upper + 1] & 0xFFFF);     /* to get a LOGICAL shift */
 
   if (shc < 0)                  /* negative => rotate right */
     {
       if ((shc = -shc) > 32)
 	{
-	  cpu->reg.pir |= INTR_FIXOFL;    /* behavior to be verified */
+	  cpu_ctx->state.reg.pir |= INTR_FIXOFL;    /* behavior to be verified */
 	}
       buf = (buf >> shc) | (buf << (32 - shc));
     }
@@ -1824,16 +1824,16 @@ ex_dscr (struct cpu_state *cpu, ushort opcode) /* 6Fxy */
     {
       if (shc > 32)
 	{
-	  cpu->reg.pir |= INTR_FIXOFL;    /* behavior to be verified */
+	  cpu_ctx->state.reg.pir |= INTR_FIXOFL;    /* behavior to be verified */
 	}
       buf = (buf << shc) | (buf >> (32 - shc));
     }
-  cpu->reg.r[upper] = (short) (buf >> 16);
-  cpu->reg.r[upper + 1] = (short) (buf & 0xFFFF);
+  cpu_ctx->state.reg.r[upper] = (short) (buf >> 16);
+  cpu_ctx->state.reg.r[upper + 1] = (short) (buf & 0xFFFF);
 
-  update_cs (cpu, &cpu->reg.r[upper], VAR_LONG);
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_LONG);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_DSCR);
 }
 
@@ -1851,60 +1851,60 @@ flag_test (ushort sw, ushort condition)
 }
 
 static int
-ex_jc (struct cpu_state *cpu, ushort opcode) /* 70xy */
+ex_jc (struct cpu_context *cpu_ctx, ushort opcode) /* 70xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  bool jump_taken = flag_test (cpu->reg.sw, upper);
+  bool jump_taken = flag_test (cpu_ctx->state.reg.sw, upper);
 
   if (jump_taken)
     {
-      GET (CODE, cpu->reg.ic + 1, (short *) &cpu->reg.ic);
-      cpu->reg.ic += CHK_RX ();
+      GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &cpu_ctx->state.reg.ic);
+      cpu_ctx->state.reg.ic += CHK_RX ();
     }
   else
-    cpu->reg.ic += 2;
+    cpu_ctx->state.reg.ic += 2;
 
   return (nc_JC);
 }
 
 
 static int
-ex_jci (struct cpu_state *cpu, ushort opcode) /* 71xy */
+ex_jci (struct cpu_context *cpu_ctx, ushort opcode) /* 71xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
-  bool jump_taken = flag_test (cpu->reg.sw, upper);
+  bool jump_taken = flag_test (cpu_ctx->state.reg.sw, upper);
 
   if (jump_taken)
     {
-      GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+      GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
       addr += CHK_RX ();
-      GET (DATA, addr, (short *) &cpu->reg.ic);
+      GET (DATA, addr, (short *) &cpu_ctx->state.reg.ic);
     }
   else
-    cpu->reg.ic += 2;
+    cpu_ctx->state.reg.ic += 2;
 
   return (nc_JCI);
 }
 
 static int
-ex_js (struct cpu_state *cpu, ushort opcode) /* 72xy */
+ex_js (struct cpu_context *cpu_ctx, ushort opcode) /* 72xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
-  cpu->reg.r[upper] = cpu->reg.ic + 2;
-  cpu->reg.ic = addr + CHK_RX ();
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
+  cpu_ctx->state.reg.r[upper] = cpu_ctx->state.reg.ic + 2;
+  cpu_ctx->state.reg.ic = addr + CHK_RX ();
 
   return (nc_JS);
 }
 
 static int
-ex_soj (struct cpu_state *cpu, ushort opcode) /* 73xy */
+ex_soj (struct cpu_context *cpu_ctx, ushort opcode) /* 73xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
@@ -1913,15 +1913,15 @@ ex_soj (struct cpu_state *cpu, ushort opcode) /* 73xy */
 
   help = 1;
   update_pir = FALSE;
-  arith (cpu, ARI_SUB, VAR_INT, &cpu->reg.r[upper], &help);
+  arith (&cpu_ctx->state, ARI_SUB, VAR_INT, &cpu_ctx->state.reg.r[upper], &help);
   update_pir = TRUE;
 
-  if (CS_ZERO & cpu->reg.sw)
-    cpu->reg.ic += 2;                     /* end of loop */
+  if (CS_ZERO & cpu_ctx->state.reg.sw)
+    cpu_ctx->state.reg.ic += 2;                     /* end of loop */
   else
     {
-      GET (CODE, cpu->reg.ic + 1, (short *) &cpu->reg.ic);
-      cpu->reg.ic += CHK_RX ();
+      GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &cpu_ctx->state.reg.ic);
+      cpu_ctx->state.reg.ic += CHK_RX ();
       jump_taken = 1;
     }
 
@@ -1929,366 +1929,366 @@ ex_soj (struct cpu_state *cpu, ushort opcode) /* 73xy */
 }
 
 static int
-ex_br (struct cpu_state *cpu, ushort opcode) /* 74xy */
+ex_br (struct cpu_context *cpu_ctx, ushort opcode) /* 74xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort distance = opcode & 0x00FF;
 
   if (distance >= 0x80)		/* branch backwards */
-    cpu->reg.ic -= 0x100 - distance;
+    cpu_ctx->state.reg.ic -= 0x100 - distance;
   else
-    cpu->reg.ic += distance;
+    cpu_ctx->state.reg.ic += distance;
 
   return (nc_BR);
 }
 
 static int
-ex_bez (struct cpu_state *cpu, ushort opcode) /* 75xy */
+ex_bez (struct cpu_context *cpu_ctx, ushort opcode) /* 75xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   bool branch_taken = FALSE;
 
-  if (CS_ZERO & cpu->reg.sw)
+  if (CS_ZERO & cpu_ctx->state.reg.sw)
     {
       ushort distance = opcode & 0x00FF;
       if (distance >= 0x80)
-	cpu->reg.ic -= 0x100 - distance;
+	cpu_ctx->state.reg.ic -= 0x100 - distance;
       else
-	cpu->reg.ic += distance;
+	cpu_ctx->state.reg.ic += distance;
       branch_taken = TRUE;
     }
   else
-    cpu->reg.ic++;
+    cpu_ctx->state.reg.ic++;
 
   return (nc_BRcc);
 }
 
 static int
-ex_blt (struct cpu_state *cpu, ushort opcode) /* 76xy */
+ex_blt (struct cpu_context *cpu_ctx, ushort opcode) /* 76xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   bool branch_taken = FALSE;
 
-  if (CS_NEGATIVE & cpu->reg.sw)
+  if (CS_NEGATIVE & cpu_ctx->state.reg.sw)
     {
       ushort distance = opcode & 0x00FF;
       if (distance >= 0x80)
-	cpu->reg.ic -= 0x100 - distance;
+	cpu_ctx->state.reg.ic -= 0x100 - distance;
       else
-	cpu->reg.ic += distance;
+	cpu_ctx->state.reg.ic += distance;
       branch_taken = TRUE;
     }
   else
-    cpu->reg.ic++;
+    cpu_ctx->state.reg.ic++;
 
   return (nc_BRcc);
 }
 
 static int
-ex_bex (struct cpu_state *cpu, ushort opcode) /* 77xy */
+ex_bex (struct cpu_context *cpu_ctx, ushort opcode) /* 77xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   bex_index = (int) lower;
-  cpu->reg.pir |= INTR_BEX;
+  cpu_ctx->state.reg.pir |= INTR_BEX;
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_BEX);
 }
 
 static int
-ex_ble (struct cpu_state *cpu, ushort opcode) /* 78xy */
+ex_ble (struct cpu_context *cpu_ctx, ushort opcode) /* 78xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   bool branch_taken = FALSE;
 
-  if (CS_ZERO & cpu->reg.sw || CS_NEGATIVE & cpu->reg.sw)
+  if (CS_ZERO & cpu_ctx->state.reg.sw || CS_NEGATIVE & cpu_ctx->state.reg.sw)
     {
       ushort distance = opcode & 0x00FF;
       if (distance >= 0x80)
-	cpu->reg.ic -= 0x100 - distance;
+	cpu_ctx->state.reg.ic -= 0x100 - distance;
       else
-	cpu->reg.ic += distance;
+	cpu_ctx->state.reg.ic += distance;
       branch_taken = TRUE;
     }
   else
-    cpu->reg.ic++;
+    cpu_ctx->state.reg.ic++;
 
   return (nc_BRcc);
 }
 
 static int
-ex_bgt (struct cpu_state *cpu, ushort opcode) /* 79xy */
+ex_bgt (struct cpu_context *cpu_ctx, ushort opcode) /* 79xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   bool branch_taken = FALSE;
 
-  if (CS_POSITIVE & cpu->reg.sw)
+  if (CS_POSITIVE & cpu_ctx->state.reg.sw)
     {
       ushort distance = opcode & 0x00FF;
       if (distance >= 0x80)
-	cpu->reg.ic -= 0x100 - distance;
+	cpu_ctx->state.reg.ic -= 0x100 - distance;
       else
-	cpu->reg.ic += distance;
+	cpu_ctx->state.reg.ic += distance;
       branch_taken = TRUE;
     }
   else
-    cpu->reg.ic++;
+    cpu_ctx->state.reg.ic++;
 
   return (nc_BRcc);
 }
 
 static int
-ex_bnz (struct cpu_state *cpu, ushort opcode) /* 7Axy */
+ex_bnz (struct cpu_context *cpu_ctx, ushort opcode) /* 7Axy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   bool branch_taken = FALSE;
 
-  if ((CS_ZERO & cpu->reg.sw) == 0)
+  if ((CS_ZERO & cpu_ctx->state.reg.sw) == 0)
     {
       ushort distance = opcode & 0x00FF;
       if (distance >= 0x80)
-	cpu->reg.ic -= 0x100 - distance;
+	cpu_ctx->state.reg.ic -= 0x100 - distance;
       else
-	cpu->reg.ic += distance;
+	cpu_ctx->state.reg.ic += distance;
       branch_taken = TRUE;
     }
   else
-    cpu->reg.ic++;
+    cpu_ctx->state.reg.ic++;
 
   return (nc_BRcc);
 }
 
 static int
-ex_bge (struct cpu_state *cpu, ushort opcode) /* 7Bxy */
+ex_bge (struct cpu_context *cpu_ctx, ushort opcode) /* 7Bxy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   bool branch_taken = FALSE;
 
-  if (CS_ZERO & cpu->reg.sw || CS_POSITIVE & cpu->reg.sw)
+  if (CS_ZERO & cpu_ctx->state.reg.sw || CS_POSITIVE & cpu_ctx->state.reg.sw)
     {
       ushort distance = opcode & 0x00FF;
       if (distance >= 0x80)
-	cpu->reg.ic -= 0x100 - distance;
+	cpu_ctx->state.reg.ic -= 0x100 - distance;
       else
-	cpu->reg.ic += distance;
+	cpu_ctx->state.reg.ic += distance;
       branch_taken = TRUE;
     }
   else
-    cpu->reg.ic++;
+    cpu_ctx->state.reg.ic++;
 
   return (nc_BRcc);
 }
 
 static int
-ex_lsti (struct cpu_state *cpu, ushort opcode) /* 7Cxy */
+ex_lsti (struct cpu_context *cpu_ctx, ushort opcode) /* 7Cxy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   /* privileged instruction  */
-  ushort ak = (cpu->reg.sw >> 4) & 0xF, source;
+  ushort ak = (cpu_ctx->state.reg.sw >> 4) & 0xF, source;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &source);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &source);
   source += CHK_RX ();
 
   if (ak != 0)
     {
-      cpu->reg.pir |= INTR_MACHERR;
-      cpu->reg.ft |= FT_PRIV_INSTR;
+      cpu_ctx->state.reg.pir |= INTR_MACHERR;
+      cpu_ctx->state.reg.ft |= FT_PRIV_INSTR;
     }
   else
     {
       GET (DATA, source, (short *) &source);
-      GET (DATA, source,     (short *) &cpu->reg.mk);
-      GET (DATA, source + 2, (short *) &cpu->reg.ic);
-      GET (DATA, source + 1, (short *) &cpu->reg.sw);
+      GET (DATA, source,     (short *) &cpu_ctx->state.reg.mk);
+      GET (DATA, source + 2, (short *) &cpu_ctx->state.reg.ic);
+      GET (DATA, source + 1, (short *) &cpu_ctx->state.reg.sw);
     }
 
   return (nc_LSTI);
 }
 
 static int
-ex_lst (struct cpu_state *cpu, ushort opcode) /* 7Dxy */
+ex_lst (struct cpu_context *cpu_ctx, ushort opcode) /* 7Dxy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   /* privileged instruction  */
-  ushort ak = (cpu->reg.sw >> 4) & 0xF, source;
+  ushort ak = (cpu_ctx->state.reg.sw >> 4) & 0xF, source;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &source);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &source);
   source += CHK_RX ();
 
   if (ak != 0)
     {
-      cpu->reg.pir |= INTR_MACHERR;
-      cpu->reg.ft |= FT_PRIV_INSTR;
+      cpu_ctx->state.reg.pir |= INTR_MACHERR;
+      cpu_ctx->state.reg.ft |= FT_PRIV_INSTR;
     }
   else
     {
-      GET (DATA, (ushort) source,     (short *) &cpu->reg.mk);
-      GET (DATA, (ushort) source + 2, (short *) &cpu->reg.ic);
-      GET (DATA, (ushort) source + 1, (short *) &cpu->reg.sw);
+      GET (DATA, (ushort) source,     (short *) &cpu_ctx->state.reg.mk);
+      GET (DATA, (ushort) source + 2, (short *) &cpu_ctx->state.reg.ic);
+      GET (DATA, (ushort) source + 1, (short *) &cpu_ctx->state.reg.sw);
     }
 
   return (nc_LST);
 }
 
 static int
-ex_sjs (struct cpu_state *cpu, ushort opcode) /* 7Exy */
+ex_sjs (struct cpu_context *cpu_ctx, ushort opcode) /* 7Exy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();  /* needs to be BEFORE decrementing r[upper] ... */
-  cpu->reg.r[upper]--;          /* ... for the case of (lower == upper) */
-  PUT (DATA, (ushort) cpu->reg.r[upper], (short) cpu->reg.ic + 2);
-  cpu->reg.ic = addr;
+  cpu_ctx->state.reg.r[upper]--;          /* ... for the case of (lower == upper) */
+  PUT (DATA, (ushort) cpu_ctx->state.reg.r[upper], (short) cpu_ctx->state.reg.ic + 2);
+  cpu_ctx->state.reg.ic = addr;
 
   return (nc_SJS);
 }
 
 static int
-ex_urs (struct cpu_state *cpu, ushort opcode) /* 7Fxy */
+ex_urs (struct cpu_context *cpu_ctx, ushort opcode) /* 7Fxy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   if (lower)
-    return (ex_ill (cpu, opcode)); /* error */
+    return (ex_ill (cpu_ctx, opcode)); /* error */
 
-  GET (DATA, (ushort) cpu->reg.r[upper], (short *) &cpu->reg.ic);
-  cpu->reg.r[upper]++;
+  GET (DATA, (ushort) cpu_ctx->state.reg.r[upper], (short *) &cpu_ctx->state.reg.ic);
+  cpu_ctx->state.reg.r[upper]++;
 
   return (nc_URS);
 }
 
 
 static int
-ex_l (struct cpu_state *cpu, ushort opcode) /* 80xy */
+ex_l (struct cpu_context *cpu_ctx, ushort opcode) /* 80xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
-  GET (DATA, addr, &cpu->reg.r[upper]);
-  update_cs (cpu, &cpu->reg.r[upper], VAR_INT);
+  GET (DATA, addr, &cpu_ctx->state.reg.r[upper]);
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_INT);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_L);
 }
 
 static int
-ex_lr (struct cpu_state *cpu, ushort opcode) /* 81xy */
+ex_lr (struct cpu_context *cpu_ctx, ushort opcode) /* 81xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  cpu->reg.r[upper] = cpu->reg.r[lower];
-  update_cs (cpu, &cpu->reg.r[upper], VAR_INT);
+  cpu_ctx->state.reg.r[upper] = cpu_ctx->state.reg.r[lower];
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_INT);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_LR);
 }
 
 static int
-ex_lisp (struct cpu_state *cpu, ushort opcode) /* 82xy */
+ex_lisp (struct cpu_context *cpu_ctx, ushort opcode) /* 82xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  cpu->reg.r[upper] = (short) lower + 1;
-  update_cs (cpu, &cpu->reg.r[upper], VAR_INT);
+  cpu_ctx->state.reg.r[upper] = (short) lower + 1;
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_INT);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_LISP);
 }
 
 static int
-ex_lisn (struct cpu_state *cpu, ushort opcode) /* 83xy */
+ex_lisn (struct cpu_context *cpu_ctx, ushort opcode) /* 83xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  cpu->reg.r[upper] = -(short) (lower + 1);
-  update_cs (cpu, &cpu->reg.r[upper], VAR_INT);
+  cpu_ctx->state.reg.r[upper] = -(short) (lower + 1);
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_INT);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_LISN);
 }
 
 static int
-ex_li (struct cpu_state *cpu, ushort opcode) /* 84xy */
+ex_li (struct cpu_context *cpu_ctx, ushort opcode) /* 84xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr, (short *) &addr);
-  GET (DATA, addr, &cpu->reg.r[upper]);
-  update_cs (cpu, &cpu->reg.r[upper], VAR_INT);
+  GET (DATA, addr, &cpu_ctx->state.reg.r[upper]);
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_INT);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_LI);
 }
 
 static int
-ex_lim (struct cpu_state *cpu, ushort opcode) /* 85xy */
+ex_lim (struct cpu_context *cpu_ctx, ushort opcode) /* 85xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort immed;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &immed);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &immed);
   immed += CHK_RX ();		/* IMX */
 
-  cpu->reg.r[upper] = (short) immed;
-  update_cs (cpu, &cpu->reg.r[upper], VAR_INT);
+  cpu_ctx->state.reg.r[upper] = (short) immed;
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_INT);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_LIM);
 }
 
 static int
-ex_dl (struct cpu_state *cpu, ushort opcode) /* 86xy */
+ex_dl (struct cpu_context *cpu_ctx, ushort opcode) /* 86xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
 
   if (upper == 15)
     {
       short help[2];
-      GET (DATA, addr, &cpu->reg.r[15]);
-      help[0] = cpu->reg.r[15];
-      GET (DATA, addr + 1, &cpu->reg.r[0]);
-      help[1] = cpu->reg.r[0];
-      update_cs (cpu, help, VAR_LONG);
+      GET (DATA, addr, &cpu_ctx->state.reg.r[15]);
+      help[0] = cpu_ctx->state.reg.r[15];
+      GET (DATA, addr + 1, &cpu_ctx->state.reg.r[0]);
+      help[1] = cpu_ctx->state.reg.r[0];
+      update_cs (&cpu_ctx->state, help, VAR_LONG);
     }
   else
     {
-      GET (DATA, addr, &cpu->reg.r[upper]);
-      GET (DATA, addr + 1, &cpu->reg.r[upper + 1]);
-      update_cs (cpu, &cpu->reg.r[upper], VAR_LONG);
+      GET (DATA, addr, &cpu_ctx->state.reg.r[upper]);
+      GET (DATA, addr + 1, &cpu_ctx->state.reg.r[upper + 1]);
+      update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_LONG);
     }
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_DL);
 }
 
 static int
-ex_dlr (struct cpu_state *cpu, ushort opcode) /* 87xy */
+ex_dlr (struct cpu_context *cpu_ctx, ushort opcode) /* 87xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
@@ -2296,179 +2296,179 @@ ex_dlr (struct cpu_state *cpu, ushort opcode) /* 87xy */
 
   if (upper == 15)
     {
-      help[0] = cpu->reg.r[15] = cpu->reg.r[lower];
-      help[1] = cpu->reg.r[0] = cpu->reg.r[lower + 1];
-      update_cs (cpu, help, VAR_LONG);
+      help[0] = cpu_ctx->state.reg.r[15] = cpu_ctx->state.reg.r[lower];
+      help[1] = cpu_ctx->state.reg.r[0] = cpu_ctx->state.reg.r[lower + 1];
+      update_cs (&cpu_ctx->state, help, VAR_LONG);
     }
   else
     {
       if (upper == lower + 1)
 	{
-	  cpu->reg.r[upper + 1] = cpu->reg.r[lower + 1];
-	  cpu->reg.r[upper] = cpu->reg.r[lower];
+	  cpu_ctx->state.reg.r[upper + 1] = cpu_ctx->state.reg.r[lower + 1];
+	  cpu_ctx->state.reg.r[upper] = cpu_ctx->state.reg.r[lower];
 	}
       else
 	{
-	  cpu->reg.r[upper] = cpu->reg.r[lower];
-	  cpu->reg.r[upper + 1] = cpu->reg.r[lower + 1];
+	  cpu_ctx->state.reg.r[upper] = cpu_ctx->state.reg.r[lower];
+	  cpu_ctx->state.reg.r[upper + 1] = cpu_ctx->state.reg.r[lower + 1];
 	}
-      update_cs (cpu, &cpu->reg.r[upper], VAR_LONG);
+      update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_LONG);
     }
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_DLR);
 }
 
 static int
-ex_dli (struct cpu_state *cpu, ushort opcode) /* 88xy */
+ex_dli (struct cpu_context *cpu_ctx, ushort opcode) /* 88xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr, (short *) &addr);
 
   if (upper == 15)
     {
       short help[2];
-      GET (DATA, addr, &cpu->reg.r[15]);
-      help[0] = cpu->reg.r[15];
-      GET (DATA, addr + 1, &cpu->reg.r[0]);
-      help[1] = cpu->reg.r[0];
-      update_cs (cpu, help, VAR_LONG);
+      GET (DATA, addr, &cpu_ctx->state.reg.r[15]);
+      help[0] = cpu_ctx->state.reg.r[15];
+      GET (DATA, addr + 1, &cpu_ctx->state.reg.r[0]);
+      help[1] = cpu_ctx->state.reg.r[0];
+      update_cs (&cpu_ctx->state, help, VAR_LONG);
     }
   else
     {
-      GET (DATA, addr, &cpu->reg.r[upper]);
-      GET (DATA, addr + 1, &cpu->reg.r[upper + 1]);
-      update_cs (cpu, &cpu->reg.r[upper], VAR_LONG);
+      GET (DATA, addr, &cpu_ctx->state.reg.r[upper]);
+      GET (DATA, addr + 1, &cpu_ctx->state.reg.r[upper + 1]);
+      update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_LONG);
     }
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_DLI);
 }
 
 static int
-ex_lm (struct cpu_state *cpu, ushort opcode) /* 89xy */
+ex_lm (struct cpu_context *cpu_ctx, ushort opcode) /* 89xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort i, addr;
   int n_loads = (int) upper + 1;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   for (i = 0; i <= upper; i++)
-    GET (DATA, addr + i, &cpu->reg.r[i]);
-  update_cs (cpu, &cpu->reg.r[upper], VAR_INT);
+    GET (DATA, addr + i, &cpu_ctx->state.reg.r[i]);
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_INT);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_LM);
 }
 
 static int
-ex_efl (struct cpu_state *cpu, ushort opcode) /* 8Axy */
+ex_efl (struct cpu_context *cpu_ctx, ushort opcode) /* 8Axy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr, i;
   short help[3];
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   for (i = 0; i < 3; i++)
     {
       GET (DATA, addr + i, (short *) &help[i]);
-      cpu->reg.r[(upper + i) % 16] = help[i];
+      cpu_ctx->state.reg.r[(upper + i) % 16] = help[i];
     }
-  update_cs (cpu, help, VAR_DOUBLE);
+  update_cs (&cpu_ctx->state, help, VAR_DOUBLE);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_EFL);
 }
 
 static int
-ex_lub (struct cpu_state *cpu, ushort opcode) /* 8Bxy */
+ex_lub (struct cpu_context *cpu_ctx, ushort opcode) /* 8Bxy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
   short help;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr, &help);
 
-  cpu->reg.r[upper] = (cpu->reg.r[upper] & 0xFF00) | ((help >> 8) & 0x00FF);
-  update_cs (cpu, &cpu->reg.r[upper], VAR_INT);
+  cpu_ctx->state.reg.r[upper] = (cpu_ctx->state.reg.r[upper] & 0xFF00) | ((help >> 8) & 0x00FF);
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_INT);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_LUB);
 }
 
 static int
-ex_llb (struct cpu_state *cpu, ushort opcode) /* 8Cxy */
+ex_llb (struct cpu_context *cpu_ctx, ushort opcode) /* 8Cxy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
   short help;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr, &help);
 
-  cpu->reg.r[upper] = (cpu->reg.r[upper] & 0xFF00) | (help & 0x00FF);
-  update_cs (cpu, &cpu->reg.r[upper], VAR_INT);
+  cpu_ctx->state.reg.r[upper] = (cpu_ctx->state.reg.r[upper] & 0xFF00) | (help & 0x00FF);
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_INT);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_LLB);
 }
 
 static int
-ex_lubi (struct cpu_state *cpu, ushort opcode) /* 8Dxy */
+ex_lubi (struct cpu_context *cpu_ctx, ushort opcode) /* 8Dxy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
   short help;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr, (short *) &addr);
   GET (DATA, addr, &help);
 
-  cpu->reg.r[upper] = (cpu->reg.r[upper] & 0xFF00) | ((help >> 8) & 0x00FF);
-  update_cs (cpu, &cpu->reg.r[upper], VAR_INT);
+  cpu_ctx->state.reg.r[upper] = (cpu_ctx->state.reg.r[upper] & 0xFF00) | ((help >> 8) & 0x00FF);
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_INT);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_LUBI);
 }
 
 static int
-ex_llbi (struct cpu_state *cpu, ushort opcode) /* 8Exy */
+ex_llbi (struct cpu_context *cpu_ctx, ushort opcode) /* 8Exy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
   short help;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr, (short *) &addr);
   GET (DATA, addr, &help);
 
-  cpu->reg.r[upper] = (cpu->reg.r[upper] & 0xFF00) | (help & 0x00FF);
-  update_cs (cpu, &cpu->reg.r[upper], VAR_INT);
+  cpu_ctx->state.reg.r[upper] = (cpu_ctx->state.reg.r[upper] & 0xFF00) | (help & 0x00FF);
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_INT);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_LLBI);
 }
 
 static int
-ex_popm (struct cpu_state *cpu, ushort opcode) /* 8Fxy */
+ex_popm (struct cpu_context *cpu_ctx, ushort opcode) /* 8Fxy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
@@ -2480,8 +2480,8 @@ ex_popm (struct cpu_state *cpu, ushort opcode) /* 8Fxy */
       for (count = upper; count <= lower; count++)
 	{
 	  if (count != 15)
-	    GET (DATA, (ushort) cpu->reg.r[15], &cpu->reg.r[count]);
-	  cpu->reg.r[15]++;
+	    GET (DATA, (ushort) cpu_ctx->state.reg.r[15], &cpu_ctx->state.reg.r[count]);
+	  cpu_ctx->state.reg.r[15]++;
 	}
     }
   else
@@ -2490,315 +2490,315 @@ ex_popm (struct cpu_state *cpu, ushort opcode) /* 8Fxy */
       for (count = upper; count <= 15; count++)
 	{
 	  if (count != 15)
-	    GET (DATA, (ushort) cpu->reg.r[15], &cpu->reg.r[count]);
-	  cpu->reg.r[15]++;
+	    GET (DATA, (ushort) cpu_ctx->state.reg.r[15], &cpu_ctx->state.reg.r[count]);
+	  cpu_ctx->state.reg.r[15]++;
 	}
       for (count = 0; count <= lower; count++)
 	{
-	  GET (DATA, (ushort) cpu->reg.r[15], &cpu->reg.r[count]);
-	  cpu->reg.r[15]++;
+	  GET (DATA, (ushort) cpu_ctx->state.reg.r[15], &cpu_ctx->state.reg.r[count]);
+	  cpu_ctx->state.reg.r[15]++;
 	}
     }
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_POPM);
 }
 
 static int
-ex_st (struct cpu_state *cpu, ushort opcode) /* 90xy */
+ex_st (struct cpu_context *cpu_ctx, ushort opcode) /* 90xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
 
-  PUT (DATA, addr, cpu->reg.r[upper]);
+  PUT (DATA, addr, cpu_ctx->state.reg.r[upper]);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_ST);
 }
 
 static int
-ex_stc (struct cpu_state *cpu, ushort opcode) /* 91xy */
+ex_stc (struct cpu_context *cpu_ctx, ushort opcode) /* 91xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
 
   PUT (DATA, addr, (short) upper);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_STC);
 }
 
 static int
-ex_stci (struct cpu_state *cpu, ushort opcode) /* 92xy */
+ex_stci (struct cpu_context *cpu_ctx, ushort opcode) /* 92xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr, (short *) &addr);
 
   PUT (DATA, addr, (short) upper);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_STCI);
 }
 
 static int
-ex_mov (struct cpu_state *cpu, ushort opcode) /* 93xy */
+ex_mov (struct cpu_context *cpu_ctx, ushort opcode) /* 93xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   short data;
-  ushort source  = (ushort) cpu->reg.r[lower];
-  ushort destin  = (ushort) cpu->reg.r[upper];
+  ushort source  = (ushort) cpu_ctx->state.reg.r[lower];
+  ushort destin  = (ushort) cpu_ctx->state.reg.r[upper];
   ushort n_moves = 1;
   int single_cycle = nc_MOV;  /* computed on the basis of n_moves = 1 */
 
-  n_moves = (ushort) cpu->reg.r[upper + 1];
+  n_moves = (ushort) cpu_ctx->state.reg.r[upper + 1];
   while (n_moves)
     {
       GET (DATA, source, &data);
       PUT (DATA, destin, data);
-      cpu->reg.r[upper] = ++destin;	/* unsigned op */
-      cpu->reg.r[lower] = ++source;	/* unsigned op */
-      cpu->reg.r[upper + 1] = --n_moves;	/* unsigned op */
-      workout_timing (cpu, single_cycle);
-      if (workout_interrupts (cpu))
+      cpu_ctx->state.reg.r[upper] = ++destin;	/* unsigned op */
+      cpu_ctx->state.reg.r[lower] = ++source;	/* unsigned op */
+      cpu_ctx->state.reg.r[upper + 1] = --n_moves;	/* unsigned op */
+      workout_timing (&cpu_ctx->state, single_cycle);
+      if (workout_interrupts (&cpu_ctx->state))
         return (nc_MOV);
     }
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_MOV);
 }
 
 static int
-ex_sti (struct cpu_state *cpu, ushort opcode) /* 94xy */
+ex_sti (struct cpu_context *cpu_ctx, ushort opcode) /* 94xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr, (short *) &addr);
 
-  PUT (DATA, addr, cpu->reg.r[upper]);
+  PUT (DATA, addr, cpu_ctx->state.reg.r[upper]);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_STI);
 }
 
 static int
-ex_sfbs (struct cpu_state *cpu, ushort opcode) /* 95xy */
+ex_sfbs (struct cpu_context *cpu_ctx, ushort opcode) /* 95xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort i;
 
   for (i = 0; i < 16; i++)
-    if (cpu->reg.r[upper] & (1 << (15 - i)))
+    if (cpu_ctx->state.reg.r[upper] & (1 << (15 - i)))
       break;
-  cpu->reg.r[lower] = i;
+  cpu_ctx->state.reg.r[lower] = i;
   if (i == 16)
-    cpu->reg.sw = (cpu->reg.sw & 0x0FFF) | CS_ZERO;
+    cpu_ctx->state.reg.sw = (cpu_ctx->state.reg.sw & 0x0FFF) | CS_ZERO;
   else
-    update_cs (cpu, &cpu->reg.r[lower], VAR_INT);
+    update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[lower], VAR_INT);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (6);  /* that's what GVSC takes, anyways... */
 }
 
 static int
-ex_dst (struct cpu_state *cpu, ushort opcode) /* 96xy */
+ex_dst (struct cpu_context *cpu_ctx, ushort opcode) /* 96xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
 
-  PUT (DATA, addr, cpu->reg.r[upper]);
-  PUT (DATA, addr + 1, cpu->reg.r[upper + 1]);
+  PUT (DATA, addr, cpu_ctx->state.reg.r[upper]);
+  PUT (DATA, addr + 1, cpu_ctx->state.reg.r[upper + 1]);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_DST);
 }
 
 static int
-ex_srm (struct cpu_state *cpu, ushort opcode) /* 97xy */
+ex_srm (struct cpu_context *cpu_ctx, ushort opcode) /* 97xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort destin;
   short help1, help2, mask;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &destin);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &destin);
   destin += CHK_RX ();
 
-  mask = cpu->reg.r[upper + 1];
-  help1 = cpu->reg.r[upper] & mask;
+  mask = cpu_ctx->state.reg.r[upper + 1];
+  help1 = cpu_ctx->state.reg.r[upper] & mask;
   GET (DATA, destin, &help2);
   help2 &= ~mask;
 
   PUT (DATA, destin, help1 | help2);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_SRM);
 }
 
 static int
-ex_dsti (struct cpu_state *cpu, ushort opcode) /* 98xy */
+ex_dsti (struct cpu_context *cpu_ctx, ushort opcode) /* 98xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr, (short *) &addr);
 
-  PUT (DATA, addr, cpu->reg.r[upper]);
-  PUT (DATA, addr + 1, cpu->reg.r[upper + 1]);
+  PUT (DATA, addr, cpu_ctx->state.reg.r[upper]);
+  PUT (DATA, addr + 1, cpu_ctx->state.reg.r[upper + 1]);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_DSTI);
 }
 
 static int
-ex_stm (struct cpu_state *cpu, ushort opcode) /* 99xy */
+ex_stm (struct cpu_context *cpu_ctx, ushort opcode) /* 99xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort i, addr;
   int n_stores = (int) upper + 1;  /* for stime.h calculation of nc_STM */
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
 
   for (i = 0; i <= upper; i++)
-    PUT (DATA, addr + i, cpu->reg.r[i]);
+    PUT (DATA, addr + i, cpu_ctx->state.reg.r[i]);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_STM);
 }
 
 static int
-ex_efst (struct cpu_state *cpu, ushort opcode) /* 9Axy */
+ex_efst (struct cpu_context *cpu_ctx, ushort opcode) /* 9Axy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort i;
   ushort addr;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
 
   for (i = 0; i < 3; i++)
-    PUT (DATA, addr + i, cpu->reg.r[(upper + i) % 16]);
+    PUT (DATA, addr + i, cpu_ctx->state.reg.r[(upper + i) % 16]);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_EFST);
 }
 
 static int
-ex_stub (struct cpu_state *cpu, ushort opcode) /* 9Bxy */
+ex_stub (struct cpu_context *cpu_ctx, ushort opcode) /* 9Bxy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
   short help;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr, &help);
   
-  PUT (DATA, addr, (cpu->reg.r[upper] << 8) | (help & 0x00FF));
+  PUT (DATA, addr, (cpu_ctx->state.reg.r[upper] << 8) | (help & 0x00FF));
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_STUB);
 }
 
 static int
-ex_stlb (struct cpu_state *cpu, ushort opcode) /* 9Cxy */
+ex_stlb (struct cpu_context *cpu_ctx, ushort opcode) /* 9Cxy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
   short help;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr, &help);
   
-  PUT (DATA, addr, (cpu->reg.r[upper] & 0x00FF) | (help & 0xFF00));
+  PUT (DATA, addr, (cpu_ctx->state.reg.r[upper] & 0x00FF) | (help & 0xFF00));
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_STLB);
 }
 
 static int
-ex_subi (struct cpu_state *cpu, ushort opcode) /* 9Dxy */
+ex_subi (struct cpu_context *cpu_ctx, ushort opcode) /* 9Dxy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
   short help;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr, (short *) &addr);
   GET (DATA, addr, &help);
   
-  PUT (DATA, addr, (cpu->reg.r[upper] << 8) | (help & 0x00FF));
+  PUT (DATA, addr, (cpu_ctx->state.reg.r[upper] << 8) | (help & 0x00FF));
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_SUBI);
 }
 
 static int
-ex_slbi (struct cpu_state *cpu, ushort opcode) /* 9Exy */
+ex_slbi (struct cpu_context *cpu_ctx, ushort opcode) /* 9Exy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
   short help;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr, (short *) &addr);
   GET (DATA, addr, &help);
   
-  PUT (DATA, addr, (cpu->reg.r[upper] & 0x00FF) | (help & 0xFF00));
+  PUT (DATA, addr, (cpu_ctx->state.reg.r[upper] & 0x00FF) | (help & 0xFF00));
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_SLBI);
 }
 
 static int
-ex_pshm (struct cpu_state *cpu, ushort opcode) /* 9Fxy */
+ex_pshm (struct cpu_context *cpu_ctx, ushort opcode) /* 9Fxy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   int count = (int) lower, n_pushes;
-  ushort stkptr = (ushort) cpu->reg.r[15];
+  ushort stkptr = (ushort) cpu_ctx->state.reg.r[15];
 
   if (upper <= lower)
     {
       n_pushes = lower - upper + 1;
       while (count >= (int) upper)
 	{
-	  PUT (DATA, --stkptr, cpu->reg.r[count]);
+	  PUT (DATA, --stkptr, cpu_ctx->state.reg.r[count]);
 	  count--;
 	}
     }
@@ -2807,233 +2807,233 @@ ex_pshm (struct cpu_state *cpu, ushort opcode) /* 9Fxy */
       n_pushes = 16 - upper + lower + 1;
       while (count >= 0)
 	{
-	  PUT (DATA, --stkptr, cpu->reg.r[count]);
+	  PUT (DATA, --stkptr, cpu_ctx->state.reg.r[count]);
 	  count--;
 	}
       count = 15;
       while (count >= (int) upper)
 	{
-	  PUT (DATA, --stkptr, cpu->reg.r[count]);
+	  PUT (DATA, --stkptr, cpu_ctx->state.reg.r[count]);
 	  count--;
 	}
     }
-  cpu->reg.r[15] = (short) stkptr;
+  cpu_ctx->state.reg.r[15] = (short) stkptr;
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_PSHM);
 }
 
 static int
-ex_a (struct cpu_state *cpu, ushort opcode) /* A0xy */
+ex_a (struct cpu_context *cpu_ctx, ushort opcode) /* A0xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
   short help;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr, &help);
 
-  arith (cpu, ARI_ADD, VAR_INT, &cpu->reg.r[upper], &help);
+  arith (&cpu_ctx->state, ARI_ADD, VAR_INT, &cpu_ctx->state.reg.r[upper], &help);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_A);
 }
 
 static int
-ex_ar (struct cpu_state *cpu, ushort opcode) /* A1xy */
+ex_ar (struct cpu_context *cpu_ctx, ushort opcode) /* A1xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  arith (cpu, ARI_ADD, VAR_INT, &cpu->reg.r[upper], &cpu->reg.r[lower]);
+  arith (&cpu_ctx->state, ARI_ADD, VAR_INT, &cpu_ctx->state.reg.r[upper], &cpu_ctx->state.reg.r[lower]);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_AR);
 }
 
 static int
-ex_aisp (struct cpu_state *cpu, ushort opcode) /* A2xy */
+ex_aisp (struct cpu_context *cpu_ctx, ushort opcode) /* A2xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   short help = (short) lower + 1;
 
-  arith (cpu, ARI_ADD, VAR_INT, &cpu->reg.r[upper], &help);
+  arith (&cpu_ctx->state, ARI_ADD, VAR_INT, &cpu_ctx->state.reg.r[upper], &help);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_AISP);
 }
 
 static int
-ex_incm (struct cpu_state *cpu, ushort opcode) /* A3xy */
+ex_incm (struct cpu_context *cpu_ctx, ushort opcode) /* A3xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
   short help1, help2 = upper + 1;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr, &help1);
 
-  arith (cpu, ARI_ADD, VAR_INT, &help1, &help2);
+  arith (&cpu_ctx->state, ARI_ADD, VAR_INT, &help1, &help2);
   PUT (DATA, addr, help1);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_INCM);
 }
 
 static int
-ex_abs (struct cpu_state *cpu, ushort opcode) /* A4xy */
+ex_abs (struct cpu_context *cpu_ctx, ushort opcode) /* A4xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   int negative = 0;  /* for stime.h cycle computation */
 
-  if (cpu->reg.r[lower] == -32768)
+  if (cpu_ctx->state.reg.r[lower] == -32768)
     {
-      cpu->reg.r[upper] = -32768;
-      cpu->reg.pir |= INTR_FIXOFL;
+      cpu_ctx->state.reg.r[upper] = -32768;
+      cpu_ctx->state.reg.pir |= INTR_FIXOFL;
     }
-  else if (cpu->reg.r[upper] < 0)
+  else if (cpu_ctx->state.reg.r[upper] < 0)
     {
       negative = 1;
-      cpu->reg.r[upper] = -cpu->reg.r[lower];
+      cpu_ctx->state.reg.r[upper] = -cpu_ctx->state.reg.r[lower];
     }
   else
-    cpu->reg.r[upper] = cpu->reg.r[lower];
-  update_cs (cpu, &cpu->reg.r[upper], VAR_INT);
+    cpu_ctx->state.reg.r[upper] = cpu_ctx->state.reg.r[lower];
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_INT);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_ABS);
 }
 
 static int
-ex_dabs (struct cpu_state *cpu, ushort opcode) /* A5xy */
+ex_dabs (struct cpu_context *cpu_ctx, ushort opcode) /* A5xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  int help = ((int) cpu->reg.r[lower] << 16)
-	   | ((int) cpu->reg.r[lower+1] & 0x0000FFFF);
+  int help = ((int) cpu_ctx->state.reg.r[lower] << 16)
+	   | ((int) cpu_ctx->state.reg.r[lower+1] & 0x0000FFFF);
   int negative = 0;  /* for stime.h cycle computation */
 
   if (help == -0x80000000)
     {
-      cpu->reg.r[upper] = -0x8000;
-      cpu->reg.r[upper + 1] = 0;
-      cpu->reg.pir |= INTR_FIXOFL;
+      cpu_ctx->state.reg.r[upper] = -0x8000;
+      cpu_ctx->state.reg.r[upper + 1] = 0;
+      cpu_ctx->state.reg.pir |= INTR_FIXOFL;
     }
   else if (help < 0)
     {
       negative = 1;
       help = -help;
     }
-  cpu->reg.r[upper] = (short) (help >> 16);
-  cpu->reg.r[upper + 1] = (short) (help & 0xFFFF);
-  update_cs (cpu, &cpu->reg.r[upper], VAR_LONG);
+  cpu_ctx->state.reg.r[upper] = (short) (help >> 16);
+  cpu_ctx->state.reg.r[upper + 1] = (short) (help & 0xFFFF);
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_LONG);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_DABS);
 }
 
 static int
-ex_da (struct cpu_state *cpu, ushort opcode) /* A6xy */
+ex_da (struct cpu_context *cpu_ctx, ushort opcode) /* A6xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
   short help[2];
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr, &help[0]);
   GET (DATA, addr + 1, &help[1]);
 
-  arith (cpu, ARI_ADD, VAR_LONG, &cpu->reg.r[upper], help);
+  arith (&cpu_ctx->state, ARI_ADD, VAR_LONG, &cpu_ctx->state.reg.r[upper], help);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_DA);
 }
 
 static int
-ex_dar (struct cpu_state *cpu, ushort opcode) /* A7xy */
+ex_dar (struct cpu_context *cpu_ctx, ushort opcode) /* A7xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  arith (cpu, ARI_ADD, VAR_LONG, &cpu->reg.r[upper], &cpu->reg.r[lower]);
+  arith (&cpu_ctx->state, ARI_ADD, VAR_LONG, &cpu_ctx->state.reg.r[upper], &cpu_ctx->state.reg.r[lower]);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_DAR);
 }
 
 static int
-ex_fa (struct cpu_state *cpu, ushort opcode) /* A8xy */
+ex_fa (struct cpu_context *cpu_ctx, ushort opcode) /* A8xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
   short help[2];
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr, &help[0]);
   GET (DATA, addr + 1, &help[1]);
 
-  arith (cpu, ARI_ADD, VAR_FLOAT, &cpu->reg.r[upper], help);
+  arith (&cpu_ctx->state, ARI_ADD, VAR_FLOAT, &cpu_ctx->state.reg.r[upper], help);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_FA);
 }
 
 static int
-ex_far (struct cpu_state *cpu, ushort opcode) /* A9xy */
+ex_far (struct cpu_context *cpu_ctx, ushort opcode) /* A9xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  arith (cpu, ARI_ADD, VAR_FLOAT, &cpu->reg.r[upper], &cpu->reg.r[lower]);
+  arith (&cpu_ctx->state, ARI_ADD, VAR_FLOAT, &cpu_ctx->state.reg.r[upper], &cpu_ctx->state.reg.r[lower]);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_FAR);
 }
 
 static int
-ex_efa (struct cpu_state *cpu, ushort opcode) /* AAxy */
+ex_efa (struct cpu_context *cpu_ctx, ushort opcode) /* AAxy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
   short help[3];
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr,     &help[0]);
   GET (DATA, addr + 1, &help[1]);
   GET (DATA, addr + 2, &help[2]);
 
-  arith (cpu, ARI_ADD, VAR_DOUBLE, &cpu->reg.r[upper], help);
+  arith (&cpu_ctx->state, ARI_ADD, VAR_DOUBLE, &cpu_ctx->state.reg.r[upper], help);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_EFA);
 }
 
 static int
-ex_efar (struct cpu_state *cpu, ushort opcode) /* ABxy */
+ex_efar (struct cpu_context *cpu_ctx, ushort opcode) /* ABxy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  arith (cpu, ARI_ADD, VAR_DOUBLE, &cpu->reg.r[upper], &cpu->reg.r[lower]);
+  arith (&cpu_ctx->state, ARI_ADD, VAR_DOUBLE, &cpu_ctx->state.reg.r[upper], &cpu_ctx->state.reg.r[lower]);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_EFAR);
 }
 
 static int
-ex_fabs (struct cpu_state *cpu, ushort opcode) /* ACxy */
+ex_fabs (struct cpu_context *cpu_ctx, ushort opcode) /* ACxy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  ushort mant_signword = (ushort) cpu->reg.r[lower];
+  ushort mant_signword = (ushort) cpu_ctx->state.reg.r[lower];
   short help[2];
   int negative = 0;
 
@@ -3041,41 +3041,41 @@ ex_fabs (struct cpu_state *cpu, ushort opcode) /* ACxy */
     {
       negative = 1;
       help[0] = help[1] = 0;
-      arith (cpu, ARI_SUB, VAR_FLOAT, help, &cpu->reg.r[lower]);
+      arith (&cpu_ctx->state, ARI_SUB, VAR_FLOAT, help, &cpu_ctx->state.reg.r[lower]);
     }
   else
       /* Going through a help variable guards against situations such as:  */
     { /* "FABS R2,R1" , where a needed register would otherwise be clobbered. */
-      help[0] = cpu->reg.r[lower];
-      help[1] = cpu->reg.r[lower + 1];
-      update_cs (cpu, help, VAR_FLOAT);
+      help[0] = cpu_ctx->state.reg.r[lower];
+      help[1] = cpu_ctx->state.reg.r[lower + 1];
+      update_cs (&cpu_ctx->state, help, VAR_FLOAT);
     }
-  cpu->reg.r[upper] = help[0];
-  cpu->reg.r[upper + 1] = help[1];
+  cpu_ctx->state.reg.r[upper] = help[0];
+  cpu_ctx->state.reg.r[upper + 1] = help[1];
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_FABS);
 }
 
 static int
-ex_uar (struct cpu_state *cpu, ushort opcode) /* ADxy */
+ex_uar (struct cpu_context *cpu_ctx, ushort opcode) /* ADxy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  uint lhelp = (uint) cpu->reg.r[upper] + (uint) cpu->reg.r[lower];
+  uint lhelp = (uint) cpu_ctx->state.reg.r[upper] + (uint) cpu_ctx->state.reg.r[lower];
 
-  cpu->reg.r[upper] = (short) lhelp;
+  cpu_ctx->state.reg.r[upper] = (short) lhelp;
   if (lhelp > 0xFFFF)
-    cpu->reg.sw = (cpu->reg.sw & 0x0FFF) | CS_CARRY;
+    cpu_ctx->state.reg.sw = (cpu_ctx->state.reg.sw & 0x0FFF) | CS_CARRY;
   else
-    update_cs (cpu, &cpu->reg.r[upper], VAR_INT);
+    update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_INT);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_AR);
 }
 
 static int
-ex_ua (struct cpu_state *cpu, ushort opcode) /* AExy */
+ex_ua (struct cpu_context *cpu_ctx, ushort opcode) /* AExy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
@@ -3083,238 +3083,238 @@ ex_ua (struct cpu_state *cpu, ushort opcode) /* AExy */
   short help;
   uint lhelp;  /* need it for some brain damaged C compilers */
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr, &help);
 
-  lhelp = (uint) cpu->reg.r[upper] + (uint) help;
-  cpu->reg.r[upper] = (short) lhelp;
+  lhelp = (uint) cpu_ctx->state.reg.r[upper] + (uint) help;
+  cpu_ctx->state.reg.r[upper] = (short) lhelp;
   if (lhelp > 0xFFFF)
-    cpu->reg.sw = (cpu->reg.sw & 0x0FFF) | CS_CARRY;
+    cpu_ctx->state.reg.sw = (cpu_ctx->state.reg.sw & 0x0FFF) | CS_CARRY;
   else
-    update_cs (cpu, &cpu->reg.r[upper], VAR_INT);
+    update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_INT);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_A);
 }
 
 static int
-ex_s (struct cpu_state *cpu, ushort opcode) /* B0xy */
+ex_s (struct cpu_context *cpu_ctx, ushort opcode) /* B0xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
   short help;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr, &help);
 
-  arith (cpu, ARI_SUB, VAR_INT, &cpu->reg.r[upper], &help);
+  arith (&cpu_ctx->state, ARI_SUB, VAR_INT, &cpu_ctx->state.reg.r[upper], &help);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_S);
 }
 
 static int
-ex_sr (struct cpu_state *cpu, ushort opcode) /* B1xy */
+ex_sr (struct cpu_context *cpu_ctx, ushort opcode) /* B1xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  arith (cpu, ARI_SUB, VAR_INT, &cpu->reg.r[upper], &cpu->reg.r[lower]);
+  arith (&cpu_ctx->state, ARI_SUB, VAR_INT, &cpu_ctx->state.reg.r[upper], &cpu_ctx->state.reg.r[lower]);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_SR);
 }
 
 static int
-ex_sisp (struct cpu_state *cpu, ushort opcode) /* B2xy */
+ex_sisp (struct cpu_context *cpu_ctx, ushort opcode) /* B2xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   short help;
 
   help = (short) (lower + 1);
-  arith (cpu, ARI_SUB, VAR_INT, &cpu->reg.r[upper], &help);
+  arith (&cpu_ctx->state, ARI_SUB, VAR_INT, &cpu_ctx->state.reg.r[upper], &help);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_SISP);
 }
 
 static int
-ex_decm (struct cpu_state *cpu, ushort opcode) /* B3xy */
+ex_decm (struct cpu_context *cpu_ctx, ushort opcode) /* B3xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
   short help1, help2 = upper + 1;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr, &help1);
 
-  arith (cpu, ARI_SUB, VAR_INT, &help1, &help2);
+  arith (&cpu_ctx->state, ARI_SUB, VAR_INT, &help1, &help2);
   PUT (DATA, addr, help1);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_DECM);
 }
 
 static int
-ex_neg (struct cpu_state *cpu, ushort opcode) /* B4xy */
+ex_neg (struct cpu_context *cpu_ctx, ushort opcode) /* B4xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  cpu->reg.r[upper] = -cpu->reg.r[lower];
-  update_cs (cpu, &cpu->reg.r[upper], VAR_INT);
+  cpu_ctx->state.reg.r[upper] = -cpu_ctx->state.reg.r[lower];
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_INT);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_NEG);
 }
 
 static int
-ex_dneg (struct cpu_state *cpu, ushort opcode) /* B5xy */
+ex_dneg (struct cpu_context *cpu_ctx, ushort opcode) /* B5xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  int help = ((int) cpu->reg.r[lower] << 16)
-           | ((int) cpu->reg.r[lower+1] & 0xFFFF);
+  int help = ((int) cpu_ctx->state.reg.r[lower] << 16)
+           | ((int) cpu_ctx->state.reg.r[lower+1] & 0xFFFF);
 
   help = -help;
-  cpu->reg.r[upper] = (short) (help >> 16);
-  cpu->reg.r[upper + 1] = (short) (help & 0xFFFF);
-  update_cs (cpu, &cpu->reg.r[upper], VAR_LONG);
+  cpu_ctx->state.reg.r[upper] = (short) (help >> 16);
+  cpu_ctx->state.reg.r[upper + 1] = (short) (help & 0xFFFF);
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_LONG);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_DNEG);
 }
 
 static int
-ex_ds (struct cpu_state *cpu, ushort opcode) /* B6xy */
+ex_ds (struct cpu_context *cpu_ctx, ushort opcode) /* B6xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
   short help[2];
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr, &help[0]);
   GET (DATA, addr + 1, &help[1]);
 
-  arith (cpu, ARI_SUB, VAR_LONG, &cpu->reg.r[upper], help);
+  arith (&cpu_ctx->state, ARI_SUB, VAR_LONG, &cpu_ctx->state.reg.r[upper], help);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_DS);
 }
 
 static int
-ex_dsr (struct cpu_state *cpu, ushort opcode) /* B7xy */
+ex_dsr (struct cpu_context *cpu_ctx, ushort opcode) /* B7xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  arith (cpu, ARI_SUB, VAR_LONG, &cpu->reg.r[upper], &cpu->reg.r[lower]);
+  arith (&cpu_ctx->state, ARI_SUB, VAR_LONG, &cpu_ctx->state.reg.r[upper], &cpu_ctx->state.reg.r[lower]);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_DSR);
 }
 
 static int
-ex_fs (struct cpu_state *cpu, ushort opcode) /* B8xy */
+ex_fs (struct cpu_context *cpu_ctx, ushort opcode) /* B8xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
   short help[2];
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr, &help[0]);
   GET (DATA, addr + 1, &help[1]);
 
-  arith (cpu, ARI_SUB, VAR_FLOAT, &cpu->reg.r[upper], help);
+  arith (&cpu_ctx->state, ARI_SUB, VAR_FLOAT, &cpu_ctx->state.reg.r[upper], help);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_FS);
 }
 
 static int
-ex_fsr (struct cpu_state *cpu, ushort opcode) /* B9xy */
+ex_fsr (struct cpu_context *cpu_ctx, ushort opcode) /* B9xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  arith (cpu, ARI_SUB, VAR_FLOAT, &cpu->reg.r[upper], &cpu->reg.r[lower]);
+  arith (&cpu_ctx->state, ARI_SUB, VAR_FLOAT, &cpu_ctx->state.reg.r[upper], &cpu_ctx->state.reg.r[lower]);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_FSR);
 }
 
 static int
-ex_efs (struct cpu_state *cpu, ushort opcode) /* BAxy */
+ex_efs (struct cpu_context *cpu_ctx, ushort opcode) /* BAxy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
   short help[3];
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr,     &help[0]);
   GET (DATA, addr + 1, &help[1]);
   GET (DATA, addr + 2, &help[2]);
 
-  arith (cpu, ARI_SUB, VAR_DOUBLE, &cpu->reg.r[upper], help);
+  arith (&cpu_ctx->state, ARI_SUB, VAR_DOUBLE, &cpu_ctx->state.reg.r[upper], help);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_EFS);
 }
 
 static int
-ex_efsr (struct cpu_state *cpu, ushort opcode) /* BBxy */
+ex_efsr (struct cpu_context *cpu_ctx, ushort opcode) /* BBxy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  arith (cpu, ARI_SUB, VAR_DOUBLE, &cpu->reg.r[upper], &cpu->reg.r[lower]);
+  arith (&cpu_ctx->state, ARI_SUB, VAR_DOUBLE, &cpu_ctx->state.reg.r[upper], &cpu_ctx->state.reg.r[lower]);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_EFSR);
 }
 
 static int
-ex_fneg (struct cpu_state *cpu, ushort opcode) /* BCxy */
+ex_fneg (struct cpu_context *cpu_ctx, ushort opcode) /* BCxy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   short help[2];
 
   help[0] = help[1] = 0;    /* happens to be a floating zero */
-  arith (cpu, ARI_SUB, VAR_FLOAT, help, &cpu->reg.r[lower]);
-  cpu->reg.r[upper] = help[0];
-  cpu->reg.r[upper+1] = help[1];
+  arith (&cpu_ctx->state, ARI_SUB, VAR_FLOAT, help, &cpu_ctx->state.reg.r[lower]);
+  cpu_ctx->state.reg.r[upper] = help[0];
+  cpu_ctx->state.reg.r[upper+1] = help[1];
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_FNEG);
 }
 
 static int
-ex_usr (struct cpu_state *cpu, ushort opcode) /* BDxy */
+ex_usr (struct cpu_context *cpu_ctx, ushort opcode) /* BDxy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  uint lhelp = (uint) cpu->reg.r[upper] - (uint) cpu->reg.r[lower];
+  uint lhelp = (uint) cpu_ctx->state.reg.r[upper] - (uint) cpu_ctx->state.reg.r[lower];
 
-  cpu->reg.r[upper] = (short) lhelp;
+  cpu_ctx->state.reg.r[upper] = (short) lhelp;
   if (lhelp > 0xFFFF)
-    cpu->reg.sw = (cpu->reg.sw & 0x0FFF) | CS_CARRY;
+    cpu_ctx->state.reg.sw = (cpu_ctx->state.reg.sw & 0x0FFF) | CS_CARRY;
   else
-    update_cs (cpu, &cpu->reg.r[upper], VAR_INT);
+    update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_INT);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_SR);
 }
 
 static int
-ex_us (struct cpu_state *cpu, ushort opcode) /* BExy */
+ex_us (struct cpu_context *cpu_ctx, ushort opcode) /* BExy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
@@ -3322,606 +3322,606 @@ ex_us (struct cpu_state *cpu, ushort opcode) /* BExy */
   short help;
   uint lhelp;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr, &help);
 
-  lhelp = (uint) cpu->reg.r[upper] - (uint) help;
-  cpu->reg.r[upper] = (short) lhelp;
+  lhelp = (uint) cpu_ctx->state.reg.r[upper] - (uint) help;
+  cpu_ctx->state.reg.r[upper] = (short) lhelp;
   if (lhelp > 0xFFFF)
-    cpu->reg.sw = (cpu->reg.sw & 0x0FFF) | CS_CARRY;
+    cpu_ctx->state.reg.sw = (cpu_ctx->state.reg.sw & 0x0FFF) | CS_CARRY;
   else
-    update_cs (cpu, &cpu->reg.r[upper], VAR_INT);
+    update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_INT);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_S);
 }
 
 static int
-ex_ms (struct cpu_state *cpu, ushort opcode) /* C0xy */
+ex_ms (struct cpu_context *cpu_ctx, ushort opcode) /* C0xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
   short help;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr, &help);
 
-  arith (cpu, ARI_MULS, VAR_INT, &cpu->reg.r[upper], &help);
+  arith (&cpu_ctx->state, ARI_MULS, VAR_INT, &cpu_ctx->state.reg.r[upper], &help);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_MS);
 }
 
 static int
-ex_msr (struct cpu_state *cpu, ushort opcode) /* C1xy */
+ex_msr (struct cpu_context *cpu_ctx, ushort opcode) /* C1xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  arith (cpu, ARI_MULS, VAR_INT, &cpu->reg.r[upper], &cpu->reg.r[lower]);
+  arith (&cpu_ctx->state, ARI_MULS, VAR_INT, &cpu_ctx->state.reg.r[upper], &cpu_ctx->state.reg.r[lower]);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_MSR);
 }
 
 static int
-ex_misp (struct cpu_state *cpu, ushort opcode) /* C2xy */
+ex_misp (struct cpu_context *cpu_ctx, ushort opcode) /* C2xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   short help = (short) (lower + 1);
-  arith (cpu, ARI_MULS, VAR_INT, &cpu->reg.r[upper], &help);
+  arith (&cpu_ctx->state, ARI_MULS, VAR_INT, &cpu_ctx->state.reg.r[upper], &help);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_MISP);
 }
 
 static int
-ex_misn (struct cpu_state *cpu, ushort opcode) /* C3xy */
+ex_misn (struct cpu_context *cpu_ctx, ushort opcode) /* C3xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   short help = -(short) (lower + 1);
-  arith (cpu, ARI_MULS, VAR_INT, &cpu->reg.r[upper], &help);
+  arith (&cpu_ctx->state, ARI_MULS, VAR_INT, &cpu_ctx->state.reg.r[upper], &help);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_MISN);
 }
 
 static int
-ex_m (struct cpu_state *cpu, ushort opcode) /* C4xy */
+ex_m (struct cpu_context *cpu_ctx, ushort opcode) /* C4xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
   short help;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr, &help);
 
-  arith (cpu, ARI_MUL, VAR_INT, &cpu->reg.r[upper], &help);
+  arith (&cpu_ctx->state, ARI_MUL, VAR_INT, &cpu_ctx->state.reg.r[upper], &help);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_M);
 }
 
 static int
-ex_mr (struct cpu_state *cpu, ushort opcode) /* C5xy */
+ex_mr (struct cpu_context *cpu_ctx, ushort opcode) /* C5xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  arith (cpu, ARI_MUL, VAR_INT, &cpu->reg.r[upper], &cpu->reg.r[lower]);
+  arith (&cpu_ctx->state, ARI_MUL, VAR_INT, &cpu_ctx->state.reg.r[upper], &cpu_ctx->state.reg.r[lower]);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_MR);
 }
 
 static int
-ex_dm (struct cpu_state *cpu, ushort opcode) /* C6xy */
+ex_dm (struct cpu_context *cpu_ctx, ushort opcode) /* C6xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
   short help[2];
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr, &help[0]);
   GET (DATA, addr + 1, &help[1]);
 
-  arith (cpu, ARI_MUL, VAR_LONG, &cpu->reg.r[upper], help);
+  arith (&cpu_ctx->state, ARI_MUL, VAR_LONG, &cpu_ctx->state.reg.r[upper], help);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_DM);
 }
 
 static int
-ex_dmr (struct cpu_state *cpu, ushort opcode) /* C7xy */
+ex_dmr (struct cpu_context *cpu_ctx, ushort opcode) /* C7xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  arith (cpu, ARI_MUL, VAR_LONG, &cpu->reg.r[upper], &cpu->reg.r[lower]);
+  arith (&cpu_ctx->state, ARI_MUL, VAR_LONG, &cpu_ctx->state.reg.r[upper], &cpu_ctx->state.reg.r[lower]);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_DMR);
 }
 
 static int
-ex_fm (struct cpu_state *cpu, ushort opcode) /* C8xy */
+ex_fm (struct cpu_context *cpu_ctx, ushort opcode) /* C8xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
   short help[2];
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr, &help[0]);
   GET (DATA, addr + 1, &help[1]);
 
-  arith (cpu, ARI_MUL, VAR_FLOAT, &cpu->reg.r[upper], help);
+  arith (&cpu_ctx->state, ARI_MUL, VAR_FLOAT, &cpu_ctx->state.reg.r[upper], help);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_FM);
 }
 
 static int
-ex_fmr (struct cpu_state *cpu, ushort opcode) /* C9xy */
+ex_fmr (struct cpu_context *cpu_ctx, ushort opcode) /* C9xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  arith (cpu, ARI_MUL, VAR_FLOAT, &cpu->reg.r[upper], &cpu->reg.r[lower]);
+  arith (&cpu_ctx->state, ARI_MUL, VAR_FLOAT, &cpu_ctx->state.reg.r[upper], &cpu_ctx->state.reg.r[lower]);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_FMR);
 }
 
 static int
-ex_efm (struct cpu_state *cpu, ushort opcode) /* CAxy */
+ex_efm (struct cpu_context *cpu_ctx, ushort opcode) /* CAxy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
   short help[3];
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr,     &help[0]);
   GET (DATA, addr + 1, &help[1]);
   GET (DATA, addr + 2, &help[2]);
 
-  arith (cpu, ARI_MUL, VAR_DOUBLE, &cpu->reg.r[upper], help);
+  arith (&cpu_ctx->state, ARI_MUL, VAR_DOUBLE, &cpu_ctx->state.reg.r[upper], help);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_EFM);
 }
 
 static int
-ex_efmr (struct cpu_state *cpu, ushort opcode) /* CBxy */
+ex_efmr (struct cpu_context *cpu_ctx, ushort opcode) /* CBxy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  arith (cpu, ARI_MUL, VAR_DOUBLE, &cpu->reg.r[upper], &cpu->reg.r[lower]);
+  arith (&cpu_ctx->state, ARI_MUL, VAR_DOUBLE, &cpu_ctx->state.reg.r[upper], &cpu_ctx->state.reg.r[lower]);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_EFMR);
 }
 
 static int
-ex_dv (struct cpu_state *cpu, ushort opcode) /* D0xy */
+ex_dv (struct cpu_context *cpu_ctx, ushort opcode) /* D0xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
   short help;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr, &help);
 
-  arith (cpu, ARI_DIVV, VAR_INT, &cpu->reg.r[upper], &help);
+  arith (&cpu_ctx->state, ARI_DIVV, VAR_INT, &cpu_ctx->state.reg.r[upper], &help);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_DV);
 }
 
 static int
-ex_dvr (struct cpu_state *cpu, ushort opcode) /* D1xy */
+ex_dvr (struct cpu_context *cpu_ctx, ushort opcode) /* D1xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  arith (cpu, ARI_DIVV, VAR_INT, &cpu->reg.r[upper], &cpu->reg.r[lower]);
+  arith (&cpu_ctx->state, ARI_DIVV, VAR_INT, &cpu_ctx->state.reg.r[upper], &cpu_ctx->state.reg.r[lower]);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_DVR);
 }
 
 static int
-ex_disp (struct cpu_state *cpu, ushort opcode) /* D2xy */
+ex_disp (struct cpu_context *cpu_ctx, ushort opcode) /* D2xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   short help = (short) (lower + 1);
 
-  arith (cpu, ARI_DIVV, VAR_INT, &cpu->reg.r[upper], &help);
+  arith (&cpu_ctx->state, ARI_DIVV, VAR_INT, &cpu_ctx->state.reg.r[upper], &help);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_DISP);
 }
 
 static int
-ex_disn (struct cpu_state *cpu, ushort opcode) /* D3xy */
+ex_disn (struct cpu_context *cpu_ctx, ushort opcode) /* D3xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   short help = -(short) (lower + 1);
 
-  arith (cpu, ARI_DIVV, VAR_INT, &cpu->reg.r[upper], &help);
+  arith (&cpu_ctx->state, ARI_DIVV, VAR_INT, &cpu_ctx->state.reg.r[upper], &help);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_DISN);
 }
 
 static int
-ex_d (struct cpu_state *cpu, ushort opcode) /* D4xy */
+ex_d (struct cpu_context *cpu_ctx, ushort opcode) /* D4xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
   short help;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr, &help);
 
-  arith (cpu, ARI_DIV, VAR_INT, &cpu->reg.r[upper], &help);
+  arith (&cpu_ctx->state, ARI_DIV, VAR_INT, &cpu_ctx->state.reg.r[upper], &help);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_D);
 }
 
 static int
-ex_dr (struct cpu_state *cpu, ushort opcode) /* D5xy */
+ex_dr (struct cpu_context *cpu_ctx, ushort opcode) /* D5xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  arith (cpu, ARI_DIV, VAR_INT, &cpu->reg.r[upper], &cpu->reg.r[lower]);
+  arith (&cpu_ctx->state, ARI_DIV, VAR_INT, &cpu_ctx->state.reg.r[upper], &cpu_ctx->state.reg.r[lower]);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_DR);
 }
 
 static int
-ex_dd (struct cpu_state *cpu, ushort opcode) /* D6xy */
+ex_dd (struct cpu_context *cpu_ctx, ushort opcode) /* D6xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
   short help[2];
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr, &help[0]);
   GET (DATA, addr + 1, &help[1]);
 
-  arith (cpu, ARI_DIV, VAR_LONG, &cpu->reg.r[upper], help);
+  arith (&cpu_ctx->state, ARI_DIV, VAR_LONG, &cpu_ctx->state.reg.r[upper], help);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_DD);
 }
 
 static int
-ex_ddr (struct cpu_state *cpu, ushort opcode)		/* D7xy */       /* Heute Ostdeutschland! */
+ex_ddr (struct cpu_context *cpu_ctx, ushort opcode)		/* D7xy */       /* Heute Ostdeutschland! */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  arith (cpu, ARI_DIV, VAR_LONG, &cpu->reg.r[upper], &cpu->reg.r[lower]);
+  arith (&cpu_ctx->state, ARI_DIV, VAR_LONG, &cpu_ctx->state.reg.r[upper], &cpu_ctx->state.reg.r[lower]);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_DDR);
 }
 
 static int
-ex_fd (struct cpu_state *cpu, ushort opcode) /* D8xy */
+ex_fd (struct cpu_context *cpu_ctx, ushort opcode) /* D8xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
   short help[2];
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr, &help[0]);
   GET (DATA, addr + 1, &help[1]);
 
-  arith (cpu, ARI_DIV, VAR_FLOAT, &cpu->reg.r[upper], help);
+  arith (&cpu_ctx->state, ARI_DIV, VAR_FLOAT, &cpu_ctx->state.reg.r[upper], help);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_FD);
 }
 
 static int
-ex_fdr (struct cpu_state *cpu, ushort opcode) /* D9xy */
+ex_fdr (struct cpu_context *cpu_ctx, ushort opcode) /* D9xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  arith (cpu, ARI_DIV, VAR_FLOAT, &cpu->reg.r[upper], &cpu->reg.r[lower]);
+  arith (&cpu_ctx->state, ARI_DIV, VAR_FLOAT, &cpu_ctx->state.reg.r[upper], &cpu_ctx->state.reg.r[lower]);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_FDR);
 }
 
 static int
-ex_efd (struct cpu_state *cpu, ushort opcode) /* DAxy */
+ex_efd (struct cpu_context *cpu_ctx, ushort opcode) /* DAxy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
   short help[3];
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr,     &help[0]);
   GET (DATA, addr + 1, &help[1]);
   GET (DATA, addr + 2, &help[2]);
 
-  arith (cpu, ARI_DIV, VAR_DOUBLE, &cpu->reg.r[upper], help);
+  arith (&cpu_ctx->state, ARI_DIV, VAR_DOUBLE, &cpu_ctx->state.reg.r[upper], help);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_EFD);
 }
 
 static int
-ex_efdr (struct cpu_state *cpu, ushort opcode) /* DBxy */
+ex_efdr (struct cpu_context *cpu_ctx, ushort opcode) /* DBxy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  arith (cpu, ARI_DIV, VAR_DOUBLE, &cpu->reg.r[upper], &cpu->reg.r[lower]);
+  arith (&cpu_ctx->state, ARI_DIV, VAR_DOUBLE, &cpu_ctx->state.reg.r[upper], &cpu_ctx->state.reg.r[lower]);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_EFDR);
 }
 
 static int
-ex_ste (struct cpu_state *cpu, ushort opcode) /* DCxy */
+ex_ste (struct cpu_context *cpu_ctx, ushort opcode) /* DCxy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
   uint laddr;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   laddr = (uint) addr;
 
   if (lower > 0)
     {
-      laddr += (uint) cpu->reg.r[lower];
-      laddr += (uint) (cpu->reg.r[lower-1] & 0x7F) << 16;
+      laddr += (uint) cpu_ctx->state.reg.r[lower];
+      laddr += (uint) (cpu_ctx->state.reg.r[lower-1] & 0x7F) << 16;
     }
   else
-    laddr += (uint) cpu->reg.r[15];
+    laddr += (uint) cpu_ctx->state.reg.r[15];
 
-  poke (cpu, cpu->reg.r[upper], laddr);
+  poke (&cpu_ctx->state, cpu_ctx->state.reg.r[upper], laddr);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_ST);  /* in lack of the right timing figure */
 }
 
 static int
-ex_dste (struct cpu_state *cpu, ushort opcode) /* DDxy */
+ex_dste (struct cpu_context *cpu_ctx, ushort opcode) /* DDxy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
   uint laddr;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   laddr = (uint) addr;
 
   if (lower > 0)
     {
-      laddr += (uint) cpu->reg.r[lower];
-      laddr += (uint) (cpu->reg.r[lower-1] & 0x7F) << 16;
+      laddr += (uint) cpu_ctx->state.reg.r[lower];
+      laddr += (uint) (cpu_ctx->state.reg.r[lower-1] & 0x7F) << 16;
     }
   else
-    laddr += (uint) cpu->reg.r[15];
+    laddr += (uint) cpu_ctx->state.reg.r[15];
 
-  poke (cpu, cpu->reg.r[upper], laddr);
-  poke (cpu, cpu->reg.r[upper+1], laddr + 1);
+  poke (&cpu_ctx->state, cpu_ctx->state.reg.r[upper], laddr);
+  poke (&cpu_ctx->state, cpu_ctx->state.reg.r[upper+1], laddr + 1);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_DST);  /* in lack of the right timing figure */
 }
 
 static int
-ex_le (struct cpu_state *cpu, ushort opcode) /* DExy */
+ex_le (struct cpu_context *cpu_ctx, ushort opcode) /* DExy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
   uint laddr;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   laddr = (uint) addr;
 
   if (lower > 0)
     {
-      laddr += (uint) cpu->reg.r[lower];
-      laddr += (uint) (cpu->reg.r[lower-1] & 0x7F) << 16;
+      laddr += (uint) cpu_ctx->state.reg.r[lower];
+      laddr += (uint) (cpu_ctx->state.reg.r[lower-1] & 0x7F) << 16;
     }
   else
-    laddr += (uint) cpu->reg.r[15];
+    laddr += (uint) cpu_ctx->state.reg.r[15];
 
-  if (peek (cpu, laddr, (ushort *) &cpu->reg.r[upper]) == 0)
-    error ("read error at ic = %04hX\n", cpu->reg.ic);
-  update_cs (cpu, &cpu->reg.r[upper], VAR_INT);
+  if (peek (&cpu_ctx->state, laddr, (ushort *) &cpu_ctx->state.reg.r[upper]) == 0)
+    error ("read error at ic = %04hX\n", cpu_ctx->state.reg.ic);
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_INT);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_L);  /* in lack of the right timing figure */
 }
 
 static int
-ex_dle (struct cpu_state *cpu, ushort opcode) /* DFxy */
+ex_dle (struct cpu_context *cpu_ctx, ushort opcode) /* DFxy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
   uint laddr;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   laddr = (uint) addr;
 
   if (lower > 0)
     {
-      laddr += (uint) cpu->reg.r[lower];
-      laddr += (uint) (cpu->reg.r[lower-1] & 0x7F) << 16;
+      laddr += (uint) cpu_ctx->state.reg.r[lower];
+      laddr += (uint) (cpu_ctx->state.reg.r[lower-1] & 0x7F) << 16;
     }
   else
-    laddr += (uint) cpu->reg.r[15];
+    laddr += (uint) cpu_ctx->state.reg.r[15];
 
-  if (peek (cpu, laddr, (ushort *) &cpu->reg.r[upper]) == 0)
-    error ("read error at ic = %04hX\n", cpu->reg.ic);
-  if (peek (cpu, laddr + 1, (ushort *) &cpu->reg.r[upper+1]) == 0)
-    error ("read error at ic = %04hX\n", cpu->reg.ic);
-  update_cs (cpu, &cpu->reg.r[upper], VAR_LONG);
+  if (peek (&cpu_ctx->state, laddr, (ushort *) &cpu_ctx->state.reg.r[upper]) == 0)
+    error ("read error at ic = %04hX\n", cpu_ctx->state.reg.ic);
+  if (peek (&cpu_ctx->state, laddr + 1, (ushort *) &cpu_ctx->state.reg.r[upper+1]) == 0)
+    error ("read error at ic = %04hX\n", cpu_ctx->state.reg.ic);
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_LONG);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_DL);  /* in lack of the right timing figure */
 }
 
 static int
-ex_or (struct cpu_state *cpu, ushort opcode) /* E0xy */
+ex_or (struct cpu_context *cpu_ctx, ushort opcode) /* E0xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
   short help;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr, &help);
 
-  cpu->reg.r[upper] |= help;
-  update_cs (cpu, &cpu->reg.r[upper], VAR_INT);
+  cpu_ctx->state.reg.r[upper] |= help;
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_INT);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_OR);
 }
 
 static int
-ex_orr (struct cpu_state *cpu, ushort opcode) /* E1xy */
+ex_orr (struct cpu_context *cpu_ctx, ushort opcode) /* E1xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  cpu->reg.r[upper] |= cpu->reg.r[lower];
-  update_cs (cpu, &cpu->reg.r[upper], VAR_INT);
+  cpu_ctx->state.reg.r[upper] |= cpu_ctx->state.reg.r[lower];
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_INT);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_ORR);
 }
 
 static int
-ex_and (struct cpu_state *cpu, ushort opcode) /* E2xy */
+ex_and (struct cpu_context *cpu_ctx, ushort opcode) /* E2xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
   short help;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr, &help);
 
-  cpu->reg.r[upper] &= help;
-  update_cs (cpu, &cpu->reg.r[upper], VAR_INT);
+  cpu_ctx->state.reg.r[upper] &= help;
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_INT);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_AND);
 }
 
 static int
-ex_andr (struct cpu_state *cpu, ushort opcode) /* E3xy */
+ex_andr (struct cpu_context *cpu_ctx, ushort opcode) /* E3xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  cpu->reg.r[upper] &= cpu->reg.r[lower];
-  update_cs (cpu, &cpu->reg.r[upper], VAR_INT);
+  cpu_ctx->state.reg.r[upper] &= cpu_ctx->state.reg.r[lower];
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_INT);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_ANDR);
 }
 
 static int
-ex_xor (struct cpu_state *cpu, ushort opcode) /* E4xy */
+ex_xor (struct cpu_context *cpu_ctx, ushort opcode) /* E4xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
   short help;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr, &help);
 
-  cpu->reg.r[upper] ^= help;
-  update_cs (cpu, &cpu->reg.r[upper], VAR_INT);
+  cpu_ctx->state.reg.r[upper] ^= help;
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_INT);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_XOR);
 }
 
 static int
-ex_xorr (struct cpu_state *cpu, ushort opcode) /* E5xy */
+ex_xorr (struct cpu_context *cpu_ctx, ushort opcode) /* E5xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  cpu->reg.r[upper] ^= cpu->reg.r[lower];
-  update_cs (cpu, &cpu->reg.r[upper], VAR_INT);
+  cpu_ctx->state.reg.r[upper] ^= cpu_ctx->state.reg.r[lower];
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_INT);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_XORR);
 }
 
 static int
-ex_n (struct cpu_state *cpu, ushort opcode) /* E6xy */
+ex_n (struct cpu_context *cpu_ctx, ushort opcode) /* E6xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
   short help;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr, &help);
 
-  cpu->reg.r[upper] = ~(cpu->reg.r[upper] & help);
-  update_cs (cpu, &cpu->reg.r[upper], VAR_INT);
+  cpu_ctx->state.reg.r[upper] = ~(cpu_ctx->state.reg.r[upper] & help);
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_INT);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_N);
 }
 
 static int
-ex_nr (struct cpu_state *cpu, ushort opcode) /* E7xy */
+ex_nr (struct cpu_context *cpu_ctx, ushort opcode) /* E7xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  cpu->reg.r[upper] = ~(cpu->reg.r[upper] & cpu->reg.r[lower]);
-  update_cs (cpu, &cpu->reg.r[upper], VAR_INT);
+  cpu_ctx->state.reg.r[upper] = ~(cpu_ctx->state.reg.r[upper] & cpu_ctx->state.reg.r[lower]);
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_INT);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_NR);
 }
 
 static int
-ex_fix (struct cpu_state *cpu, ushort opcode) /* E8xy */
+ex_fix (struct cpu_context *cpu_ctx, ushort opcode) /* E8xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  int help = (int) from_1750flt (&cpu->reg.r[lower]);
+  int help = (int) from_1750flt (&cpu_ctx->state.reg.r[lower]);
 
   /* To Be Clarified:
      The following behavior is what this operation SHOULD do, but
@@ -3929,256 +3929,256 @@ ex_fix (struct cpu_state *cpu, ushort opcode) /* E8xy */
      FIXOFL occurs, regardless of mantissa, if the exponent of the addr
      number exceeds 2^15). */
   if (help < -32768 || help > 32767)
-    cpu->reg.pir |= INTR_FIXOFL;
+    cpu_ctx->state.reg.pir |= INTR_FIXOFL;
   else
-    cpu->reg.r[upper] = (short) help;
-  update_cs (cpu, &cpu->reg.r[upper], VAR_INT);
+    cpu_ctx->state.reg.r[upper] = (short) help;
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_INT);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_FIX);
 }
 
 static int
-ex_flt (struct cpu_state *cpu, ushort opcode) /* E9xy */
+ex_flt (struct cpu_context *cpu_ctx, ushort opcode) /* E9xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   /* To Be Tested  (depends on C hostcompiler cast). */
-  to_1750flt ((double) cpu->reg.r[lower], &cpu->reg.r[upper]);
-  update_cs (cpu, &cpu->reg.r[upper], VAR_FLOAT);
+  to_1750flt ((double) cpu_ctx->state.reg.r[lower], &cpu_ctx->state.reg.r[upper]);
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_FLOAT);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_FLT);
 }
 
 static int
-ex_efix (struct cpu_state *cpu, ushort opcode) /* EAxy */
+ex_efix (struct cpu_context *cpu_ctx, ushort opcode) /* EAxy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   int help;
   /* This time, we do exactly as the F9450 manual prescribes! */
-  if ((char) (cpu->reg.r[lower + 1] & 0xFF) > 0x1F)
-    cpu->reg.pir |= INTR_FIXOFL;
+  if ((char) (cpu_ctx->state.reg.r[lower + 1] & 0xFF) > 0x1F)
+    cpu_ctx->state.reg.pir |= INTR_FIXOFL;
   else
     {
-      help = (int) from_1750eflt (&cpu->reg.r[lower]);
-      cpu->reg.r[upper] = (short) (help >> 16);
-      cpu->reg.r[upper + 1] = (short) (help & 0xFFFF);
+      help = (int) from_1750eflt (&cpu_ctx->state.reg.r[lower]);
+      cpu_ctx->state.reg.r[upper] = (short) (help >> 16);
+      cpu_ctx->state.reg.r[upper + 1] = (short) (help & 0xFFFF);
     }
-  update_cs (cpu, &cpu->reg.r[upper], VAR_LONG);
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_LONG);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_EFIX);
 }
 
 static int
-ex_eflt (struct cpu_state *cpu, ushort opcode) /* EBxy */
+ex_eflt (struct cpu_context *cpu_ctx, ushort opcode) /* EBxy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  int help = ((int) cpu->reg.r[lower] << 16)
-	   | ((int) cpu->reg.r[lower+1] & 0xFFFF);
+  int help = ((int) cpu_ctx->state.reg.r[lower] << 16)
+	   | ((int) cpu_ctx->state.reg.r[lower+1] & 0xFFFF);
 
-  to_1750eflt ((double) help, &cpu->reg.r[upper]);
-  update_cs (cpu, &cpu->reg.r[upper], VAR_DOUBLE);
+  to_1750eflt ((double) help, &cpu_ctx->state.reg.r[upper]);
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_DOUBLE);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_EFLT);
 }
 
 static int
-ex_xbr (struct cpu_state *cpu, ushort opcode) /* ECxy */
+ex_xbr (struct cpu_context *cpu_ctx, ushort opcode) /* ECxy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  cpu->reg.r[upper] = (cpu->reg.r[upper] << 8) | ((cpu->reg.r[upper] >> 8) & 0x00FF);
-  update_cs (cpu, &cpu->reg.r[upper], VAR_INT);
+  cpu_ctx->state.reg.r[upper] = (cpu_ctx->state.reg.r[upper] << 8) | ((cpu_ctx->state.reg.r[upper] >> 8) & 0x00FF);
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_INT);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_XBR);
 }
 
 static int
-ex_xwr (struct cpu_state *cpu, ushort opcode) /* EDxy */
+ex_xwr (struct cpu_context *cpu_ctx, ushort opcode) /* EDxy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  short help = cpu->reg.r[lower];
+  short help = cpu_ctx->state.reg.r[lower];
 
-  cpu->reg.r[lower] = cpu->reg.r[upper];
-  cpu->reg.r[upper] = help;
-  update_cs (cpu, &help, VAR_INT);
+  cpu_ctx->state.reg.r[lower] = cpu_ctx->state.reg.r[upper];
+  cpu_ctx->state.reg.r[upper] = help;
+  update_cs (&cpu_ctx->state, &help, VAR_INT);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_XWR);
 }
 
 static int
-ex_c (struct cpu_state *cpu, ushort opcode) /* F0xy */
+ex_c (struct cpu_context *cpu_ctx, ushort opcode) /* F0xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
   short help;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr, &help);
 
-  compare (cpu, VAR_INT, &cpu->reg.r[upper], &help);
+  compare (&cpu_ctx->state, VAR_INT, &cpu_ctx->state.reg.r[upper], &help);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_C);
 }
 
 static int
-ex_cr (struct cpu_state *cpu, ushort opcode) /* F1xy */
+ex_cr (struct cpu_context *cpu_ctx, ushort opcode) /* F1xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  compare (cpu, VAR_INT, &cpu->reg.r[upper], &cpu->reg.r[lower]);
+  compare (&cpu_ctx->state, VAR_INT, &cpu_ctx->state.reg.r[upper], &cpu_ctx->state.reg.r[lower]);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_CR);
 }
 
 static int
-ex_cisp (struct cpu_state *cpu, ushort opcode) /* F2xy */
+ex_cisp (struct cpu_context *cpu_ctx, ushort opcode) /* F2xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   short help = (short) (lower + 1);
 
-  compare (cpu, VAR_INT, &cpu->reg.r[upper], &help);
+  compare (&cpu_ctx->state, VAR_INT, &cpu_ctx->state.reg.r[upper], &help);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_CISP);
 }
 
 static int
-ex_cisn (struct cpu_state *cpu, ushort opcode) /* F3xy */
+ex_cisn (struct cpu_context *cpu_ctx, ushort opcode) /* F3xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   short help = -(short) (lower + 1);
 
-  compare (cpu, VAR_INT, &cpu->reg.r[upper], &help);
+  compare (&cpu_ctx->state, VAR_INT, &cpu_ctx->state.reg.r[upper], &help);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_CISN);
 }
 
 static int
-ex_cbl (struct cpu_state *cpu, ushort opcode) /* F4xy */
+ex_cbl (struct cpu_context *cpu_ctx, ushort opcode) /* F4xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  ushort addr, sw_save = cpu->reg.sw & 0x0FFF;
+  ushort addr, sw_save = cpu_ctx->state.reg.sw & 0x0FFF;
   short lowlim, highlim;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr, &lowlim);
   GET (DATA, addr + 1, &highlim);
 
   if (lowlim > highlim)
-    cpu->reg.sw = sw_save | CS_CARRY;
-  else if (cpu->reg.r[upper] < lowlim)
-    cpu->reg.sw = sw_save | CS_NEGATIVE;
-  else if (cpu->reg.r[upper] > highlim)
-    cpu->reg.sw = sw_save | CS_POSITIVE;
+    cpu_ctx->state.reg.sw = sw_save | CS_CARRY;
+  else if (cpu_ctx->state.reg.r[upper] < lowlim)
+    cpu_ctx->state.reg.sw = sw_save | CS_NEGATIVE;
+  else if (cpu_ctx->state.reg.r[upper] > highlim)
+    cpu_ctx->state.reg.sw = sw_save | CS_POSITIVE;
   else
-    cpu->reg.sw = sw_save | CS_ZERO;
+    cpu_ctx->state.reg.sw = sw_save | CS_ZERO;
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_CBL);
 }
 
 static int
-ex_ucim (struct cpu_state *cpu, ushort opcode) /* F5xy */
+ex_ucim (struct cpu_context *cpu_ctx, ushort opcode) /* F5xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  ushort sw_save = cpu->reg.sw & 0x0FFF;
+  ushort sw_save = cpu_ctx->state.reg.sw & 0x0FFF;
   ushort help1, help2;
 
-  help1 = (ushort) cpu->reg.r[upper];
-  GET (CODE, cpu->reg.ic + 1, (short *) &help2);
+  help1 = (ushort) cpu_ctx->state.reg.r[upper];
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &help2);
 
   if (help1 < help2)
-    cpu->reg.sw = sw_save | CS_NEGATIVE;
+    cpu_ctx->state.reg.sw = sw_save | CS_NEGATIVE;
   else if (help1 > help2)
-    cpu->reg.sw = sw_save | CS_POSITIVE;
+    cpu_ctx->state.reg.sw = sw_save | CS_POSITIVE;
   else
-    cpu->reg.sw = sw_save | CS_ZERO;
+    cpu_ctx->state.reg.sw = sw_save | CS_ZERO;
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_CIM);
 }
 
 static int
-ex_dc (struct cpu_state *cpu, ushort opcode) /* F6xy */
+ex_dc (struct cpu_context *cpu_ctx, ushort opcode) /* F6xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
   short help[2];
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr,     &help[0]);
   GET (DATA, addr + 1, &help[1]);
 
-  compare (cpu, VAR_LONG, &cpu->reg.r[upper], help);
+  compare (&cpu_ctx->state, VAR_LONG, &cpu_ctx->state.reg.r[upper], help);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_DC);
 }
 
 static int
-ex_dcr (struct cpu_state *cpu, ushort opcode) /* F7xy */
+ex_dcr (struct cpu_context *cpu_ctx, ushort opcode) /* F7xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  compare (cpu, VAR_LONG, &cpu->reg.r[upper], &cpu->reg.r[lower]);
+  compare (&cpu_ctx->state, VAR_LONG, &cpu_ctx->state.reg.r[upper], &cpu_ctx->state.reg.r[lower]);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_DCR);
 }
 
 static int
-ex_fc (struct cpu_state *cpu, ushort opcode) /* F8xy */
+ex_fc (struct cpu_context *cpu_ctx, ushort opcode) /* F8xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   ushort addr;
   short help[2];
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr,     &help[0]);
   GET (DATA, addr + 1, &help[1]);
 
-  compare (cpu, VAR_FLOAT, &cpu->reg.r[upper], help);
+  compare (&cpu_ctx->state, VAR_FLOAT, &cpu_ctx->state.reg.r[upper], help);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_FC);
 }
 
 static int
-ex_fcr (struct cpu_state *cpu, ushort opcode) /* F9xy */
+ex_fcr (struct cpu_context *cpu_ctx, ushort opcode) /* F9xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  compare (cpu, VAR_FLOAT, &cpu->reg.r[upper], &cpu->reg.r[lower]);
+  compare (&cpu_ctx->state, VAR_FLOAT, &cpu_ctx->state.reg.r[upper], &cpu_ctx->state.reg.r[lower]);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_FCR);
 }
 
 static int
-ex_efc (struct cpu_state *cpu, ushort opcode) /* FAxy */
+ex_efc (struct cpu_context *cpu_ctx, ushort opcode) /* FAxy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
@@ -4186,82 +4186,82 @@ ex_efc (struct cpu_state *cpu, ushort opcode) /* FAxy */
   short help[3];
   ushort i;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   for (i = 0; i < 3; i++)
     GET (DATA, addr + i, &help[i]);
 
-  compare (cpu, VAR_DOUBLE, &cpu->reg.r[upper], help);
+  compare (&cpu_ctx->state, VAR_DOUBLE, &cpu_ctx->state.reg.r[upper], help);
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_EFC);
 }
 
 static int
-ex_efcr (struct cpu_state *cpu, ushort opcode) /* FBxy */
+ex_efcr (struct cpu_context *cpu_ctx, ushort opcode) /* FBxy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  compare (cpu, VAR_DOUBLE, &cpu->reg.r[upper], &cpu->reg.r[lower]);
+  compare (&cpu_ctx->state, VAR_DOUBLE, &cpu_ctx->state.reg.r[upper], &cpu_ctx->state.reg.r[lower]);
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_EFCR);
 }
 
 static int
-ex_ucr (struct cpu_state *cpu, ushort opcode) /* FCxy */
+ex_ucr (struct cpu_context *cpu_ctx, ushort opcode) /* FCxy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  ushort sw_save = cpu->reg.sw & 0x0FFF;
+  ushort sw_save = cpu_ctx->state.reg.sw & 0x0FFF;
   ushort help1, help2;
 
-  help1 = (ushort) cpu->reg.r[upper];
-  help2 = (ushort) cpu->reg.r[lower];
+  help1 = (ushort) cpu_ctx->state.reg.r[upper];
+  help2 = (ushort) cpu_ctx->state.reg.r[lower];
   if (help1 < help2)
-    cpu->reg.sw = sw_save | CS_NEGATIVE;
+    cpu_ctx->state.reg.sw = sw_save | CS_NEGATIVE;
   else if (help1 > help2)
-    cpu->reg.sw = sw_save | CS_POSITIVE;
+    cpu_ctx->state.reg.sw = sw_save | CS_POSITIVE;
   else
-    cpu->reg.sw = sw_save | CS_ZERO;
+    cpu_ctx->state.reg.sw = sw_save | CS_ZERO;
 
-  cpu->reg.ic++;
+  cpu_ctx->state.reg.ic++;
   return (nc_CR);
 }
 
 static int
-ex_uc (struct cpu_state *cpu, ushort opcode) /* FDxy */
+ex_uc (struct cpu_context *cpu_ctx, ushort opcode) /* FDxy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  ushort sw_save = cpu->reg.sw & 0x0FFF;
+  ushort sw_save = cpu_ctx->state.reg.sw & 0x0FFF;
   ushort addr;
   ushort help1, help2;
 
-  GET (CODE, cpu->reg.ic + 1, (short *) &addr);
+  GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
-  help1 = (ushort) cpu->reg.r[upper];
+  help1 = (ushort) cpu_ctx->state.reg.r[upper];
   GET (DATA, addr, (short *) &help2);
 
   if (help1 < help2)
-    cpu->reg.sw = sw_save | CS_NEGATIVE;
+    cpu_ctx->state.reg.sw = sw_save | CS_NEGATIVE;
   else if (help1 > help2)
-    cpu->reg.sw = sw_save | CS_POSITIVE;
+    cpu_ctx->state.reg.sw = sw_save | CS_POSITIVE;
   else
-    cpu->reg.sw = sw_save | CS_ZERO;
+    cpu_ctx->state.reg.sw = sw_save | CS_ZERO;
 
-  cpu->reg.ic += 2;
+  cpu_ctx->state.reg.ic += 2;
   return (nc_C);
 }
 
 static int
-ex_nop_bpt (struct cpu_state *cpu, ushort opcode) /* FFxy */
+ex_nop_bpt (struct cpu_context *cpu_ctx, ushort opcode) /* FFxy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   if (upper == 0 && lower == 0)         /* NOP */
     {
-      cpu->reg.ic++;
+      cpu_ctx->state.reg.ic++;
       return (nc_NOP);
     }
 
@@ -4270,11 +4270,11 @@ ex_nop_bpt (struct cpu_state *cpu, ushort opcode) /* FFxy */
       return (BREAKPT);
     }
 
-  return (ex_ill (cpu, opcode));
+  return (ex_ill (cpu_ctx, opcode));
 }
 
 
-static int (*exfunc[256])(struct cpu_state *cpu, ushort opcode) =
+static int (*exfunc[256])(struct cpu_context *cpu_ctx, ushort opcode) =
   {
     /* 00 - 0F */
     ex_lb,   ex_lb,   ex_lb,   ex_lb,
@@ -4399,23 +4399,25 @@ static int (*exfunc[256])(struct cpu_state *cpu, ushort opcode) =
 
 
 int 
-execute (struct cpu_state *cpu)
+execute (struct cpu_context *cpu_ctx)
 {
   unsigned opc_hibyte;
   int cycles;
 
   if (! need_speed)
-    add_to_backtrace (cpu);
+    add_to_backtrace (cpu_ctx);
+  struct cpu_state *cpu = &cpu_ctx->state;
   ushort opcode;
-  GET (CODE, cpu->reg.ic, (short *) &opcode);
+  GET (CODE, cpu_ctx->state.reg.ic, (short *) &opcode);
   opc_hibyte = opcode >> 8;
 
-  cycles = (*exfunc[opc_hibyte]) (cpu, opcode);
+  cycles = (*exfunc[opc_hibyte]) (cpu_ctx, opcode);
   if (cycles < 0)
     return cycles;  /* BREAKPT or MEMERR */
 
-  cpu->instcnt++;
-  cpu->total_time_in_us += (double)(uP_CYCLE_IN_NS * cycles) / 1000.0;
+  cpu_ctx->state.instcnt++;
+  //cpu_ctx->state.total_time_in_us += (double)(uP_CYCLE_IN_NS * cycles) / 1000.0;
+  cpu_ctx->state.total_cycles += cycles;
   workout_timing (cpu, cycles);
   workout_interrupts (cpu);
   return OKAY;

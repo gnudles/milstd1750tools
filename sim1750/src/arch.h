@@ -31,7 +31,7 @@
 #define _ARCH_H
 
 #include "type.h"
-#include <stdint.h>
+#include "phys_mem.h"
 
 /* condition status bit masks (within Status Register) */
 #define  CS_CARRY     0x8000
@@ -134,6 +134,17 @@ struct mmureg
   };
 
 /* extern struct mmureg pagereg[2][16][16]; defined in cpu.c */
+struct cpu_state {
+  mem_t *mem[N_PAGES];
+  struct regs reg;
+  struct mmureg pagereg[2][16][16];
+  uint instcnt;
+  u_int64_t total_cycles;
+  struct {
+    ushort one_tatick_in_ns, one_tbtick_in_tatix;
+    ushort one_gotick_in_10usec;
+  } timers;
+};
 
 #endif
 

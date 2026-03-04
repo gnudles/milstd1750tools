@@ -33,7 +33,7 @@
 
 #include "status.h"
 #include "peekpoke.h"
-#include "arch.h"
+#include "cpu_ctx.h"
 #include "utils.h"
 #include "loadfile.h"
 
@@ -47,6 +47,8 @@ static int linecnt;
 #define DATASTART 12
 
 #define get_word(str)   get_nibbles(str,4)
+
+extern struct cpu_context *sim_cpu_ctx;
 
 static int
 rotl16 (int num, int n_shifts)	/* Rotate-left a 16 bit word */
@@ -160,8 +162,8 @@ load_tldline (char *line)
   switch (cmd)
     {
     case 'A':
-      cpu->reg.sw &= 0xFFF0;
-      cpu->reg.sw |= (ushort) get_word (line + DATASTART) & 0x000F;
+      sim_cpu_ctx->state.reg.sw &= 0xFFF0;
+      sim_cpu_ctx->state.reg.sw |= (ushort) get_word (line + DATASTART) & 0x000F;
       break;
     case 'I':
     case 'O':
@@ -211,7 +213,7 @@ load_tldline (char *line)
 	    pagereg_contents = get_nibbles (line + DATASTART + (4 * i) + 1, 3);
 	    if (pagereg_contents == -1 || pagereg_contents > 0xFF)
 	      return error ("line %d: /L cpu->pagereg contents error", linecnt);
-	    cpu->pagereg[bank][as][pagereg_number].ppa = (ushort) pagereg_contents;
+	    sim_cpu_ctx->state.pagereg[bank][as][pagereg_number].ppa = (ushort) pagereg_contents;
 	    if (++pagereg_number > 0xF)
 	      break;
 	  }
@@ -243,7 +245,7 @@ load_tldline (char *line)
 	if ((address = get_nibbles (line + ADDRESS, 5)) < 0)
 	  return error ("line %d: /%c data error in address field", linecnt, cmd);
 	if (address > 0xFF)
-	  return error ("line %d: /%c starting cpu->pagereg number too large",
+	  return error ("line %d: /%c starting pagereg number too large",
 			linecnt, cmd);
 	if ((datacnt = xtoi (line[COUNT])) == -1)
 	  return error ("line %d: /%c error in data count", linecnt, cmd);
@@ -251,7 +253,7 @@ load_tldline (char *line)
 	  {
 	    const int as = (int) address >> 4;
 	    const int pagenum = (int) address & 0xF;
-	    ushort *entire_pagereg = (ushort *) & cpu->pagereg[bank][as][pagenum];
+	    ushort *entire_pagereg = (ushort *) & sim_cpu_ctx->state.pagereg[bank][as][pagenum];
 	    int word = get_word (line + DATASTART + (4 * i));
 	    if (word == -1)
 	      return error ("line %d: /%c data error", linecnt, cmd);
@@ -263,7 +265,7 @@ load_tldline (char *line)
     case 'T':
       if ((address = get_nibbles (line + ADDRESS, 5)) == -1)
 	return error ("LDM: numeric syntax error in transfer address");
-      cpu->reg.ic = (ushort) address;
+      sim_cpu_ctx->state.reg.ic = (ushort) address;
       if (address > 0xFFFF)
 	return error ("LDM: cannot handle transfer address (too high)");
       break;

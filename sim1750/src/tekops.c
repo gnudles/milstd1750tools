@@ -44,7 +44,7 @@
 
 
 /*extern struct regs simreg;*/  /* from cpu.c */
-
+extern struct cpu_context *sim_cpu_ctx;
 
 /* Internal data */
 
@@ -185,7 +185,7 @@ static int linecount;
 /* Analyze and load a line from a Tektronix Extended Hex file */
 
 int
-load_tekline (struct cpu_state *cpu, char *line)
+load_tekline (char *line)
 {
   char  sectname[32], *linep;
   int   i, checksum, type, blk_len, addr_len, line_len;
@@ -263,16 +263,16 @@ load_tekline (struct cpu_state *cpu, char *line)
 	  ushort value;
 	  if (i)
 	    {
-	      peek (cpu, address, &value);
-	      poke (cpu, address, (value & 0xff00)
+	      peek (&sim_cpu_ctx->state, address, &value);
+	      poke (&sim_cpu_ctx->state, address, (value & 0xff00)
 			   | (ushort) get_xnum (&linep, 2));
 	      i = 0;
 	      address++;
 	    }
 	  else
 	    {
-	      peek (cpu, address, &value);
-	      poke (cpu, address, (value & 0x00ff)
+	      peek (&sim_cpu_ctx->state, address, &value);
+	      poke (&sim_cpu_ctx->state, address, (value & 0x00ff)
 			   | (ushort) (get_xnum (&linep, 2) << 8));
 	      i++;
 	    }
@@ -281,7 +281,7 @@ load_tekline (struct cpu_state *cpu, char *line)
 
     case 8:		/* Terminator */
       address = get_xnum (&linep, addr_len);
-      cpu->reg.ic = (ushort) ((address >> 1) & 0xffff);
+      sim_cpu_ctx->state.reg.ic = (ushort) ((address >> 1) & 0xffff);
       break;
 
     default:
@@ -293,7 +293,7 @@ load_tekline (struct cpu_state *cpu, char *line)
 /* load file in Tektronix Extended Hex format */
 
 int
-si_lo (struct cpu_state *cpu, int argc, char *argv[])
+si_lo (int argc, char *argv[])
 {
   FILE *fpoint;
   char lline[132], *filename = argv[1];
@@ -323,7 +323,7 @@ si_lo (struct cpu_state *cpu, int argc, char *argv[])
       ++linecount;
       if (strlen (lline) < 2)
 	continue;
-      if ((retval = load_tekline (cpu, lline)) != OKAY)
+      if ((retval = load_tekline (lline)) != OKAY)
 	break;
     }
   fclose (fpoint);
@@ -362,7 +362,7 @@ display_tek_symbols ()
 
 
 int
-si_save (struct cpu_state *cpu, int argc, char *argv[])
+si_save (int argc, char *argv[])
 {
   int pgndx, locndx;
   mem_t *memptr;
@@ -375,7 +375,7 @@ si_save (struct cpu_state *cpu, int argc, char *argv[])
   for (pgndx = 0; pgndx < N_PAGES; pgndx++)
     {
       uint phys_address = pgndx << 12;
-      if ((memptr = cpu->mem[pgndx]) == MNULL)
+      if ((memptr = sim_cpu_ctx->state.mem[pgndx]) == MNULL)
 	continue;
       for (locndx = 0; locndx < 4096; locndx++)
 	{
@@ -384,7 +384,7 @@ si_save (struct cpu_state *cpu, int argc, char *argv[])
 	}
     }
 
-  close_tekfile ((uint) cpu->reg.ic);  /* other regs are lost, to be improved */
+  close_tekfile ((uint) sim_cpu_ctx->state.reg.ic);  /* other regs are lost, to be improved */
 
   return OKAY;
 }

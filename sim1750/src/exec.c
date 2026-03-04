@@ -42,6 +42,7 @@ extern void  dis_reg ();	/* cmd.c */
 extern int   sys_int (int);	/* cmd.c */
 extern char *disassemble (struct cpu_state *cpu);	/* sdisasm.c */
 
+extern struct cpu_context *sim_cpu_ctx;
 
 static bool
 at_bpt_instruction (struct cpu_state *cpu)
@@ -53,49 +54,49 @@ at_bpt_instruction (struct cpu_state *cpu)
 }
 
 static int
-execute_without_breakpt (struct cpu_state *cpu)
+execute_without_breakpt (struct cpu_context *cpu_ctx)
 {
   int status;
-  int bpi = cpu->bpindex;
+  int bpi = cpu_ctx->bpindex;
 
-  cpu->bpindex = -1;
-  set_inactive (bpi);
-  status = execute (cpu);
-  set_active (bpi);
+  cpu_ctx->bpindex = -1;
+  set_inactive (cpu_ctx, bpi);
+  status = execute (cpu_ctx);
+  set_active (cpu_ctx, bpi);
   return status;
 }
 
 
 int
-si_go (struct cpu_state *cpu, int argc, char *argv[])
+si_go (int argc, char *argv[])
 {
   unsigned next;
 
   if (argc > 1)
     {
       sscanf (argv[1], "%x", &next);
-      cpu->reg.ic = (ushort) next;
+      sim_cpu_ctx->state.reg.ic = (ushort) next;
     }
 
-  if (at_bpt_instruction (cpu))
-    cpu->reg.ic++;
-  else if (cpu->bpindex >= 0)
-    execute_without_breakpt (cpu);
+  if (at_bpt_instruction (&sim_cpu_ctx->state))
+    sim_cpu_ctx->state.reg.ic++;
+  else if (sim_cpu_ctx->bpindex >= 0)
+    execute_without_breakpt (sim_cpu_ctx);
   while (1)
     {
       if (sys_int (1))
 	return INTERRUPT;
-      if (execute (cpu) == MEMERR)
+      if (execute (sim_cpu_ctx) == MEMERR)
 	break;
-      if (at_bpt_instruction (cpu))
+      if (at_bpt_instruction (&sim_cpu_ctx->state))
 	{
-	  lprintf ("\tBPT at %04hX", cpu->reg.ic);
+	  lprintf ("\tBPT at %04hX", sim_cpu_ctx->state.reg.ic);
 	  break;
 	}
-      else if (cpu->bpindex >= 0)
+      else if (sim_cpu_ctx->bpindex >= 0)
 	{
 	  info ("\tBreakpoint at %04hX : %s",
-		   cpu->reg.ic, disassemble (cpu));
+		   sim_cpu_ctx->state.reg.ic, disassemble (&sim_cpu_ctx->state));
 	  break;
 	}
     }
@@ -104,7 +105,7 @@ si_go (struct cpu_state *cpu, int argc, char *argv[])
 
 
 int
-si_snglstp (struct cpu_state *cpu, int argc, char *argv[])
+si_snglstp (int argc, char *argv[])
 {
   int    count = 1;
   bool   step_over = FALSE;
@@ -115,43 +116,45 @@ si_snglstp (struct cpu_state *cpu, int argc, char *argv[])
       if (*argv[1] == '*')
 	{
 	  step_over = TRUE;
-	  target_addr = cpu->reg.ic + 2;
+	  target_addr = sim_cpu_ctx->state.reg.ic + 2;
 	}
       else
 	sscanf (argv[1], "%d", &count);
     }
 
-  if (at_bpt_instruction (cpu))
-    cpu->reg.ic++;
+  if (at_bpt_instruction (&sim_cpu_ctx->state))
+  {
+    sim_cpu_ctx->state.reg.ic++;
+  }
 
   if (step_over)
     {
-      if (cpu->bpindex >= 0)
+      if (sim_cpu_ctx->bpindex >= 0)
 	{
 	  info ("\tStepping past breakpoint at IC : %04hX   %s",
-		   cpu->reg.ic, disassemble (cpu));
-	  execute_without_breakpt (cpu);
+		   sim_cpu_ctx->state.reg.ic, disassemble (&sim_cpu_ctx->state));
+	  execute_without_breakpt (sim_cpu_ctx);
 	}
-      while (cpu->reg.ic != target_addr)
+      while (sim_cpu_ctx->state.reg.ic != target_addr)
 	{
 	  if (sys_int (1))
 	    return (INTERRUPT);
-	  if (execute (cpu) == MEMERR)
+	  if (execute (sim_cpu_ctx) == MEMERR)
 	    break;
-	  if (at_bpt_instruction (cpu))
+	  if (at_bpt_instruction (&sim_cpu_ctx->state))
 	    {
-	      lprintf ("\tBPT at %04hX", cpu->reg.ic);
+	      lprintf ("\tBPT at %04hX", sim_cpu_ctx->state.reg.ic);
 	      break;
 	    }
-	  else if (cpu->bpindex >= 0)
+	  else if (sim_cpu_ctx->bpindex >= 0)
 	    {
 	      info ("\tBreakpoint at %04hX : %s",
-		       cpu->reg.ic, disassemble (cpu));
+		       sim_cpu_ctx->state.reg.ic, disassemble (&sim_cpu_ctx->state));
 	      break;
 	    }
 	}
-      if (! at_bpt_instruction (cpu) && cpu->bpindex < 0)
-	info ("\tStep at %04hX : %s", cpu->reg.ic, disassemble (cpu));
+      if (! at_bpt_instruction (&sim_cpu_ctx->state) && sim_cpu_ctx->bpindex < 0)
+	info ("\tStep at %04hX : %s", sim_cpu_ctx->state.reg.ic, disassemble (&sim_cpu_ctx->state));
     }
   else
     {
@@ -159,20 +162,20 @@ si_snglstp (struct cpu_state *cpu, int argc, char *argv[])
 	{
 	  if (sys_int (1))
 	    return (INTERRUPT);
-	  if (at_bpt_instruction (cpu))
+	  if (at_bpt_instruction (&sim_cpu_ctx->state))
 	    {
-	      info ("\tStepping past BPT at IC : %04hX", cpu->reg.ic);
-	      cpu->reg.ic++;
+	      info ("\tStepping past BPT at IC : %04hX", sim_cpu_ctx->state.reg.ic);
+	      sim_cpu_ctx->state.reg.ic++;
 	    }
-	  else if (cpu->bpindex >= 0)
+	  else if (sim_cpu_ctx->bpindex >= 0)
 	    {
 	      info ("\tStepping past breakpoint at IC : %04hX   %s",
-		       cpu->reg.ic, disassemble (cpu));
-	      execute_without_breakpt (cpu);
+		       sim_cpu_ctx->state.reg.ic, disassemble (&sim_cpu_ctx->state));
+	      execute_without_breakpt (sim_cpu_ctx);
 	    }
-	  else if (execute (cpu) == MEMERR)
+	  else if (execute (sim_cpu_ctx) == MEMERR)
 	    break;
-	  info ("\tIC : %04hX   %s", cpu->reg.ic, disassemble (cpu));
+	  info ("\tIC : %04hX   %s", sim_cpu_ctx->state.reg.ic, disassemble (&sim_cpu_ctx->state));
 	}
     }
 
@@ -181,7 +184,7 @@ si_snglstp (struct cpu_state *cpu, int argc, char *argv[])
 
 
 int
-si_trace (struct cpu_state *cpu, int argc, char *argv[])
+si_trace (int argc, char *argv[])
 {
   int count = 1;
 
@@ -198,13 +201,13 @@ si_trace (struct cpu_state *cpu, int argc, char *argv[])
       if (sys_int (1))
 	return (INTERRUPT);
 
-      if (at_bpt_instruction (cpu))
-	cpu->reg.ic++;
-      else if (cpu->bpindex >= 0)
-	execute_without_breakpt (cpu);
-      else if (execute (cpu) == MEMERR)
+      if (at_bpt_instruction (&sim_cpu_ctx->state))
+	sim_cpu_ctx->state.reg.ic++;
+      else if (sim_cpu_ctx->bpindex >= 0)
+	execute_without_breakpt (sim_cpu_ctx);
+      else if (execute (sim_cpu_ctx) == MEMERR)
 	break;
-      lprintf ("\tIC : %04hX   %s", cpu->reg.ic, disassemble (cpu));
+      lprintf ("\tIC : %04hX   %s", sim_cpu_ctx->state.reg.ic, disassemble (&sim_cpu_ctx->state));
       dis_reg (0);
     }
 
@@ -213,7 +216,7 @@ si_trace (struct cpu_state *cpu, int argc, char *argv[])
 
 
 int
-si_bt (struct cpu_state *cpu, int argc, char *argv[])
+si_bt (int argc, char *argv[])
 {
   /* Backtrace the given number of instructions */
 
@@ -230,21 +233,20 @@ si_bt (struct cpu_state *cpu, int argc, char *argv[])
         sscanf (argv[1], "%x %x", &back, &count);
     }
 
-  if (count > cpu->bt_cnt)
-    count = cpu->bt_cnt;
+  if (count > sim_cpu_ctx->bt_cnt)
+    count = sim_cpu_ctx->bt_cnt;
 
   /* save current regs */
-  save = cpu->reg;
-
+  save = sim_cpu_ctx->state.reg;
   /* step back through backtrace buffer */
-  t = cpu->bt_next - back;
+  t = sim_cpu_ctx->bt_next - back;
   if (t < 0)
     t += BT_SIZE;
 
   while (count-- > 0)
     {
-      cpu->reg = cpu->bt_buff [t];
-      lprintf ("\tIC : %04hX   %s", cpu->reg.ic, disassemble (cpu));
+      sim_cpu_ctx->state.reg = sim_cpu_ctx->bt_buff [t];
+      lprintf ("\tIC : %04hX   %s", sim_cpu_ctx->state.reg.ic, disassemble (&sim_cpu_ctx->state));
       dis_reg (0);
 
       t++;
@@ -253,7 +255,7 @@ si_bt (struct cpu_state *cpu, int argc, char *argv[])
     }
 
   /* restore old regs */
-  cpu->reg = save;
+  sim_cpu_ctx->state.reg = save;
 
   return (OKAY);
 }
