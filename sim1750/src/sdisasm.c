@@ -5,7 +5,7 @@
 #include "smemacc.h"
 #include "loadfile.h"  /* for function find_labelname() */
 
-extern int dism1750 (char *, ushort *);
+extern int dism1750 (struct cpu_state *cpu, char *text, ushort *word);
 
 char *
 disassemble (struct cpu_state *cpu)
@@ -15,7 +15,7 @@ disassemble (struct cpu_state *cpu)
   get_raw (cpu, CODE, as, cpu->reg.ic, &words[0]);
   if (cpu->reg.ic < 0xFFFF)
     get_raw (cpu, CODE, as, cpu->reg.ic + 1, &words[1]);
-  dism1750 (disasm_text, words);
+  dism1750 (cpu, disasm_text, words);
   return disasm_text;
 }
 

@@ -63,7 +63,7 @@
 
 /* imports not mentioned in includefiles */
 
-extern int  dism1750 (char *, ushort *);  /* dism1750.c */
+extern int  dism1750 (struct cpu_state *cpu, char *, ushort *);  /* dism1750.c */
 extern char *disassemble (struct cpu_state *cpu);		  /* sdisasm.c */
 
 /* private stuff */
@@ -1047,7 +1047,7 @@ si_disasm (int argc, char *argv[])
 	  return error ("<no code loaded here>");
 	}
       peek (&sim_cpu_ctx->state, address + 1, &words[1]);
-      n_words = dism1750 (disasm_text, words);
+      n_words = dism1750 (&sim_cpu_ctx->state, disasm_text, words);
       lprintf ("%04hX ", words[0]);
       if (! n_words)
 	{

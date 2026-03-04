@@ -144,6 +144,7 @@ struct cpu_state {
     ushort one_tatick_in_ns, one_tbtick_in_tatix;
     ushort one_gotick_in_10usec;
   } timers;
+  int32_t  quantum_left; /* cycles left in current quantum, used for sequential execution of multiple cpus, every cpu gets to execute for a fixed number of cycles */
 };
 
 #endif
