@@ -366,8 +366,6 @@ ex_ill (struct cpu_context *cpu_ctx, ushort opcode) /* illegal opcode */
 static int
 ex_lb (struct cpu_context *cpu_ctx, ushort opcode) /* 0[0-3]xy */
 {
-  ushort upper = (opcode & 0x00F0) >> 4;
-  ushort lower =  opcode & 0x000F;
   ushort addr = BASEREG (opcode) + (opcode & 0xFF);
 
   GET (DATA, addr, &cpu_ctx->state.reg.r[2]);
@@ -1673,7 +1671,20 @@ ex_sar (struct cpu_context *cpu_ctx, ushort opcode) /* 6Bxy */
 	  cpu_ctx->state.reg.pir |= INTR_FIXOFL;
 	  /*  behavior to be verified */
 	}
-      cpu_ctx->state.reg.r[upper] >>= shc;
+  else
+  {
+    if (shc == 16)
+      {
+        if (cpu_ctx->state.reg.r[upper] < 0)
+          cpu_ctx->state.reg.r[upper] = 0xFFFF;
+        else
+          cpu_ctx->state.reg.r[upper] = 0;
+      }
+      else
+        cpu_ctx->state.reg.r[upper] >>= shc;
+
+      update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_INT);
+  }
     }
   else
     /* positive => shift left  */
@@ -1683,9 +1694,16 @@ ex_sar (struct cpu_context *cpu_ctx, ushort opcode) /* 6Bxy */
 	  cpu_ctx->state.reg.pir |= INTR_FIXOFL;
 	  /* behavior to be verified */
 	}
-      cpu_ctx->state.reg.r[upper] <<= shc;
+  else
+  {
+      if (shc == 16)
+	      cpu_ctx->state.reg.r[upper] = 0;
+      else
+	      cpu_ctx->state.reg.r[upper] <<= shc;
+      update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_INT);
+  }
     }
-  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_INT);
+  
 
   cpu_ctx->state.reg.ic++;
   return (nc_SAR);
@@ -3165,7 +3183,13 @@ ex_neg (struct cpu_context *cpu_ctx, ushort opcode) /* B4xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  cpu_ctx->state.reg.r[upper] = -cpu_ctx->state.reg.r[lower];
+  if (cpu_ctx->state.reg.r[lower] == 0x8000)
+    {
+      cpu_ctx->state.reg.r[upper] = -32768;
+      cpu_ctx->state.reg.pir |= INTR_FIXOFL;
+    }
+  else
+    cpu_ctx->state.reg.r[upper] = -cpu_ctx->state.reg.r[lower];
   update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_INT);
 
   cpu_ctx->state.reg.ic++;
@@ -3178,12 +3202,20 @@ ex_dneg (struct cpu_context *cpu_ctx, ushort opcode) /* B5xy */
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   int help = ((int) cpu_ctx->state.reg.r[lower] << 16)
-           | ((int) cpu_ctx->state.reg.r[lower+1] & 0xFFFF);
-
-  help = -help;
-  cpu_ctx->state.reg.r[upper] = (short) (help >> 16);
-  cpu_ctx->state.reg.r[upper + 1] = (short) (help & 0xFFFF);
-  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_LONG);
+           | ((int) cpu_ctx->state.reg.r[(lower+1)&0xF] & 0xFFFF);
+  if (help == 0x80000000)
+  {
+    cpu_ctx->state.reg.r[upper] = 0x8000;
+    cpu_ctx->state.reg.r[upper + 1] = 0;
+    cpu_ctx->state.reg.pir |= INTR_FIXOFL;
+  }
+  else
+  {
+    help = -help;
+    cpu_ctx->state.reg.r[upper] = (short) (help >> 16);
+    cpu_ctx->state.reg.r[upper + 1] = (short) (help & 0xFFFF);
+    update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_LONG);
+  }
 
   cpu_ctx->state.reg.ic++;
   return (nc_DNEG);

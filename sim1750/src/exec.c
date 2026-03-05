@@ -41,6 +41,7 @@
 extern void  dis_reg ();	/* cmd.c */
 extern int   sys_int (int);	/* cmd.c */
 extern char *disassemble (struct cpu_state *cpu);	/* sdisasm.c */
+extern int scan_instructions_from_address(struct cpu_context *cpu_ctx, ushort address); /* jit.c */
 
 extern struct cpu_context *sim_cpu_ctx;
 
@@ -66,6 +67,21 @@ execute_without_breakpt (struct cpu_context *cpu_ctx)
   return status;
 }
 
+int si_jit_scan (int argc, char *argv[])
+{
+  unsigned next;
+
+  if (argc > 1)
+    {
+      sscanf (argv[1], "%x", &next);
+      
+    }
+  else
+    next = sim_cpu_ctx->state.reg.ic;
+  printf("Scanning instructions starting from address 0x%04X\n", next);
+  scan_instructions_from_address(sim_cpu_ctx, next);
+  return OKAY;
+}
 
 int
 si_go (int argc, char *argv[])
@@ -103,7 +119,8 @@ si_go (int argc, char *argv[])
   return OKAY;
 }
 
-
+void
+dis_reg (struct cpu_state *cpu);
 int
 si_snglstp (int argc, char *argv[])
 {
@@ -160,6 +177,7 @@ si_snglstp (int argc, char *argv[])
     {
       while (count-- > 0)
 	{
+    dis_reg(&sim_cpu_ctx->state);
 	  if (sys_int (1))
 	    return (INTERRUPT);
 	  if (at_bpt_instruction (&sim_cpu_ctx->state))

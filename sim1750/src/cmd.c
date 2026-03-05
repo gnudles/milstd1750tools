@@ -121,6 +121,9 @@ static const struct {
        "description of each. If a command name is supplied (as currently),\n"
        "then more detailed information is displayed.\n"
        "For help on address expression syntax, see help on the TR command." },
+  /* jit scan*/
+   { "jit_scan [address]",     si_jit_scan, "scan instructions",
+       "Scan instructions starting from the given address." },
    { "go [address]",            si_go,       "start or continue execution",
        "If the optional address argument is not supplied, then execution\n"
        "starts at the current Instruction Counter location and in the\n"

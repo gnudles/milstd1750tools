@@ -50,6 +50,7 @@ update_cs (struct cpu_state *cpu, short *operand, datatype data_type)
 {
   bool is_zero;
   ushort sw_save = cpu->reg.sw & 0x8FFF;
+  cpu->reg.sw &= ~CS_CARRY; // reset carry bit, it will be set by arith() if needed
 
   switch (data_type)
     {
@@ -146,7 +147,9 @@ arith (struct cpu_state *cpu, operation_kind operation,
        datatype vartyp,    /* Always specify data type of SECOND operand! */
        short *operand0, short *operand1)
 {
-  cpu->reg.sw &= ~CS_CARRY;
+
+  
+  bool set_carry = false;
 
   switch (vartyp)
     {
@@ -166,7 +169,7 @@ arith (struct cpu_state *cpu, operation_kind operation,
                 uaccu = uop0 + uop1;
                 sign_comparison = ((uop0 & 0x8000) == (uop1 & 0x8000));
                 if ((uint) uop0 + (uint) uop1 > 0xFFFF)
-                  cpu->reg.sw |= CS_CARRY;
+                  set_carry = true;
               }
             else
               {
@@ -175,7 +178,7 @@ arith (struct cpu_state *cpu, operation_kind operation,
                 /* Subtraction is performed via 2's complement addition:
                  * A + ~B + 1. Thus, a carry occurs when A >= B. */
                 if (uop0 >= uop1)
-                  cpu->reg.sw |= CS_CARRY;
+                  set_carry = true;
               }
 
             if (sign_comparison && (uop0 & 0x8000) != (uaccu & 0x8000))
@@ -192,6 +195,8 @@ arith (struct cpu_state *cpu, operation_kind operation,
 
             operand0[0] = uaccu;
             update_cs (cpu, operand0, VAR_INT);
+            if (set_carry)
+              cpu->reg.sw |= CS_CARRY;
           }
 
         elsecase ARI_MUL:
@@ -318,7 +323,7 @@ arith (struct cpu_state *cpu, operation_kind operation,
               ulaccu = ulop0 + ulop1;
               sign_comparison = ((ulop0 & 0x80000000) == (ulop1 & 0x80000000));
               if ((unsigned long long) ulop0 + (unsigned long long) ulop1 > 0xFFFFFFFFULL)
-                cpu->reg.sw |= CS_CARRY;
+                set_carry = true;
             }
           else
             {
@@ -327,7 +332,7 @@ arith (struct cpu_state *cpu, operation_kind operation,
               /* Subtraction is performed via 2's complement addition:
                * A + ~B + 1. Thus, a carry occurs when A >= B. */
               if (ulop0 >= ulop1)
-                cpu->reg.sw |= CS_CARRY;
+                set_carry = true;
             }
 
           if (sign_comparison && (ulop0 & 0x80000000) != (ulaccu & 0x80000000))
@@ -341,6 +346,8 @@ arith (struct cpu_state *cpu, operation_kind operation,
           operand0[0] = (short) (ulaccu >> 16);
           operand0[1] = (short) (ulaccu & 0x0000FFFF);
           update_cs (cpu, operand0, VAR_LONG);
+          if (set_carry)
+            cpu->reg.sw |= CS_CARRY;
         }
       else  /* ARI_MUL or ARI_DIV */
         {
