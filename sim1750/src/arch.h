@@ -137,7 +137,10 @@ struct mmureg
 struct cpu_state {
   mem_t *mem[N_PAGES];
   struct regs reg;
+  /* A quickie for communication between workout_interrupts() and ex_bex() */ 
+  ushort bex_index;
   struct mmureg pagereg[2][16][16];
+  uint num_phys_mem_pages; // size of installed memory, in pages (4096 words per page)
   uint instcnt;
   u_int64_t total_cycles;
   struct {

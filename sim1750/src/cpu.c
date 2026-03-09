@@ -190,8 +190,7 @@ workout_timing (struct cpu_state *cpu, int cycles)
     }
 }
 
-/* A quickie for communication between workout_interrupts() and ex_bex() */
-static ushort bex_index;
+
 
 static int
 workout_interrupts (struct cpu_state *cpu)
@@ -231,7 +230,7 @@ workout_interrupts (struct cpu_state *cpu)
   /* get new MK/SW/IC */
   get_raw (cpu, DATA, 0, svp, &cpu->reg.mk);
   get_raw (cpu, DATA, 0, svp + 1, &cpu->reg.sw);
-  get_raw (cpu, DATA, 0, svp + 2 + (intnum == 5 ? bex_index : 0),
+  get_raw (cpu, DATA, 0, svp + 2 + (intnum == 5 ? cpu->bex_index : 0),
            &cpu->reg.ic); /* bex_index: see ex_bex() */
   /* save old MK/SW/IC in new AS */
   as = cpu->reg.sw & 0x000F;
@@ -2010,7 +2009,7 @@ ex_bex (struct cpu_context *cpu_ctx, ushort opcode) /* 77xy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
-  bex_index = (int) lower;
+  cpu_ctx->state.bex_index = (int) lower;
   cpu_ctx->state.reg.pir |= INTR_BEX;
 
   cpu_ctx->state.reg.ic++;
@@ -4023,7 +4022,6 @@ static int
 ex_xbr (struct cpu_context *cpu_ctx, ushort opcode) /* ECxy */
 {
   ushort upper = (opcode & 0x00F0) >> 4;
-  ushort lower =  opcode & 0x000F;
   cpu_ctx->state.reg.r[upper] = (cpu_ctx->state.reg.r[upper] << 8) | ((cpu_ctx->state.reg.r[upper] >> 8) & 0x00FF);
   update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_INT);
 
