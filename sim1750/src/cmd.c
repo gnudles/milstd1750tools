@@ -134,8 +134,8 @@ static const struct {
    { "ss *",                    si_snglstp,  "step over subroutine call",
        "" },
 
-   { "cpu <subcmd>",           co_cpu,      "manage CPUs (list, create, select, rename)",
-                                "\tcpu list\n\tcpu create <name> [memory_pages]\n\tcpu select <id>\n\tcpu rename <name>\n" },
+   { "cpu <subcmd>",           co_cpu,      "manage CPUs (list, create, select, rename, memory)",
+                                "\tcpu list\n\tcpu create <name> [memory_pages]\n\tcpu select <id>\n\tcpu rename <name>\n\tcpu memory <id> <pages>\n" },
    { "break <address>",        si_brkset,   "set breakpoint",
        "Set breakpoint at the given address. For the syntax of the address\n"
        "expression, see the help info on the TR command. Additionally,\n"
@@ -1014,6 +1014,31 @@ co_cpu (int argc, char *argv[])
       strncpy(sim_cpu_ctx->name, argv[2], sizeof(sim_cpu_ctx->name) - 1);
       sim_cpu_ctx->name[sizeof(sim_cpu_ctx->name) - 1] = '\0';
       lprintf ("Renamed current CPU to '%s'\n", sim_cpu_ctx->name);
+    }
+  else if (strmatch (argv[1], "memory"))
+    {
+      if (argc < 4)
+        return error ("usage: cpu memory <id> <pages>");
+      int id = atoi(argv[2]);
+      if (id < 0 || id >= ncpus)
+        return error ("invalid cpu id");
+
+      int new_pages = atoi(argv[3]);
+      if (new_pages <= 0 || new_pages > N_PAGES)
+        return error ("invalid memory pages value");
+
+      struct cpu_context *cpu = &cpu_contexts[id];
+      if (new_pages < cpu->state.num_phys_mem_pages)
+        {
+          /* Check if any pages in the shrunk region are already allocated */
+          for (i = new_pages; i < N_PAGES; i++)
+            {
+              if (cpu->state.mem[i] != MNULL)
+                return error ("Cannot shrink memory: pages in shrunk region are already allocated");
+            }
+        }
+      cpu->state.num_phys_mem_pages = new_pages;
+      lprintf ("CPU %d ('%s') memory set to %d pages\n", id, cpu->name, new_pages);
     }
   else
     {
