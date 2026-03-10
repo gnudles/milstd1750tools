@@ -59,6 +59,9 @@ was_written (struct cpu_state *cpu, uint phys_address)
   unsigned page = (unsigned) (phys_address >> 12);
   unsigned address = (unsigned) (phys_address & 0x0FFF);
 
+  if (page >= cpu->num_phys_mem_pages)
+    return 0;
+
   if (cpu->mem[page] == MNULL)
     return 0;
   return (cpu->mem[page]->was_written[address / 32] & (1 << (address % 32))) != 0;

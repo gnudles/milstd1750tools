@@ -83,7 +83,7 @@ struct cpu_context cpu_contexts[MAX_CPUS] = {
      {
     .bpindex = -1,
     .disable_timers = false,
-    .state = {.instcnt = 0, .total_cycles = 0},
+    .state = {.instcnt = 0, .total_cycles = 0, .num_phys_mem_pages = 256},
     .name = "default",
     .n_breakpts = 0
      }
@@ -135,7 +135,7 @@ static const struct {
        "" },
 
    { "cpu <subcmd>",           co_cpu,      "manage CPUs (list, create, select, rename)",
-                                "\tcpu list\n\tcpu create <name>\n\tcpu select <id>\n\tcpu rename <name>\n" },
+                                "\tcpu list\n\tcpu create <name> [memory_pages]\n\tcpu select <id>\n\tcpu rename <name>\n\tcpu mem <pages>\n" },
    { "break <address>",        si_brkset,   "set breakpoint",
        "Set breakpoint at the given address. For the syntax of the address\n"
        "expression, see the help info on the TR command. Additionally,\n"
@@ -974,15 +974,24 @@ co_cpu (int argc, char *argv[])
       if (ncpus >= MAX_CPUS)
         return error ("max CPUs reached");
 
+      int num_pages = 256;
+      if (argc >= 4)
+        {
+          num_pages = atoi (argv[3]);
+          if (num_pages < 1 || num_pages > 256)
+            return error ("invalid memory size (must be 1..256 pages)");
+        }
+
       struct cpu_context *new_cpu = &cpu_contexts[ncpus];
       memset(new_cpu, 0, sizeof(struct cpu_context));
       strncpy(new_cpu->name, argv[2], sizeof(new_cpu->name) - 1);
       new_cpu->name[sizeof(new_cpu->name) - 1] = '\0';
       new_cpu->bpindex = -1;
       new_cpu->disable_timers = false;
+      new_cpu->state.num_phys_mem_pages = num_pages;
       init_simulator (new_cpu, 0);
 
-      lprintf ("Created CPU %d ('%s')\n", ncpus, new_cpu->name);
+      lprintf ("Created CPU %d ('%s') with %d mem pages\n", ncpus, new_cpu->name, num_pages);
       ncpus++;
     }
   else if (strmatch (argv[1], "select"))
@@ -1004,6 +1013,29 @@ co_cpu (int argc, char *argv[])
       strncpy(sim_cpu_ctx->name, argv[2], sizeof(sim_cpu_ctx->name) - 1);
       sim_cpu_ctx->name[sizeof(sim_cpu_ctx->name) - 1] = '\0';
       lprintf ("Renamed current CPU to '%s'\n", sim_cpu_ctx->name);
+    }
+  else if (strmatch (argv[1], "mem"))
+    {
+      if (argc < 3)
+        return error ("memory pages missing");
+
+      int num_pages = atoi (argv[2]);
+      if (num_pages < 1 || num_pages > 256)
+        return error ("invalid memory size (must be 1..256 pages)");
+
+      int current_pages = sim_cpu_ctx->state.num_phys_mem_pages;
+      if (num_pages < current_pages)
+        {
+          int p;
+          for (p = num_pages; p < current_pages; p++)
+            {
+              if (sim_cpu_ctx->state.mem[p] != MNULL)
+                return error ("cannot shrink memory: pages are already allocated");
+            }
+        }
+
+      sim_cpu_ctx->state.num_phys_mem_pages = num_pages;
+      lprintf ("Set current CPU memory to %d pages\n", num_pages);
     }
   else
     {

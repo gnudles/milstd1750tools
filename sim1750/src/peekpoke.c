@@ -45,8 +45,10 @@ peek (struct cpu_state *cpu, uint phys_address, ushort *value)
   mem_t *memptr;
   uint was_written;
 
-  if (page > 0xFF)
-    problem ("peek: absolute memory address too large");
+  if (page >= cpu->num_phys_mem_pages)
+    {
+      problem ("peek: absolute memory address too large");
+    }
   if ((memptr = cpu->mem[page]) == MNULL)
     {
       if (verbose)
@@ -67,8 +69,10 @@ poke (struct cpu_state *cpu, uint phys_address, ushort value)
   unsigned log_addr = (unsigned) (phys_address & 0x0FFF);
   mem_t *memptr;
 
-  if (page > 0xFF)
-    problem ("poke: absolute memory address too large");
+  if (page >= cpu->num_phys_mem_pages)
+    {
+      problem ("poke: absolute memory address too large");
+    }
   if ((memptr = cpu->mem[page]) == MNULL)
     {
       if (verbose)
