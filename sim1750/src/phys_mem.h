@@ -4,9 +4,9 @@
 #define _PHYS_MEM_H
 
 #include "type.h"
-
-extern void   init_mem ();
-extern bool   was_written (uint phys_address);
+struct cpu_state;  /* forward declaration to avoid circularity with cpu.h */
+extern void   init_mem (struct cpu_state *cpu);
+extern bool   was_written (struct cpu_state *cpu, uint phys_address);
 /* simulation memory allocator */
 extern void  *xalloc (uint number, uint size);
 extern uint allocated;  /* total amount allocated by xalloc() */
@@ -24,7 +24,7 @@ typedef struct
   } mem_t;
 
 #define N_PAGES   256  /* 1 Mword address space */
-extern mem_t *mem[N_PAGES];
+/* extern mem_t *mem[N_PAGES]; */
 
 #define MNULL  (mem_t *) 0
 
