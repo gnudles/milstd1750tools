@@ -12,7 +12,7 @@ CC=      gcc
 # CFLAGS= -D__STDC__=0 -DSTRNDUP -DSTRNCASECMP # -DGNU_READLINE
 
 # CFLAGS for Linux and hopefully other Unixes
-CFLAGS = -g -I./src -DSTRNDUP -DSTRNCASECMP -DHAVE_UTYPES # -DGNU_READLINE
+CFLAGS = -O3 -I./src -Wall -DSTRNDUP -DSTRNCASECMP -DHAVE_UTYPES # -DGNU_READLINE
 
 
 PROJ_DIR=.
@@ -40,17 +40,26 @@ OBJECTS= $(OBJ)/arith.o		\
 	 $(OBJ)/tekops.o	\
 	 $(OBJ)/utils.o		\
 	 $(OBJ)/load_coff.o	\
-	 $(OBJ)/xiodef.o
+	 $(OBJ)/xiodef.o \
+	 $(OBJ)/jit.o \
+	 $(OBJ)/jit_defs.o \
+	 $(OBJ)/sljitLir.o
 
 
 SOURCES= $(OBJECTS:$(OBJ)/%.o=$(SRC)/%.c)
 
-all: sim1750
+all: sim1750 interp_gen test_inst
 
 sim1750: $(OBJ) $(OBJECTS)
 	# $(CC) $(CFLAGS) -o $(PROJ_DIR)/sim1750 $(OBJECTS) -lm -ltermcap
 	$(CC) $(CFLAGS) -o $(PROJ_DIR)/sim1750 $(OBJECTS) -lm -lreadline
-
+interp_gen: $(OBJ)/jit_defs.o $(OBJ)/interp_gen.o
+	$(CC) $(CFLAGS) -o $(PROJ_DIR)/interp_gen $(OBJ)/jit_defs.o $(OBJ)/interp_gen.o
+$(SRC)/generated_cpu.h: interp_gen
+	./interp_gen > $(SRC)/generated_cpu.h
+test_inst: $(SRC)/test_instructions.c $(SRC)/generated_cpu.h
+	gcc -fsanitize=undefined $(SRC)/test_instructions.c -o test_inst
+	./test_inst
 $(OBJ):
 	mkdir -p $@
 
@@ -142,4 +151,11 @@ $(OBJ)/utils.o: $(SRC)/type.h $(SRC)/utils.h $(SRC)/utils.c
 
 $(OBJ)/xiodef.o: $(SRC)/xiodef.h $(SRC)/xiodef.c
 	$(CC) -c $(CFLAGS) $(SRC)/xiodef.c	-o $(OBJ)/xiodef.o
-
+$(OBJ)/jit.o: $(SRC)/jit.h $(SRC)/jit.c
+	$(CC) -c $(CFLAGS) $(SRC)/jit.c	-o $(OBJ)/jit.o
+$(OBJ)/jit_defs.o: $(SRC)/jit.h $(SRC)/jit_defs.c
+	$(CC) -c $(CFLAGS) $(SRC)/jit_defs.c	-o $(OBJ)/jit_defs.o
+$(OBJ)/interp_gen.o: $(SRC)/jit.h $(SRC)/interp_gen.c
+	$(CC) -c $(CFLAGS) $(SRC)/interp_gen.c	-o $(OBJ)/interp_gen.o
+$(OBJ)/sljitLir.o: $(SRC)/sljit/sljit_src/sljitLir.c $(SRC)/sljit/sljit_src/sljitLir.h
+	$(CC) -c $(CFLAGS) $(SRC)/sljit/sljit_src/sljitLir.c	-o $(OBJ)/sljitLir.o
