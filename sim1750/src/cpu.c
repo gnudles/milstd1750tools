@@ -272,7 +272,7 @@ get_word (struct cpu_context *cpu_ctx, int bank, ushort address, short *data)
 	  return MEMERR;
 	}
     }
-  if (cpu_ctx->state.pagereg[bank][(int) as][(int)(address >> 12)].e_w)
+  if (cpu_ctx->state.pagereg[bank][(int) as][(int)(address >> 12)].e_w && bank == CODE)
     {
       cpu_ctx->state.reg.pir |= INTR_MACHERR;
       cpu_ctx->state.reg.ft |= FT_MEMPROT;
@@ -297,39 +297,34 @@ get_word (struct cpu_context *cpu_ctx, int bank, ushort address, short *data)
 
 
 static int
-store_word (struct cpu_context *cpu_ctx, int bank, ushort address, ushort data)
+store_word_data(struct cpu_context *cpu_ctx, ushort address, ushort data)
 {
   ushort al, ak = (cpu_ctx->state.reg.sw >> 4) & 0xF, as = cpu_ctx->state.reg.sw & 0xF;
   uint phys_address;
 
-  if (bank != CODE && bank != DATA)
-    {
-      error ("intern err (store_word):  bank-number %d invalid\n", bank);
-      return MEMERR;
-    }
   if (ak != 0)
     {
-      al = cpu_ctx->state.pagereg[bank][(int) as][(int)(address >> 12)].al;
+      al = cpu_ctx->state.pagereg[DATA][(int) as][(int)(address >> 12)].al;
       if (al != 0xF && ak != al)
 	{
 	  cpu_ctx->state.reg.pir |= INTR_MACHERR;
 	  cpu_ctx->state.reg.ft |= FT_MEMPROT;
 	  error
 	   ("MACHINE ERR: AL=%hX / AK=%hX on storing %s to address %hX:%04hX\n",
-		    al, ak, bankname[bank], as, address);
+		    al, ak, bankname[DATA], as, address);
 	  return MEMERR;
 	}
     }
-  if (cpu_ctx->state.pagereg[bank][(int) as][(int)(address >> 12)].e_w)
+  if (cpu_ctx->state.pagereg[DATA][(int) as][(int)(address >> 12)].e_w)
     {
       cpu_ctx->state.reg.pir |= INTR_MACHERR;
       cpu_ctx->state.reg.ft |= FT_MEMPROT;
       error
 	("MACHINE ERR: attempt to store %s to protected address %hX:%04hX\n",
-		bankname[bank], as, address);
+		bankname[DATA], as, address);
       return MEMERR;
     }
-  phys_address = get_phys_address (&cpu_ctx->state, bank, as, address);
+  phys_address = get_phys_address (&cpu_ctx->state, DATA, as, address);
 #ifndef BSVC
   /* Check for breakpoint */
   if ((bpindex = find_breakpt (cpu_ctx, WRITE, phys_address)) >= 0)
@@ -345,8 +340,8 @@ store_word (struct cpu_context *cpu_ctx, int bank, ushort address, ushort data)
 static int ans;
 #define GET(bank,addr,receiver) \
 	  if ((ans = get_word (cpu_ctx, bank, addr, receiver)) != OKAY) return ans
-#define PUT(bank,addr,emittee)  \
-	  if ((ans = store_word (cpu_ctx, bank, addr, emittee)) != OKAY) return ans
+#define PUT(addr,emittee)  \
+	  if ((ans = store_word_data (cpu_ctx, addr, emittee)) != OKAY) return ans
 
 //static ushort opcode, upper, lower;
 /* `upper' and `lower' are bits 8..11 and 12..15 respectively of the opcode */
@@ -396,7 +391,7 @@ ex_stb (struct cpu_context *cpu_ctx, ushort opcode) /* 0[9-B]xy */
   ushort lower =  opcode & 0x000F;
   ushort addr = BASEREG (opcode) + (opcode & 0xFF);
 
-  PUT (DATA, addr, cpu_ctx->state.reg.r[2]);
+  PUT (addr, cpu_ctx->state.reg.r[2]);
 
   cpu_ctx->state.reg.ic++;
   return (nc_STB);
@@ -409,8 +404,8 @@ ex_dstb (struct cpu_context *cpu_ctx, ushort opcode) /* 0[A-F]xy */
   ushort lower =  opcode & 0x000F;
   ushort addr = BASEREG (opcode) + (opcode & 0xFF);
 
-  PUT (DATA, addr, cpu_ctx->state.reg.r[0]);
-  PUT (DATA, addr + 1, cpu_ctx->state.reg.r[1]);
+  PUT (addr, cpu_ctx->state.reg.r[0]);
+  PUT (addr + 1, cpu_ctx->state.reg.r[1]);
 
   cpu_ctx->state.reg.ic++;
   return (nc_DSTB);
@@ -640,7 +635,7 @@ ex_stbx (struct cpu_context *cpu_ctx, ushort opcode) /* 4[0-3]2y */
   ushort lower =  opcode & 0x000F;
   ushort addr = BASEREG (opcode) + CHK_RX ();
 
-  PUT (DATA, addr, cpu_ctx->state.reg.r[2]);
+  PUT (addr, cpu_ctx->state.reg.r[2]);
 
   cpu_ctx->state.reg.ic++;
   return (nc_STBX);
@@ -653,8 +648,8 @@ ex_dstx (struct cpu_context *cpu_ctx, ushort opcode) /* 4[0-3]3y */
   ushort lower =  opcode & 0x000F;
   ushort addr = BASEREG (opcode) + CHK_RX ();
 
-  PUT (DATA, addr, cpu_ctx->state.reg.r[0]);
-  PUT (DATA, addr + 1, cpu_ctx->state.reg.r[1]);
+  PUT (addr, cpu_ctx->state.reg.r[0]);
+  PUT (addr + 1, cpu_ctx->state.reg.r[1]);
 
   cpu_ctx->state.reg.ic++;
   return (nc_DSTX);
@@ -1006,11 +1001,11 @@ ex_vio (struct cpu_context *cpu_ctx, ushort opcode) /* 49xy */
   ushort upper = (opcode & 0x00F0) >> 4;
   ushort lower =  opcode & 0x000F;
   unsigned ak = (unsigned) (cpu_ctx->state.reg.sw >> 4) & 0xF; /* privileged instruction */
-  ushort vio_address, vec_sel, i = 0, n, transfer, iocmd, iodata;
+  ushort vio_address, vec_sel, i = 0, n, transfer, iocmd, orig_iocmd, iodata;
 
   GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &vio_address);
   vio_address += CHK_RX ();
-  GET (CODE, vio_address + 1, (short *) &vec_sel);
+  GET (DATA, vio_address + 1, (short *) &vec_sel);
 
   if (ak != 0)
     {
@@ -1019,17 +1014,20 @@ ex_vio (struct cpu_context *cpu_ctx, ushort opcode) /* 49xy */
     }
   else
     {
+      if (vec_sel != 0)
+      {
+        GET (DATA, vio_address, (short *) &orig_iocmd);
+      }
       for (n = 0; n <= 15; n++)
 	{
 	  if (vec_sel & (1 << (15 - n)))
 	    {
-	      GET (DATA, vio_address, (short *) &iocmd);
-	      iocmd += n * (ushort) cpu_ctx->state.reg.r[upper];
+	      iocmd = orig_iocmd + n * (ushort) cpu_ctx->state.reg.r[upper];
 	      transfer = vio_address + 2 + i;
 	      GET (DATA, transfer, (short *) &iodata);
 	      realize_xio (cpu_ctx, iocmd, &iodata);
 	      if (iocmd & 0x8000)  /* XIO read */
-		PUT (DATA, transfer, iodata);
+		    PUT (transfer, iodata);
 	      i++;
 	    }
 	}
@@ -1276,7 +1274,7 @@ ex_sb (struct cpu_context *cpu_ctx, ushort opcode) /* 50xy */
   GET (DATA, addr, &data);
 
   data |= 1 << (15 - upper);
-  PUT (DATA, addr, data);
+  PUT (addr, data);
 
   cpu_ctx->state.reg.ic += 2;
   return (nc_SB);
@@ -1307,7 +1305,7 @@ ex_sbi (struct cpu_context *cpu_ctx, ushort opcode) /* 52xy */
   GET (DATA, addr, &data);
 
   data |= 1 << (15 - upper);
-  PUT (DATA, addr, data);
+  PUT (addr, data);
 
   cpu_ctx->state.reg.ic += 2;
   return (nc_SBI);
@@ -1326,7 +1324,7 @@ ex_rb (struct cpu_context *cpu_ctx, ushort opcode) /* 53xy */
   GET (DATA, addr, &data);
 
   data &= ~(1 << (15 - upper));
-  PUT (DATA, addr, data);
+  PUT (addr, data);
 
   cpu_ctx->state.reg.ic += 2;
   return (nc_RB);
@@ -1357,7 +1355,7 @@ ex_rbi (struct cpu_context *cpu_ctx, ushort opcode) /* 55xy */
   GET (DATA, addr, &data);
 
   data &= ~(1 << (15 - upper));
-  PUT (DATA, addr, data);
+  PUT (addr, data);
 
   cpu_ctx->state.reg.ic += 2;
   return (nc_RBI);
@@ -1433,7 +1431,7 @@ ex_tsb (struct cpu_context *cpu_ctx, ushort opcode) /* 59xy */
   GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
   GET (DATA, addr, &data);
-  PUT (DATA, addr, data | bit_set);
+  PUT (addr, data | bit_set);
 
   if (data & bit_set)
     cpu_ctx->state.reg.sw = sw_save | (upper ? CS_POSITIVE : CS_NEGATIVE);
@@ -2167,7 +2165,7 @@ ex_sjs (struct cpu_context *cpu_ctx, ushort opcode) /* 7Exy */
   GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();  /* needs to be BEFORE decrementing r[upper] ... */
   cpu_ctx->state.reg.r[upper]--;          /* ... for the case of (lower == upper) */
-  PUT (DATA, (ushort) cpu_ctx->state.reg.r[upper], (short) cpu_ctx->state.reg.ic + 2);
+  PUT ((ushort) cpu_ctx->state.reg.r[upper], (short) cpu_ctx->state.reg.ic + 2);
   cpu_ctx->state.reg.ic = addr;
 
   return (nc_SJS);
@@ -2531,7 +2529,7 @@ ex_st (struct cpu_context *cpu_ctx, ushort opcode) /* 90xy */
   GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
 
-  PUT (DATA, addr, cpu_ctx->state.reg.r[upper]);
+  PUT (addr, cpu_ctx->state.reg.r[upper]);
 
   cpu_ctx->state.reg.ic += 2;
   return (nc_ST);
@@ -2547,7 +2545,7 @@ ex_stc (struct cpu_context *cpu_ctx, ushort opcode) /* 91xy */
   GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
 
-  PUT (DATA, addr, (short) upper);
+  PUT (addr, (short) upper);
 
   cpu_ctx->state.reg.ic += 2;
   return (nc_STC);
@@ -2564,7 +2562,7 @@ ex_stci (struct cpu_context *cpu_ctx, ushort opcode) /* 92xy */
   addr += CHK_RX ();
   GET (DATA, addr, (short *) &addr);
 
-  PUT (DATA, addr, (short) upper);
+  PUT (addr, (short) upper);
 
   cpu_ctx->state.reg.ic += 2;
   return (nc_STCI);
@@ -2585,7 +2583,7 @@ ex_mov (struct cpu_context *cpu_ctx, ushort opcode) /* 93xy */
   while (n_moves)
     {
       GET (DATA, source, &data);
-      PUT (DATA, destin, data);
+      PUT (destin, data);
       cpu_ctx->state.reg.r[upper] = ++destin;	/* unsigned op */
       cpu_ctx->state.reg.r[lower] = ++source;	/* unsigned op */
       cpu_ctx->state.reg.r[upper + 1] = --n_moves;	/* unsigned op */
@@ -2609,7 +2607,7 @@ ex_sti (struct cpu_context *cpu_ctx, ushort opcode) /* 94xy */
   addr += CHK_RX ();
   GET (DATA, addr, (short *) &addr);
 
-  PUT (DATA, addr, cpu_ctx->state.reg.r[upper]);
+  PUT (addr, cpu_ctx->state.reg.r[upper]);
 
   cpu_ctx->state.reg.ic += 2;
   return (nc_STI);
@@ -2645,8 +2643,8 @@ ex_dst (struct cpu_context *cpu_ctx, ushort opcode) /* 96xy */
   GET (CODE, cpu_ctx->state.reg.ic + 1, (short *) &addr);
   addr += CHK_RX ();
 
-  PUT (DATA, addr, cpu_ctx->state.reg.r[upper]);
-  PUT (DATA, addr + 1, cpu_ctx->state.reg.r[upper + 1]);
+  PUT (addr, cpu_ctx->state.reg.r[upper]);
+  PUT (addr + 1, cpu_ctx->state.reg.r[upper + 1]);
 
   cpu_ctx->state.reg.ic += 2;
   return (nc_DST);
@@ -2668,7 +2666,7 @@ ex_srm (struct cpu_context *cpu_ctx, ushort opcode) /* 97xy */
   GET (DATA, destin, &help2);
   help2 &= ~mask;
 
-  PUT (DATA, destin, help1 | help2);
+  PUT (destin, help1 | help2);
 
   cpu_ctx->state.reg.ic += 2;
   return (nc_SRM);
@@ -2685,8 +2683,8 @@ ex_dsti (struct cpu_context *cpu_ctx, ushort opcode) /* 98xy */
   addr += CHK_RX ();
   GET (DATA, addr, (short *) &addr);
 
-  PUT (DATA, addr, cpu_ctx->state.reg.r[upper]);
-  PUT (DATA, addr + 1, cpu_ctx->state.reg.r[upper + 1]);
+  PUT (addr, cpu_ctx->state.reg.r[upper]);
+  PUT (addr + 1, cpu_ctx->state.reg.r[upper + 1]);
 
   cpu_ctx->state.reg.ic += 2;
   return (nc_DSTI);
@@ -2704,7 +2702,7 @@ ex_stm (struct cpu_context *cpu_ctx, ushort opcode) /* 99xy */
   addr += CHK_RX ();
 
   for (i = 0; i <= upper; i++)
-    PUT (DATA, addr + i, cpu_ctx->state.reg.r[i]);
+    PUT (addr + i, cpu_ctx->state.reg.r[i]);
 
   cpu_ctx->state.reg.ic += 2;
   return (nc_STM);
@@ -2722,7 +2720,7 @@ ex_efst (struct cpu_context *cpu_ctx, ushort opcode) /* 9Axy */
   addr += CHK_RX ();
 
   for (i = 0; i < 3; i++)
-    PUT (DATA, addr + i, cpu_ctx->state.reg.r[(upper + i) % 16]);
+    PUT (addr + i, cpu_ctx->state.reg.r[(upper + i) % 16]);
 
   cpu_ctx->state.reg.ic += 2;
   return (nc_EFST);
@@ -2740,7 +2738,7 @@ ex_stub (struct cpu_context *cpu_ctx, ushort opcode) /* 9Bxy */
   addr += CHK_RX ();
   GET (DATA, addr, &help);
   
-  PUT (DATA, addr, (cpu_ctx->state.reg.r[upper] << 8) | (help & 0x00FF));
+  PUT (addr, (cpu_ctx->state.reg.r[upper] << 8) | (help & 0x00FF));
 
   cpu_ctx->state.reg.ic += 2;
   return (nc_STUB);
@@ -2758,7 +2756,7 @@ ex_stlb (struct cpu_context *cpu_ctx, ushort opcode) /* 9Cxy */
   addr += CHK_RX ();
   GET (DATA, addr, &help);
   
-  PUT (DATA, addr, (cpu_ctx->state.reg.r[upper] & 0x00FF) | (help & 0xFF00));
+  PUT (addr, (cpu_ctx->state.reg.r[upper] & 0x00FF) | (help & 0xFF00));
 
   cpu_ctx->state.reg.ic += 2;
   return (nc_STLB);
@@ -2777,7 +2775,7 @@ ex_subi (struct cpu_context *cpu_ctx, ushort opcode) /* 9Dxy */
   GET (DATA, addr, (short *) &addr);
   GET (DATA, addr, &help);
   
-  PUT (DATA, addr, (cpu_ctx->state.reg.r[upper] << 8) | (help & 0x00FF));
+  PUT (addr, (cpu_ctx->state.reg.r[upper] << 8) | (help & 0x00FF));
 
   cpu_ctx->state.reg.ic += 2;
   return (nc_SUBI);
@@ -2796,7 +2794,7 @@ ex_slbi (struct cpu_context *cpu_ctx, ushort opcode) /* 9Exy */
   GET (DATA, addr, (short *) &addr);
   GET (DATA, addr, &help);
   
-  PUT (DATA, addr, (cpu_ctx->state.reg.r[upper] & 0x00FF) | (help & 0xFF00));
+  PUT (addr, (cpu_ctx->state.reg.r[upper] & 0x00FF) | (help & 0xFF00));
 
   cpu_ctx->state.reg.ic += 2;
   return (nc_SLBI);
@@ -2815,7 +2813,7 @@ ex_pshm (struct cpu_context *cpu_ctx, ushort opcode) /* 9Fxy */
       n_pushes = lower - upper + 1;
       while (count >= (int) upper)
 	{
-	  PUT (DATA, --stkptr, cpu_ctx->state.reg.r[count]);
+	  PUT (--stkptr, cpu_ctx->state.reg.r[count]);
 	  count--;
 	}
     }
@@ -2824,13 +2822,13 @@ ex_pshm (struct cpu_context *cpu_ctx, ushort opcode) /* 9Fxy */
       n_pushes = 16 - upper + lower + 1;
       while (count >= 0)
 	{
-	  PUT (DATA, --stkptr, cpu_ctx->state.reg.r[count]);
+	  PUT (--stkptr, cpu_ctx->state.reg.r[count]);
 	  count--;
 	}
       count = 15;
       while (count >= (int) upper)
 	{
-	  PUT (DATA, --stkptr, cpu_ctx->state.reg.r[count]);
+	  PUT (--stkptr, cpu_ctx->state.reg.r[count]);
 	  count--;
 	}
     }
@@ -2895,7 +2893,7 @@ ex_incm (struct cpu_context *cpu_ctx, ushort opcode) /* A3xy */
   GET (DATA, addr, &help1);
 
   arith (&cpu_ctx->state, ARI_ADD, VAR_INT, &help1, &help2);
-  PUT (DATA, addr, help1);
+  PUT (addr, help1);
 
   cpu_ctx->state.reg.ic += 2;
   return (nc_INCM);
@@ -3171,7 +3169,7 @@ ex_decm (struct cpu_context *cpu_ctx, ushort opcode) /* B3xy */
   GET (DATA, addr, &help1);
 
   arith (&cpu_ctx->state, ARI_SUB, VAR_INT, &help1, &help2);
-  PUT (DATA, addr, help1);
+  PUT (addr, help1);
 
   cpu_ctx->state.reg.ic += 2;
   return (nc_DECM);

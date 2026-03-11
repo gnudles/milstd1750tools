@@ -187,7 +187,7 @@ void emit_shift_instruction (OpcodeDef *def)
 void emit_instruction (OpcodeDef *def)
 {
     printf("/* %s - %s*/\n", def->name, def->description);
-    printf("void interpret_%s(struct cpu_context *cpu_ctx, uint16_t opcode) {\n", def->name);
+    printf("void interpret_%s(struct cpu_context *cpu_ctx, uint16_t opcode, uint16_t %s) {\n", def->name, def->is_imm?"imm_value":"/* imm_value */");
     if (def->op_type == OP_SHIFT) {
         emit_shift_instruction(def);
         return;
@@ -201,8 +201,8 @@ void emit_instruction (OpcodeDef *def)
     {
         DO_SIZE = 3;
     }
-    if (def->is_imm || (def->addr_mode != AM_REG_DIRECT_R && def->addr_mode != AM_IMM_SHRT_NEG_ISN
-     && def->addr_mode != AM_IMM_SHRT_POS_ISP && def->addr_mode != AM_CNT_REL_ICR))
+    if (def->addr_mode != AM_REG_DIRECT_R && def->addr_mode != AM_IMM_SHRT_NEG_ISN
+     && def->addr_mode != AM_IMM_SHRT_POS_ISP && def->addr_mode != AM_CNT_REL_ICR)
     {
         printf("    bool ok = true;\n"); // we are going to fetch/set memory, so we need that var;
     }
@@ -244,10 +244,7 @@ void emit_instruction (OpcodeDef *def)
         has_DO_ADDR = true;
 
     }
-    if (def->is_imm) {
-        printf("    int16_t imm_value = fetch_code_word(cpu_ctx, cpu_ctx->state.reg.ic + 1, &ok);\n");
-        printf("    if (!ok) return;\n");
-    }
+
     
     if (def->format == IF_REG_REG) {
         printf("    uint16_t RA = (opcode & 0x00F0) >> 4;\n");
@@ -292,7 +289,8 @@ void emit_instruction (OpcodeDef *def)
         else if (def->addr_mode == AM_MEM_INDIRECT_I_IX)
         {
             printf("    uint16_t DO_INDIRECT = ((RX > 0)?(uint16_t)cpu_ctx->state.reg.r[RX]:0) + (uint16_t)imm_value;\n");
-            printf("    uint16_t DO_ADDR = fetch_data_word(cpu_ctx, (uint16_t)DO_INDIRECT, &ok);\n");
+            printf("    uint16_t DO_ADDR;\n");
+            printf("    ok = fetch_data_word(cpu_ctx, (uint16_t)DO_INDIRECT, &DO_ADDR);\n");
             has_DO_ADDR = true;
         }
         else if (def->addr_mode == AM_MEM_DIRECT_D_DX)
@@ -316,14 +314,21 @@ void emit_instruction (OpcodeDef *def)
     }
     if (has_DO_ADDR)
     {
-        if (def->op_type != OP_STORE && def->op_type != OP_JUMP_COND && def->op_type != OP_JUMP_SUBRTN && def->op_type != OP_RET_SUBRTN)
+        if (def->op_type != OP_STORE && def->op_type != OP_JUMP_COND && def->op_type != OP_JUMP_SUBRTN && def->op_type != OP_RET_SUBRTN && def->op_type != OP_XIO)
         {
             //if not store operation, we need to fetch derived operand (DO) from memory
             
             printf ("    int16_t DO[%d];\n", DO_SIZE);
-            for (int i = 0 ; i < DO_SIZE; ++i)
+            if (DO_SIZE == 1)
             {
-                printf ("    DO[%d] = fetch_data_word(cpu_ctx, DO_ADDR + %d, &ok);\n", i, i);
+                printf ("    ok =  fetch_data_word(cpu_ctx, DO_ADDR, DO);\n");
+            }
+            else
+            {
+                for (int i = 0 ; i < DO_SIZE; ++i)
+                {
+                    printf ("    ok = 0 == fetch_data_words(cpu_ctx, DO_ADDR, %d, DO);\n", DO_SIZE);
+                }
             }
         }
     }
@@ -359,13 +364,17 @@ void emit_instruction (OpcodeDef *def)
             /* store contents of RA into DO_ADDR*/
             if (def->format == IF_CONST_LONG) /* STC, STCI*/
             {
-                printf ("    store_data_word(cpu_ctx, DO_ADDR, N, &ok);\n");
+                printf ("    ok = store_data_word(cpu_ctx, DO_ADDR, N);\n");
             }
             else
             {
-                for (int i = 0 ; i < DO_SIZE; ++i)
+                if (DO_SIZE == 1)
                 {
-                    printf ("    store_data_word(cpu_ctx, DO_ADDR + %d, cpu_ctx->state.reg.r[(RA+%d)&0xF], &ok);\n", i, i);
+                    printf ("    ok = store_data_word(cpu_ctx, DO_ADDR, cpu_ctx->state.reg.r[RA]);\n");
+                }
+                else if (DO_SIZE >= 2)
+                {
+                    printf ("    ok = 0 == store_data_words_reg(cpu_ctx, DO_ADDR, %d, RA);\n", DO_SIZE);
                 }
             }
             break;
@@ -379,7 +388,7 @@ void emit_instruction (OpcodeDef *def)
             {
                 printf ("    DO[0] = (DO[0] & 0xFF00) | (cpu_ctx->state.reg.r[RA] & 0x00FF);\n");
             }
-            printf ("    store_data_word(cpu_ctx, DO_ADDR, DO[0], &ok);\n");
+            printf ("    ok = store_data_word(cpu_ctx, DO_ADDR, DO[0]);\n");
             break;
         case OP_BRANCH:
             /* displacement is signed, range -128 to 127*/
@@ -393,22 +402,22 @@ void emit_instruction (OpcodeDef *def)
                 switch(def->code)
                 {
                     case OPC_BLT: // less then
-                        printf("    bool branch_taken = cpu_ctx->state.reg.sw & CS_N_BIT;\n");
+                        printf("    bool branch_taken = cpu_ctx->state.reg.sw & CS_NEGATIVE;\n");
                         break;
                     case OPC_BLE: // less then or equal
-                        printf("    bool branch_taken = cpu_ctx->state.reg.sw & (CS_N_BIT | CS_Z_BIT);\n");
+                        printf("    bool branch_taken = cpu_ctx->state.reg.sw & (CS_NEGATIVE | CS_ZERO);\n");
                         break;
                     case OPC_BGT: // greater then
-                        printf("    bool branch_taken = cpu_ctx->state.reg.sw & CS_P_BIT;\n");
+                        printf("    bool branch_taken = cpu_ctx->state.reg.sw & CS_POSITIVE;\n");
                         break;
                     case OPC_BGE: // greater then or equal
-                        printf("    bool branch_taken = cpu_ctx->state.reg.sw & (CS_P_BIT | CS_Z_BIT);\n");
+                        printf("    bool branch_taken = cpu_ctx->state.reg.sw & (CS_POSITIVE | CS_ZERO);\n");
                         break;
                     case OPC_BEZ: // equal
-                        printf("    bool branch_taken = cpu_ctx->state.reg.sw & CS_Z_BIT;\n");
+                        printf("    bool branch_taken = cpu_ctx->state.reg.sw & CS_ZERO;\n");
                         break;
                     case OPC_BNZ: // not equal
-                        printf("    bool branch_taken = !(cpu_ctx->state.reg.sw & CS_Z_BIT);\n");
+                        printf("    bool branch_taken = !(cpu_ctx->state.reg.sw & CS_ZERO);\n");
                         break;
                     default:
                         break;
@@ -435,7 +444,7 @@ void emit_instruction (OpcodeDef *def)
             else
             {
                 printf("    DO[0] |= 1 << (15 - N);\n");
-                printf("    store_data_word(cpu_ctx, DO_ADDR, DO[0], &ok);\n");
+                printf("    ok = store_data_word(cpu_ctx, DO_ADDR, DO[0]);\n");
             }
             break;
         case OP_RESET_BIT:
@@ -451,7 +460,7 @@ void emit_instruction (OpcodeDef *def)
             else
             {
                 printf("    DO[0] &= ~(1 << (15 - N));\n");
-                printf("    store_data_word(cpu_ctx, DO_ADDR, DO[0], &ok);\n");
+                printf("    ok = store_data_word(cpu_ctx, DO_ADDR, DO[0]);\n");
             }
             break;
         case OP_TEST_BIT:
@@ -476,15 +485,15 @@ void emit_instruction (OpcodeDef *def)
                 if (def->op_type == OP_TEST_SET_BIT)
                 {
                     printf("    DO[0] |= 1 << (15 - N);\n");
-                    printf("    store_data_word(cpu_ctx, DO_ADDR, DO[0], &ok);\n");
+                    printf("    ok = store_data_word(cpu_ctx, DO_ADDR, DO[0]);\n");
                 }
             }
             printf("    cpu_ctx->state.reg.sw &= 0x0FFF;\n"); // Clear condition flags
             printf("    if (is_on) {\n");
-            printf("        cpu_ctx->state.reg.sw |= (N>0)?CS_P_BIT:CS_N_BIT; // N is the bit number (0 is msb where the sign bit is), not the value\n");
+            printf("        cpu_ctx->state.reg.sw |= (N>0)?CS_POSITIVE:CS_NEGATIVE; // N is the bit number (0 is msb where the sign bit is), not the value\n");
             printf("    }\n");
             printf("    else {\n");
-            printf("        cpu_ctx->state.reg.sw |= CS_Z_BIT;\n");
+            printf("        cpu_ctx->state.reg.sw |= CS_ZERO;\n");
             printf("    }\n");
             break;
             
@@ -511,7 +520,7 @@ void emit_instruction (OpcodeDef *def)
                 printf("    calculate_flags_16bit(cpu_ctx, (int16_t)res);\n");
                 
                 /* Apply carry bit AFTER calculate_flags wipes the upper nibble */
-                printf("    if (carry) cpu_ctx->state.reg.sw |= CS_C_BIT;\n");
+                printf("    if (carry) cpu_ctx->state.reg.sw |= CS_CARRY;\n");
             }
             else if (DO_SIZE == 2)
             {
@@ -536,7 +545,7 @@ void emit_instruction (OpcodeDef *def)
                 printf("    calculate_flags_32bit_reg(cpu_ctx, RA);\n");
                 
                 /* Apply 32-bit carry out */
-                printf("    if (carry) cpu_ctx->state.reg.sw |= CS_C_BIT;\n");
+                printf("    if (carry) cpu_ctx->state.reg.sw |= CS_CARRY;\n");
             }
             break;
         case OP_INC_DEC_MEM:
@@ -554,10 +563,10 @@ void emit_instruction (OpcodeDef *def)
             printf("    if (res > 32767 || res < -32768) cpu_ctx->state.reg.pir |= INTR_FIXOFL;\n");
             
             printf("    DO[0] = (int16_t)res;\n");
-            printf("    store_data_word(cpu_ctx, DO_ADDR, DO[0], &ok);\n");
+            printf("    ok = store_data_word(cpu_ctx, DO_ADDR, DO[0]);\n");
             
             printf("    calculate_flags_16bit(cpu_ctx, DO[0]);\n");
-            printf("    if (carry) cpu_ctx->state.reg.sw |= CS_C_BIT;\n");
+            printf("    if (carry) cpu_ctx->state.reg.sw |= CS_CARRY;\n");
             break;
 
         case OP_ABS:
@@ -853,15 +862,15 @@ void emit_instruction (OpcodeDef *def)
             if (def->operands_type == OPERAND_INT32) {
                 printf("    int32_t A = ((int32_t)cpu_ctx->state.reg.r[(RA+0)&0xF] << 16) | (uint16_t)cpu_ctx->state.reg.r[(RA+1)&0xF];\n");
                 printf("    int32_t B = ((int32_t)DO[0] << 16) | (uint16_t)DO[1];\n");
-                printf("    if (A == B) cpu_ctx->state.reg.sw |= CS_Z_BIT;\n");
-                printf("    else if (A > B) cpu_ctx->state.reg.sw |= CS_P_BIT;\n");
-                printf("    else cpu_ctx->state.reg.sw |= CS_N_BIT;\n");
+                printf("    if (A == B) cpu_ctx->state.reg.sw |= CS_ZERO;\n");
+                printf("    else if (A > B) cpu_ctx->state.reg.sw |= CS_POSITIVE;\n");
+                printf("    else cpu_ctx->state.reg.sw |= CS_NEGATIVE;\n");
             } else {
                 printf("    int16_t A = (int16_t)cpu_ctx->state.reg.r[(RA+0)&0xF];\n");
                 printf("    int16_t B = (int16_t)DO[0];\n");
-                printf("    if (A == B) cpu_ctx->state.reg.sw |= CS_Z_BIT;\n");
-                printf("    else if (A > B) cpu_ctx->state.reg.sw |= CS_P_BIT;\n");
-                printf("    else cpu_ctx->state.reg.sw |= CS_N_BIT;\n");
+                printf("    if (A == B) cpu_ctx->state.reg.sw |= CS_ZERO;\n");
+                printf("    else if (A > B) cpu_ctx->state.reg.sw |= CS_POSITIVE;\n");
+                printf("    else cpu_ctx->state.reg.sw |= CS_NEGATIVE;\n");
             }
             break;
 
@@ -872,12 +881,12 @@ void emit_instruction (OpcodeDef *def)
 
                 printf("    int16_t L = (int16_t)DO[0];\n");
                 printf("    int16_t U = (int16_t)DO[1];\n");
-                printf("    if (L > U) cpu_ctx->state.reg.sw |= CS_C_BIT;\n");
+                printf("    if (L > U) cpu_ctx->state.reg.sw |= CS_CARRY;\n");
                 printf("    else {\n");
                 printf("        int16_t A = (int16_t)cpu_ctx->state.reg.r[RA];\n");
-                printf("        if (A < L) cpu_ctx->state.reg.sw |= CS_N_BIT;\n");
-                printf("        else if (A > U) cpu_ctx->state.reg.sw |= CS_P_BIT;\n");
-                printf("        else cpu_ctx->state.reg.sw |= CS_Z_BIT;\n");
+                printf("        if (A < L) cpu_ctx->state.reg.sw |= CS_NEGATIVE;\n");
+                printf("        else if (A > U) cpu_ctx->state.reg.sw |= CS_POSITIVE;\n");
+                printf("        else cpu_ctx->state.reg.sw |= CS_ZERO;\n");
                 printf("    }\n");
             break;
         case OP_COMPARE_FLOAT:
@@ -886,7 +895,7 @@ void emit_instruction (OpcodeDef *def)
             printf("    unpack_float32(DO[0], DO[1], &M_B, &E_B);\n");
             printf("    cpu_ctx->state.reg.sw &= 0x0FFF; /* Destroy Carry, P, Z, N */\n");
             printf("    if (M_A == 0 && M_B == 0) {\n");
-            printf("        cpu_ctx->state.reg.sw |= CS_Z_BIT;\n");
+            printf("        cpu_ctx->state.reg.sw |= CS_ZERO;\n");
             printf("    } else {\n");
             printf("        int diff = E_A - E_B;\n");
             printf("        int64_t m_a_ext = M_A;\n");
@@ -894,9 +903,9 @@ void emit_instruction (OpcodeDef *def)
             printf("        if (diff > 0) { if (diff > 24) m_b_ext = 0; else m_b_ext >>= diff; }\n");
             printf("        else if (diff < 0) { if (-diff > 24) m_a_ext = 0; else m_a_ext >>= -diff; }\n");
             printf("        int64_t res = m_a_ext - m_b_ext;\n");
-            printf("        if (res == 0) cpu_ctx->state.reg.sw |= CS_Z_BIT;\n");
-            printf("        else if (res > 0) cpu_ctx->state.reg.sw |= CS_P_BIT;\n");
-            printf("        else cpu_ctx->state.reg.sw |= CS_N_BIT;\n");
+            printf("        if (res == 0) cpu_ctx->state.reg.sw |= CS_ZERO;\n");
+            printf("        else if (res > 0) cpu_ctx->state.reg.sw |= CS_POSITIVE;\n");
+            printf("        else cpu_ctx->state.reg.sw |= CS_NEGATIVE;\n");
             printf("    }\n");
             break;
 
@@ -906,7 +915,7 @@ void emit_instruction (OpcodeDef *def)
             printf("    unpack_float48(DO[0], DO[1], DO[2], &M_B, &E_B);\n");
             printf("    cpu_ctx->state.reg.sw &= 0x0FFF; /* Destroy Carry, P, Z, N */\n");
             printf("    if (M_A == 0 && M_B == 0) {\n");
-            printf("        cpu_ctx->state.reg.sw |= CS_Z_BIT;\n");
+            printf("        cpu_ctx->state.reg.sw |= CS_ZERO;\n");
             printf("    } else {\n");
             printf("        int diff = E_A - E_B;\n");
             printf("        int64_t m_a_ext = M_A;\n");
@@ -914,9 +923,9 @@ void emit_instruction (OpcodeDef *def)
             printf("        if (diff > 0) { if (diff > 40) m_b_ext = 0; else m_b_ext >>= diff; }\n");
             printf("        else if (diff < 0) { if (-diff > 40) m_a_ext = 0; else m_a_ext >>= -diff; }\n");
             printf("        int64_t res = m_a_ext - m_b_ext;\n");
-            printf("        if (res == 0) cpu_ctx->state.reg.sw |= CS_Z_BIT;\n");
-            printf("        else if (res > 0) cpu_ctx->state.reg.sw |= CS_P_BIT;\n");
-            printf("        else cpu_ctx->state.reg.sw |= CS_N_BIT;\n");
+            printf("        if (res == 0) cpu_ctx->state.reg.sw |= CS_ZERO;\n");
+            printf("        else if (res > 0) cpu_ctx->state.reg.sw |= CS_POSITIVE;\n");
+            printf("        else cpu_ctx->state.reg.sw |= CS_NEGATIVE;\n");
             printf("    }\n");
             break;
         case OP_JUMP_COND:
@@ -963,7 +972,7 @@ void emit_instruction (OpcodeDef *def)
             if (def->code == OPC_SJS)
             {
                 printf("    cpu_ctx->state.reg.r[RA] -= 1;\n");
-                printf("    store_data_word(cpu_ctx, cpu_ctx->state.reg.r[RA], cpu_ctx->state.reg.ic + 2, &ok);\n");
+                printf("    ok = store_data_word(cpu_ctx, cpu_ctx->state.reg.r[RA], cpu_ctx->state.reg.ic + 2);\n");
             }
             if (def->code == OPC_JS)
             {
@@ -973,7 +982,7 @@ void emit_instruction (OpcodeDef *def)
             printf("    cpu_ctx->state.reg.ic = DO_ADDR;\n");
             break;
         case OP_RET_SUBRTN:
-            printf("    cpu_ctx->state.reg.ic = fetch_data_word(cpu_ctx, cpu_ctx->state.reg.r[RA], &ok);\n");
+            printf("    ok = fetch_data_word(cpu_ctx, cpu_ctx->state.reg.r[RA], &cpu_ctx->state.reg.ic);\n");
             printf("    cpu_ctx->state.reg.r[RA] += 1;\n");
             break;
         case OP_LOAD_STATUS:
@@ -981,8 +990,152 @@ void emit_instruction (OpcodeDef *def)
             printf("    cpu_ctx->state.reg.mk = DO[0];\n");
             printf("    cpu_ctx->state.reg.sw = DO[1];\n");
             printf("    cpu_ctx->state.reg.ic = DO[2];\n");
+            printf("    invalidate_mem_cache(cpu_ctx)\n");
             break;
+        case OP_MULT_REG:
+            switch(def->code)
+            {
+                case OPC_STM:
+                    printf("    ok = 0 == store_data_words_reg(cpu_ctx, DO_ADDR, N +1, 0 /* reg 0 */);\n");
+                    break;
+                case OPC_LM:
+                    printf("    ok = 0 == fetch_data_words_reg(cpu_ctx, DO_ADDR, N +1, 0 /* reg 0 */);\n");
+                    break;
+                case OPC_PSHM:
+                /*
+                R15 is decremented before each push.
+                If R15 is going to be pushed, we need to calculate
+                it's value at the moment of insertion
+                we start from RB backwards toward RA
+                if RA > RB than after R0 we skip to R15.
+                this is perfect to our store_data_words_reg
+                function.
+                if RA = RB we only push one register
+                int count = RB - RA + 1;
+                
+                if (count < 0)
+                    count += 16;
+                int addr = r[15] - count;
+                if (RA + count > 15) // R15 will be inserted
+                    r[15] -= RA + count - 15; // this will be it's value of R15 on the stack
+                do store from RA with count to addr
+                    r[15] = addr;
+                */
+                    printf("    int count = RB - RA + 1;\n");
+                    printf("    if (count < 0)\n");
+                    printf("        count += 16;\n");
+                    printf("    int stk_addr = cpu_ctx->state.reg.r[15] - count;\n");
+                    printf("    if (RA + count > 15) /* R15 will be inserted */\n");
+                    printf("        cpu_ctx->state.reg.r[15] -= RA + count - 15;\n");
+                    printf("    ok = 0 == store_data_words_reg(cpu_ctx, stk_addr, count, RA);\n");
+                    /* set R15 value*/
+                    printf("    cpu_ctx->state.reg.r[15] = stk_addr;\n");
+                    break;
+                case OPC_POPM: /* the exact mirror of PSHM*/
+                /* POPM is the exact mirror of PSHM. We start reading at the current R15.
+                    Registers are popped in ascending order, from RA up to RB.
+                    If R15 is popped, it is skipped
+                    */
+                    /* POPM: R15 is the stack pointer. Registers are popped sequentially. */
+                    printf("    int count = RB - RA + 1;\n");
+                    printf("    if (count < 0)\n");
+                    printf("        count += 16;\n");
+                    printf("    int stk_addr = cpu_ctx->state.reg.r[15];\n");
+                    
+                    /* Fetch all data words into registers. 
+                       If R15 is in the list, it gets temporarily overwritten here... */
+                    printf("    ok = 0 == fetch_data_words_reg(cpu_ctx, stk_addr, count, RA);\n");
+                    
+                    /* ...but the manual states R15 is effectively ignored as a destination. 
+                       We fix it by unconditionally advancing the stack pointer by the total count! */
+                    printf("    cpu_ctx->state.reg.r[15] = stk_addr + count;\n");
+                    break;
+                default:
+                    break;
+            }
+            break;
+        case OP_STORE_MASK:
+            /* SRM: Store Register through Mask */
+            /* RA holds the data. RA+1 holds the mask. */
+            printf("    uint16_t data = cpu_ctx->state.reg.r[RA];\n");
+            printf("    uint16_t mask = cpu_ctx->state.reg.r[(RA + 1) & 0xF];\n");
+            
+            
+            /* * For each 1 in the mask, use the bit from 'data'.
+             * For each 0 in the mask, keep the bit from 'mem_val'.
+             */
+            printf("    uint16_t new_val = (DO[0] & ~mask) | (data & mask);\n");
+            
+            /* Store the modified word back to memory */
+            printf("    store_data_word(cpu_ctx, DO_ADDR, new_val);\n"); 
+            /* although we've been in this address when we read, we still need to check write permissions */
+            break;
+        case OP_NEG_FLOAT:
+            printf("    int32_t M; int16_t E;\n");
+            printf("    unpack_float32(cpu_ctx->state.reg.r[(RB+0)&0xF], cpu_ctx->state.reg.r[(RB+1)&0xF], &M, &E);\n");
+            
+            printf("    if (M == -8388608 && E == 127) {\n");
+            printf("        cpu_ctx->state.reg.pir |= INTR_FLTOFL;\n");
+            printf("        E = 127; M = 0x7FFFFF;\n");
+            printf("    } else if (M == 4194304 && E == -128) {\n");
+            printf("        cpu_ctx->state.reg.pir |= INTR_FLTUFL;\n");
+            printf("        E = 0; M = 0;\n");
+            printf("    } else if (M == -8388608) {\n");
+            printf("        E = E + 1; M = 4194304;\n");
+            printf("    } else if (M == 4194304) {\n");
+            printf("        E = E - 1; M = -8388608;\n");
+            printf("    } else {\n");
+            printf("        M = -M;\n");
+            printf("    }\n");
 
+            /* Let the pack function handle the CS flags! */
+            printf("    pack_float32(cpu_ctx, RA, M, E);\n");
+            break;
+        case OP_ABS_FLOAT:
+            printf("    int32_t M; int16_t E;\n");
+            printf("    unpack_float32(cpu_ctx->state.reg.r[(RB+0)&0xF], cpu_ctx->state.reg.r[(RB+1)&0xF], &M, &E);\n");
+            
+            printf("    if (M == -8388608) {\n");
+            printf("        E = E + 1; M = 4194304;\n");
+            printf("        if (E > 127) {\n");
+            printf("            cpu_ctx->state.reg.pir |= INTR_FLTOFL;\n");
+            printf("            E = 127; M = 0x7FFFFF;\n");
+            printf("        }\n");
+            printf("    } else if (M < 0) {\n");
+            printf("        M = -M;\n");
+            printf("    }\n");
+
+            /* Let the pack function handle the CS flags! */
+            printf("    pack_float32(cpu_ctx, RA, M, E);\n");
+            break;
+        case OP_XIO:
+            if(def->code == OPC_XIO)
+            {
+                printf("    realize_xio (cpu_ctx, DO[0], (ushort *) &cpu_ctx->state.reg.r[RA]);\n");
+            }
+            else /*VIO*/
+            {
+                /*for VIO we will use get_addresses_data for the IO data word */
+                printf("    struct {\n");
+                printf("        uint16_t io_cmd;\n");
+                printf("        uint16_t vector_select;\n");
+                printf("    } vio;\n");
+                printf("    fetch_data_words(cpu_ctx, DO_ADDR, 2, (int16_t *)&vio);\n");
+                printf("    uint16_t vector = vio.vector_select;\n");
+                printf("    uint16_t cmd_inc = cpu_ctx->state.reg.r[RA];\n");
+                printf("    uint16_t current_cmd = vio.io_cmd;\n");
+                printf("    for (int i = 0; i < 16; i++) {\n");
+                printf("        if (vector & (0x8000 >> i)) {\n");
+                printf("            realize_xio(cpu_ctx, current_cmd, &cpu_ctx->state.reg.r[i]);\n");
+                printf("            current_cmd += cmd_inc;\n");
+                printf("        }\n");
+                printf("    }\n");
+            }
+            printf("    invalidate_mem_cache(cpu_ctx);\n");
+            break;
+        case OP_BIF:
+        case OP_BR_EXECUTIVE:
+            break;
 
         default:
             printf("    /* TODO: Implement interpretation logic for %s */\n", def->name);
@@ -1013,155 +1166,7 @@ void emit_instruction (OpcodeDef *def)
 
 void generate_interpreter_code()
 {
-    const char *func_fetch_code_word = "static inline int16_t fetch_code_word(struct cpu_context *cpu_ctx, uint16_t addr, bool *ok) {\n"
-                                     "    uint phys_addr =  get_phys_address (&cpu_ctx->state, CODE, cpu_ctx->state.reg.sw & 0xF, addr);\n"
-                                     "    ushort word;\n"
-                                     "    bool peek_ok = peek(&cpu_ctx->state, phys_addr, &word);\n"
-                                     "    if (!peek_ok) {\n"
-                                     "        *ok = peek_ok;\n"
-                                     "        printf(\"Failed to peek at address 0x%04X\\n\", phys_addr);\n"
-                                     "    }\n"
-                                     "    return (int16_t)word;\n"
-                                     "}\n";
-    const char *func_fetch_data_word = "static inline int16_t fetch_data_word(struct cpu_context *cpu_ctx, uint16_t addr, bool *ok) {\n"
-                                     "    uint phys_addr =  get_phys_address (&cpu_ctx->state, DATA, cpu_ctx->state.reg.sw & 0xF, addr);\n"
-                                     "    ushort word;\n"
-                                     "    bool peek_ok = peek(&cpu_ctx->state, phys_addr, &word);\n"
-                                     "    if (!peek_ok) {\n"
-                                     "        *ok = peek_ok;\n"
-                                     "        printf(\"Failed to peek at address 0x%04X\\n\", phys_addr);\n"
-                                     "    }\n"
-                                     "    return (int16_t)word;\n"
-                                     "}\n";
-    const char* func_store_data_word = "static inline void store_data_word(struct cpu_context *cpu_ctx, uint16_t addr, int16_t value, bool *ok) {\n"
-                                     "    uint phys_addr =  get_phys_address (&cpu_ctx->state, DATA, cpu_ctx->state.reg.sw & 0xF, addr);\n"
-                                     "    bool poke_ok = poke(&cpu_ctx->state, phys_addr, (ushort)value);\n"
-                                     "    if (!poke_ok) {\n"
-                                     "        *ok = poke_ok;\n"
-                                     "        printf(\"Failed to poke at address 0x%04X\\n\", phys_addr);\n"
-                                     "    }\n"
-                                     "}\n";
-    const char *func_calculate_flags_16bit = "static inline void calculate_flags_16bit(struct cpu_context *cpu_ctx, int16_t result) {\n"
-                                        "    cpu_ctx->state.reg.sw &= 0x0FFF; /* resets carry too */\n"
-                                        "    if (result & 0x8000) cpu_ctx->state.reg.sw |= CS_N_BIT;\n"
-                                        "    else if (result == 0) cpu_ctx->state.reg.sw |= CS_Z_BIT;\n"
-                                        "    else cpu_ctx->state.reg.sw |= CS_P_BIT;\n"
-                                        "    // Note: Carry flag needs to be set by the specific operation logic\n"
-                                        "}\n";
-    const char *func_calculate_flags_32bit = "static inline void calculate_flags_32bit(struct cpu_context *cpu_ctx, int16_t result[2]) {\n"
-                                        "    cpu_ctx->state.reg.sw &= 0x0FFF; /* resets carry too */\n"
-                                        "    if (result[0] & 0x8000) cpu_ctx->state.reg.sw |= CS_N_BIT;\n"
-                                        "    else if (result[0] == 0 && result[1] == 0) cpu_ctx->state.reg.sw |= CS_Z_BIT;\n"
-                                        "    else cpu_ctx->state.reg.sw |= CS_P_BIT;\n"
-                                        "    // Note: Carry flag needs to be set by the specific operation logic\n"
-                                        "}\n";
-    const char *func_calculate_flags_32bit_reg = "static inline void calculate_flags_32bit_reg(struct cpu_context *cpu_ctx, uint16_t reg_index) {\n"
-                                        "    cpu_ctx->state.reg.sw &= 0x0FFF; /* resets carry too */\n"
-                                        "    if (cpu_ctx->state.reg.r[reg_index] & 0x8000) cpu_ctx->state.reg.sw |= CS_N_BIT;\n"
-                                        "    else if (cpu_ctx->state.reg.r[reg_index] == 0 && cpu_ctx->state.reg.r[(reg_index + 1)&0xF] == 0) cpu_ctx->state.reg.sw |= CS_Z_BIT;\n"
-                                        "    else cpu_ctx->state.reg.sw |= CS_P_BIT;\n"
-                                        "    // Note: Carry flag needs to be set by the specific operation logic\n"
-                                        "}\n";
-    const char *func_calculate_flags_48bit = "static inline void calculate_flags_48bit(struct cpu_context *cpu_ctx, int16_t result[3]) {\n"
-                                        "    cpu_ctx->state.reg.sw &= 0x0FFF; /* resets carry too */\n"
-                                        "    if (result[0] & 0x8000) cpu_ctx->state.reg.sw |= CS_N_BIT;\n"
-                                        "    else if (result[0] == 0 && result[1] == 0  && result[2] == 0) cpu_ctx->state.reg.sw |= CS_Z_BIT;\n"
-                                        "    else cpu_ctx->state.reg.sw |= CS_P_BIT;\n"
-                                        "    // Note: Carry flag needs to be set by the specific operation logic\n"
-                                        "}\n";
-    const char *func_calculate_flags_48bit_reg = "static inline void calculate_flags_48bit_reg(struct cpu_context *cpu_ctx, uint16_t reg_index) {\n"
-                                        "    cpu_ctx->state.reg.sw &= 0x0FFF; /* resets carry too */\n"
-                                        "    if (cpu_ctx->state.reg.r[reg_index] & 0x8000) cpu_ctx->state.reg.sw |= CS_N_BIT;\n"
-                                        "    else if (cpu_ctx->state.reg.r[reg_index] == 0 && cpu_ctx->state.reg.r[(reg_index + 1)&0xF] == 0  && cpu_ctx->state.reg.r[(reg_index + 2)&0xF] == 0) cpu_ctx->state.reg.sw |= CS_Z_BIT;\n"
-                                        "    else cpu_ctx->state.reg.sw |= CS_P_BIT;\n"
-                                        "    // Note: Carry flag needs to be set by the specific operation logic\n"
-                                        "}\n";
-    const char *func_float_helpers =
-"static inline void unpack_float32(int16_t w1, int16_t w2, int32_t *m, int16_t *e) {\n"
-"    int32_t mantissa = ((uint32_t)w1 << 16) | ((uint16_t)w2 & 0xFF00);\n"
-"    *m = mantissa >> 8;\n"
-"    *e = (int8_t)(w2 & 0xFF);\n"
-"}\n"
-"\n"
-"static inline void pack_float32(struct cpu_context *cpu_ctx, uint16_t RA, int32_t M_res, int32_t E_res) {\n"
-"    if (M_res == 0) {\n"
-"        cpu_ctx->state.reg.r[(RA+0)&0xF] = 0;\n"
-"        cpu_ctx->state.reg.r[(RA+1)&0xF] = 0;\n"
-"    } else {\n"
-"        uint32_t x = M_res ^ (M_res >> 1);\n"
-"        if (x == 0) { M_res = 0xFF800000; E_res -= 23; } /* Handle exactly -1 */\n"
-"        else {\n"
-"            int clz = __builtin_clz(x);\n"
-"            int shift = clz - 9;\n"
-"            if (shift > 0) { M_res <<= shift; E_res -= shift; }\n"
-"            else if (shift < 0) { M_res >>= -shift; E_res += -shift; }\n"
-"        }\n"
-"        if (E_res > 127) {\n"
-"            cpu_ctx->state.reg.pir |= INTR_FLTOFL;\n"
-"            if (M_res < 0) { cpu_ctx->state.reg.r[(RA+0)&0xF] = 0x8000; cpu_ctx->state.reg.r[(RA+1)&0xF] = 0x007F; }\n"
-"            else { cpu_ctx->state.reg.r[(RA+0)&0xF] = 0x7FFF; cpu_ctx->state.reg.r[(RA+1)&0xF] = 0xFF7F; }\n"
-"        } else if (E_res < -128) {\n"
-"            cpu_ctx->state.reg.pir |= INTR_FLTUFL;\n"
-"            cpu_ctx->state.reg.r[(RA+0)&0xF] = 0;\n"
-"            cpu_ctx->state.reg.r[(RA+1)&0xF] = 0;\n"
-"        } else {\n"
-"            cpu_ctx->state.reg.r[(RA+0)&0xF] = (uint16_t)(M_res >> 8);\n"
-"            cpu_ctx->state.reg.r[(RA+1)&0xF] = (uint16_t)((M_res & 0xFF) << 8) | (uint8_t)E_res;\n"
-"        }\n"
-"    }\n"
-"    calculate_flags_32bit_reg(cpu_ctx, RA);\n"
-"}\n"
-"\n"
-"static inline void unpack_float48(int16_t w1, int16_t w2, int16_t w3, int64_t *m, int16_t *e) {\n"
-"    int64_t mantissa = ((int64_t)w1 << 24) | (((int64_t)w2 & 0xFF00) << 8) | ((uint16_t)w3);\n"
-"    *m = (mantissa << 24) >> 24;\n"
-"    *e = (int8_t)(w2 & 0xFF);\n"
-"}\n"
-"\n"
-"static inline void pack_float48(struct cpu_context *cpu_ctx, uint16_t RA, int64_t M_res, int32_t E_res) {\n"
-"    if (M_res == 0) {\n"
-"        cpu_ctx->state.reg.r[(RA+0)&0xF] = 0; cpu_ctx->state.reg.r[(RA+1)&0xF] = 0; cpu_ctx->state.reg.r[(RA+2)&0xF] = 0;\n"
-"    } else {\n"
-"        uint64_t x = M_res ^ (M_res >> 1);\n"
-"        if (x == 0) { M_res = 0xFFFFFF8000000000ULL; E_res -= 39; } /* Handle exactly -1 */\n"
-"        else {\n"
-"            int clz = __builtin_clzll(x);\n"
-"            int shift = clz - 25;\n"
-"            if (shift > 0) { M_res <<= shift; E_res -= shift; }\n"
-"            else if (shift < 0) { M_res >>= -shift; E_res += -shift; }\n"
-"        }\n"
-"        if (E_res > 127) {\n"
-"            cpu_ctx->state.reg.pir |= INTR_FLTOFL;\n"
-"            if (M_res < 0) { cpu_ctx->state.reg.r[(RA+0)&0xF] = 0x8000; cpu_ctx->state.reg.r[(RA+1)&0xF] = 0x007F; cpu_ctx->state.reg.r[(RA+2)&0xF] = 0x0000; }\n"
-"            else { cpu_ctx->state.reg.r[(RA+0)&0xF] = 0x7FFF; cpu_ctx->state.reg.r[(RA+1)&0xF] = 0xFF7F; cpu_ctx->state.reg.r[(RA+2)&0xF] = 0xFFFF; }\n"
-"        } else if (E_res < -128) {\n"
-"            cpu_ctx->state.reg.pir |= INTR_FLTUFL;\n"
-"            cpu_ctx->state.reg.r[(RA+0)&0xF] = 0; cpu_ctx->state.reg.r[(RA+1)&0xF] = 0; cpu_ctx->state.reg.r[(RA+2)&0xF] = 0;\n"
-"        } else {\n"
-"            cpu_ctx->state.reg.r[(RA+0)&0xF] = (uint16_t)((M_res >> 24) & 0xFFFF);\n"
-"            cpu_ctx->state.reg.r[(RA+1)&0xF] = (uint16_t)((M_res >> 8) & 0xFF00) | (uint8_t)E_res;\n"
-"            cpu_ctx->state.reg.r[(RA+2)&0xF] = (uint16_t)(M_res & 0xFFFF);\n"
-"        }\n"
-"    }\n"
-"    calculate_flags_48bit_reg(cpu_ctx, RA);\n"
-"}\n";
-    // now we write code operations, for all in OperationType.
-    printf(
-
-        
-        "static const uint16_t CS_C_BIT = 0x8000;\n"
-        "static const uint16_t CS_P_BIT = 0x4000;\n"
-        "static const uint16_t CS_Z_BIT = 0x2000;\n"
-        "static const uint16_t CS_N_BIT = 0x1000;\n");
-    printf("%s\n", func_calculate_flags_16bit);
-    printf("%s\n", func_calculate_flags_32bit);
-    printf("%s\n", func_calculate_flags_32bit_reg);
-    printf("%s\n", func_calculate_flags_48bit);
-    printf("%s\n", func_calculate_flags_48bit_reg);
-    printf("%s\n", func_fetch_code_word);
-    printf("%s\n", func_fetch_data_word);
-    printf("%s\n", func_store_data_word);
-    printf("%s\n", func_float_helpers);
+    printf("#include \"cpu_helpers.h\"\n");
     
     for (int i = 0; i < 16; i++) {
         OpcodeDef *def = &opcode_defs_6bit[i];
@@ -1173,14 +1178,15 @@ void generate_interpreter_code()
         if (!def->valid) continue;
         emit_instruction(def);
     }
-    // TODO - handle XIO,VIO here
+    emit_instruction(&opcode_defs_8bit[4]); //XIO
+    emit_instruction(&opcode_defs_8bit[5]); //VIO
     for (int i = 0; i < 16; i++) {
         OpcodeDef *def = &opcode_defs_imm[i];
         if (!def->valid) continue;
         emit_instruction(def);
     }
-    // TODO - handle BIF
-    for (int i = 12 /*skip after BIF*/; i < 188; i++) {
+
+    for (int i = 11 ; i < 188; i++) {
         
         OpcodeDef *def = &opcode_defs_8bit[i];
         if (!def->valid) continue;

@@ -40,13 +40,61 @@
 #define  CS_NEGATIVE  0x1000
 #define  CS_ERROR     0x0000
 
+#define MP_PROC 0 /* mem protect for processor */
+#define MP_DMA 1 /* mem protect for dma */
 /* mask for simreg.sys */
 #define  SYS_INT   0x1
-#define  SYS_DMA   0x2
+#define  SYS_DMA   0x2 /* DMA Enabled*/
 #define  SYS_TA    0x4
 #define  SYS_TB    0x8
+#define  SYS_MEM_PROT   0x10 /* Mem Protect Enabled*/
+
 
 /* mask for simreg.ft */
+
+/*
+Bit 0:		CPU Memory Protection Fault.  The CPU has encountered an access
+		fault, write protect fault, or execute protect fault.
+
+Bit 1:		DMA Memory Protection Fault.  A DMA device has encountered an 
+		access fault or a write protect fault.
+
+Bit 2:		Memory Parity Fault.
+
+Bit 3:		PIO Channel Parity Fault.
+
+Bit 4: 	 	DMA Channel Parity Fault.
+
+Bit 5:  	Illegal I/O Command Fault.  An attempt has been made to execute
+		an unimplemented or reserved I/O command.
+
+Bit 6:  	PIO Transmission Fault.  Other I/O error checking devices, if 
+		used, may be ORed into this bit to indicate an error.
+
+Bit 7:  	Spare.
+
+Bit 8:  	Illegal Address Fault.  A memory location has been addressed 
+		which is not physically present.
+
+Bit 9:  	Illegal Instruction Fault.  An attempt has been made to execute
+		a reserved code.
+
+Bit 10:		Privileged Instruction Fault.  An attempt has been made to 
+		execute a privileged instruction with PS != 0.
+
+Bit 11: 	Address State Fault.  An attempt has been made to establish an
+		AS value for an unimplemented page register set.
+
+Bit 12: 	Reserved.
+
+Bit 13: 	Built-in Test Fault.  Hardware built-in test equipment (BITE) 
+		error has been detected.
+
+Bit 14-15:	Spare BITE.  These bits are for use by the designer for future
+		defining (coding, etc.) the BITE error which is detected.  This
+		can be used with Bit 13 to give a more complete error description.
+
+*/
 #define  FT_MEMPROT	0x8000   /* CPU memory protection error */
 #define  FT_ILL_IO	0x0400   /* illegal XIO address */
 #define  FT_SYSFAULT0	0x0100   /* sysfault 0 watchdog (F9450/MODUS) */
@@ -132,10 +180,24 @@ struct mmureg
     ushort e_w      : 1;
     ushort al       : 4;
   };
-
+  /* will allow us to skip checks*/
+struct mem_access_cache_r
+{
+  uint8_t page[16]; /* maps logical to physical*/
+  uint16_t valid; /*one bit per page*/
+};
+struct mem_access_cache_w
+{
+  uint8_t page[16]; /* maps logical to physical*/
+  uint64_t valid; /*one bit per qpage*/
+};
 /* extern struct mmureg pagereg[2][16][16]; defined in cpu.c */
 struct cpu_state {
   mem_t *mem[N_PAGES];
+  ushort mem_protect[2][64]; // write protection. first for cpu, second for dma.
+  struct mem_access_cache_r data_read_cache;
+  struct mem_access_cache_r code_read_cache;
+  struct mem_access_cache_w data_write_cache;
   struct regs reg;
   /* A quickie for communication between workout_interrupts() and ex_bex() */ 
   ushort bex_index;

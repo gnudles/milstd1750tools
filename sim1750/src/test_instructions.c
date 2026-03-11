@@ -4,7 +4,7 @@
 
 /* --- Stubs to link against the generated code --- */
 #include "cpu_ctx.h"
-
+#define RUNNING_TESTS
 /* Mock memory array */
 uint16_t mock_memory[0x10000];
 
@@ -31,8 +31,25 @@ struct cpu_context ctx;
 
 void reset_cpu() {
     memset(&ctx, 0, sizeof(struct cpu_context));
+      int as, i = 0;
+
+  /* initialize pagereg.ppa to "quasi-non-MMU". */
+  for (as = 0; as <= 15; as++)
+    {
+      int logaddr_hinibble = 0;
+      for (; logaddr_hinibble <= 0xF; logaddr_hinibble++)
+        {
+          ctx.state.pagereg[CODE][as][logaddr_hinibble].al = 0xF;
+	      ctx.state.pagereg[CODE][as][logaddr_hinibble].ppa = i;
+          ctx.state.pagereg[DATA][as][logaddr_hinibble].al = 0xF;
+	      ctx.state.pagereg[DATA][as][logaddr_hinibble].ppa = i++;
+
+        }
+    }
     memset(mock_memory, 0, sizeof(mock_memory));
+    ctx.state.num_phys_mem_pages = 16;
 }
+
 
 void test_LB_Base_Relative() {
     reset_cpu();
@@ -48,7 +65,7 @@ void test_LB_Base_Relative() {
     /* LB opcode is 0x00,  Disp=0x05 -> 0x0025 */
     uint16_t opcode = 0x0105; 
     
-    interpret_LB(&ctx, opcode);
+    interpret_LB(&ctx, opcode, mock_memory[0x0001]);
     
     /* Verifications */
     assert(ctx.state.reg.r[2] == (int16_t)0xFFFB); // Loaded correctly
@@ -74,7 +91,7 @@ void test_SLL_Logical_Left() {
        Total: 0x6035 */
     uint16_t opcode = 0x6035;
     
-    interpret_SLL(&ctx, opcode);
+    interpret_SLL(&ctx, opcode, mock_memory[0x0001]);
     
     /* Verification: 0x0F00 << 4 = 0xF000 */
     assert(ctx.state.reg.r[5] == (int16_t)0xF000); 
@@ -100,7 +117,7 @@ void test_STUB_Upper_Byte() {
     ctx.state.reg.ic = 0x0000;
     mock_memory[0x0001] = 0x2000; // Immediate address
     
-    interpret_STUB(&ctx, opcode);
+    interpret_STUB(&ctx, opcode, mock_memory[0x0001]);
     
     /* Verification: Memory should be updated to (Lower byte of R2 in Upper byte of Memory)
        Lower byte of R2 is 0xBB. Memory upper byte becomes 0xBB. Lower byte preserved (0x22).
@@ -134,7 +151,7 @@ void test_FD_Basic_Division() {
     uint16_t opcode = 0xD820; 
     mock_memory[0x0001] = 0x1000; /* Immediate Address */
     
-    interpret_FD(&ctx, opcode);
+    interpret_FD(&ctx, opcode, mock_memory[0x0001]);
     
     /* Verification: Result should be 0.5 (0.5 * 2^0)
      * Mantissa: 0x400000. Exponent: 0x00. W1=0x4000, W2=0x0000 */
@@ -170,7 +187,7 @@ void test_FD_Negative_Normalization() {
     uint16_t opcode = 0xD840; 
     mock_memory[0x0001] = 0x2000;
     
-    interpret_FD(&ctx, opcode);
+    interpret_FD(&ctx, opcode, mock_memory[0x0001]);
     
     /* Verification: Result should be -2.0 (-1.0 * 2^1)
      * -1.0 is exactly 0x800000 in 2's comp fractions. Exp: 0x01. */
@@ -206,7 +223,7 @@ void test_EFD_48bit_Math() {
     uint16_t opcode = 0xDA60; 
     mock_memory[0x0001] = 0x3000;
     
-    interpret_EFD(&ctx, opcode);
+    interpret_EFD(&ctx, opcode, mock_memory[0x0001]);
     
     /* Verification: Result should be 1.25 (0.625 * 2^1)
      * 1.25 Mantissa = 0x50 0000 0000. Exp: 0x01 */
@@ -233,7 +250,7 @@ void test_FD_Divide_By_Zero() {
     uint16_t opcode = 0xD820; 
     mock_memory[0x0001] = 0x1000;
     
-    interpret_FD(&ctx, opcode);
+    interpret_FD(&ctx, opcode, mock_memory[0x0001]);
     
     /* Verification: Ensure the PIR (Pending Interrupt Register) caught the overflow */
     assert(ctx.state.reg.pir & INTR_FLTOFL); 
@@ -352,7 +369,7 @@ void test_Extended_Float_Pi_Pipeline() {
     ctx.state.reg.r[1] = 355;
     /* OP_INT32_TO_EFLT RA=0, RB=0. Target is R[RA], Source is R[RB] */
     ctx.state.reg.ic = 0;
-    interpret_EFLT(&ctx, 0x0000); 
+    interpret_EFLT(&ctx, 0x0000, mock_memory[0x0001]); 
     /* R0, R1, R2 now hold exactly 355.0 */
 
     /* --- 2. CONVERT 113 to EFLT (Denominator) --- */
@@ -360,7 +377,7 @@ void test_Extended_Float_Pi_Pipeline() {
     ctx.state.reg.r[5] = 113;
     /* OP_INT32_TO_EFLT RA=4, RB=4 */
     ctx.state.reg.ic = 0;
-    interpret_EFLT(&ctx, 0x0044); 
+    interpret_EFLT(&ctx, 0x0044, mock_memory[0x0001]); 
     /* R4, R5, R6 now hold exactly 113.0 */
 
     /* --- 3. DIVIDE (Pi Approx: 355.0 / 113.0) --- */
@@ -371,49 +388,49 @@ void test_Extended_Float_Pi_Pipeline() {
     mock_memory[0x0001] = 0x1000; /* Instruction fetcher DO address */
     /* OP_DIV_EXFLOAT RA=0. R0 = R0 / Mem */
     ctx.state.reg.ic = 0;
-    interpret_EFD(&ctx, 0x0000); 
+    interpret_EFD(&ctx, 0x0000, mock_memory[0x0001]); 
     /* R0, R1, R2 now hold 3.1415929... */
 
     /* --- 4. ADD 1000.0 --- */
     ctx.state.reg.r[4] = 0x0000;
     ctx.state.reg.r[5] = 1000;
     ctx.state.reg.ic = 0;
-    interpret_EFLT(&ctx, 0x0044); 
+    interpret_EFLT(&ctx, 0x0044, mock_memory[0x0001]); 
     mock_memory[0x2000] = ctx.state.reg.r[4];
     mock_memory[0x2001] = ctx.state.reg.r[5];
     mock_memory[0x2002] = ctx.state.reg.r[6];
     mock_memory[0x0001] = 0x2000;
     ctx.state.reg.ic = 0;
     /* OP_ADD_EXFLOAT RA=0. R0 = R0 + Mem */
-    interpret_EFA(&ctx, 0x0000); 
+    interpret_EFA(&ctx, 0x0000, mock_memory[0x0001]); 
     /* R0, R1, R2 now hold 1003.14159... */
 
     /* --- 5. SUBTRACT 500.0 --- */
     ctx.state.reg.r[4] = 0x0000;
     ctx.state.reg.r[5] = 500;
     ctx.state.reg.ic = 0;
-    interpret_EFLT(&ctx, 0x0044); 
+    interpret_EFLT(&ctx, 0x0044, mock_memory[0x0001]); 
     mock_memory[0x3000] = ctx.state.reg.r[4];
     mock_memory[0x3001] = ctx.state.reg.r[5];
     mock_memory[0x3002] = ctx.state.reg.r[6];
     mock_memory[0x0001] = 0x3000;
     ctx.state.reg.ic = 0;
     /* OP_SUB_EXFLOAT RA=0. R0 = R0 - Mem */
-    interpret_EFS(&ctx, 0x0000); 
+    interpret_EFS(&ctx, 0x0000, mock_memory[0x0001]); 
     /* R0, R1, R2 now hold 503.14159... */
 
     /* --- 6. MULTIPLY BY 2.0 --- */
     ctx.state.reg.r[4] = 0x0000;
     ctx.state.reg.r[5] = 2;
     ctx.state.reg.ic = 0;
-    interpret_EFLT(&ctx, 0x0044); 
+    interpret_EFLT(&ctx, 0x0044, mock_memory[0x0001]); 
     mock_memory[0x4000] = ctx.state.reg.r[4];
     mock_memory[0x4001] = ctx.state.reg.r[5];
     mock_memory[0x4002] = ctx.state.reg.r[6];
     mock_memory[0x0001] = 0x4000;
     ctx.state.reg.ic = 0;
     /* OP_MULT_EXFLOAT RA=0. R0 = R0 * Mem */
-    interpret_EFM(&ctx, 0x0000); 
+    interpret_EFM(&ctx, 0x0000, mock_memory[0x0001]); 
     /* R0, R1, R2 now hold 1006.283185... */
 
     /* --- VERIFICATION 1: Double Precision Threshold Check --- */
@@ -426,7 +443,8 @@ void test_Extended_Float_Pi_Pipeline() {
 
     /* --- 7. CONVERT BACK TO INT32 --- */
     /* OP_EFLT_TO_INT32 RA=4, RB=0. R4, R5 gets Int32 of Float R0 */
-    interpret_EFIX(&ctx, 0x0040); 
+    ctx.state.reg.ic = 0;
+    interpret_EFIX(&ctx, 0x0040, mock_memory[0x0001]); 
     
     /* --- VERIFICATION 2: Integer Truncation Check --- */
     int32_t final_int = ((int32_t)ctx.state.reg.r[4] << 16) | (uint16_t)ctx.state.reg.r[5];

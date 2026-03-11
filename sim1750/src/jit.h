@@ -162,8 +162,9 @@ enum OperationType {
     OP_EXTENSION, /* NOP, BPT */
     OP_BR_EXECUTIVE, /* BEX */
     OP_XIO, /* XIO, VIO */
+    OP_BIF, /* BIF */
 
-    OP_SPECIAL,  /* Special cases that don't fit the above categories ( BIF) */
+    OP_SPECIAL,  /* Special cases that don't fit the above categories ( IMM, BRX) */
 };
 enum OpCode8bit
 {   

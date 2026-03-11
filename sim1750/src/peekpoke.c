@@ -47,6 +47,8 @@ peek (struct cpu_state *cpu, uint phys_address, ushort *value)
 
   if (page >= cpu->num_phys_mem_pages)
     {
+      cpu->reg.pir |= INTR_MACHERR;
+	    cpu->reg.ft |= FT_ILL_ADDR;
       problem ("peek: absolute memory address too large");
     }
   if ((memptr = cpu->mem[page]) == MNULL)
@@ -71,6 +73,8 @@ poke (struct cpu_state *cpu, uint phys_address, ushort value)
 
   if (page >= cpu->num_phys_mem_pages)
     {
+      cpu->reg.pir |= INTR_MACHERR;
+	    cpu->reg.ft |= FT_ILL_ADDR;
       problem ("poke: absolute memory address too large");
     }
   if ((memptr = cpu->mem[page]) == MNULL)

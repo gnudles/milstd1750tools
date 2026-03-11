@@ -56,7 +56,7 @@ OpcodeDef opcode_defs_6bit[17] = {
         {"ANDB", OPC_ANDB, 3, CS_W_ALL,  false, true, true, false, IF_BASE_RELATIVE, OP_AND, AM_BASE_REL_B, OPERAND_INT16, "Logical AND, Base Relative"},
         {"CB", OPC_CB, 3, CS_W_ALL,  false, true, true, false, IF_BASE_RELATIVE, OP_COMPARE, AM_BASE_REL_B, OPERAND_INT16, "Single precision compare, Base Relative"},
         {"FCB", OPC_FCB, 6, CS_W_ALL,  false, true, true, false, IF_BASE_RELATIVE, OP_COMPARE_FLOAT, AM_BASE_REL_B, OPERAND_FLOAT, "Floating point compare, Base Relative"},
-        {"BRX", OPC_BRX, 3, CS_RW_NN,  false, true, true, false, IF_BASE_REL_INDX, OP_SPECIAL, AM_BASE_REL_IDX_BX} /*special - 
+        {"BRX", OPC_BRX, 3, CS_RW_NN,  false, true, true, false, IF_BASE_REL_INDX, OP_SPECIAL, AM_BASE_REL_IDX_BX, OPERAND_INT16, "Base Relative Indexed Group"} /*special - 
         becomes LBX, DLBX, STBX, DSTX, ABX, SBBX, MBX, DBX,
                 FABX, FSBX, FMBX, FDBX, CBX, FCBX, ANDX, ORBX */
 };
@@ -69,7 +69,7 @@ OpcodeDef opcode_defs_8bit[188] = {
         {"ILLEGAL", OPC_ILLEGAL, 0, CS_RW_NN,  false, false, false, false},
         {"XIO", OPC_XIO, 0, CS_RW_NN,  false, true, true, true, IF_LONG, OP_XIO, AM_IMM_LONG_IM_IMX, OPERAND_INT16, "Execute input/output"}, /* 0x48 */ /* we can jit it actually if RX is 0 */
         {"VIO", OPC_VIO, 0, CS_RW_NN,  false, false, true, true, IF_LONG, OP_XIO, AM_MEM_DIRECT_D_DX, OPERAND_INT16, "Vectored input/output"}, /* 0x49 */
-        {"IMM", OPC_IMM, 0, CS_RW_NN,  false, false, true, false}, /* 0x4A */ /* special, see opcode_defs_imm */
+        {"IMM", OPC_IMM, 0, CS_RW_NN,  false, false, true, false, IF_IMMEDIATE, OP_SPECIAL, AM_IMM_LONG_IM_IMX, OPERAND_INT16, "Immediate op codes group"}, /* 0x4A */ /* special, see opcode_defs_imm */
         {"ILLEGAL", OPC_ILLEGAL, 0, CS_RW_NN,  false, false, false, false}, /* 0x4B */
         {"ILLEGAL", OPC_ILLEGAL, 0, CS_RW_NN,  false, false, false, false}, /* 0x4C */
         {"ILLEGAL", OPC_ILLEGAL, 0, CS_RW_NN,  false, false, false, false}, /* 0x4D */
@@ -147,7 +147,7 @@ OpcodeDef opcode_defs_8bit[188] = {
         {"LLB", OPC_LLB, 3, CS_W_ALL,  false, true, true, true, IF_LONG, OP_LOAD_BYTE, AM_MEM_DIRECT_D_DX, OPERAND_INT16, "Load from lower byte"},
         {"LUBI", OPC_LUBI, 3, CS_W_ALL,  false, true, true, true, IF_LONG, OP_LOAD_BYTE, AM_MEM_INDIRECT_I_IX, OPERAND_INT16, "Load from upper byte, Indirect"},
         {"LLBI", OPC_LLBI, 3, CS_W_ALL,  false, true, true, true, IF_LONG, OP_LOAD_BYTE, AM_MEM_INDIRECT_I_IX, OPERAND_INT16, "Load from lower byte, Indirect"},
-        {"POPM", OPC_POPM, 3, CS_RW_NN,  false, true, true, false, IF_CONST_LONG, OP_MULT_REG, AM_SPECIAL_S, OPERAND_INT16, "Pop multiple registers off the stack"},
+        {"POPM", OPC_POPM, 3, CS_RW_NN,  false, true, true, false, IF_REG_REG, OP_MULT_REG, AM_SPECIAL_S, OPERAND_INT16, "Pop multiple registers off the stack"},
         /* 90 - 9F */
         {"ST", OPC_ST, 2, CS_RW_NN,  false, true, true, true, IF_LONG, OP_STORE, AM_MEM_DIRECT_D_DX, OPERAND_INT16, "Single precision store"},
         {"STC", OPC_STC, 3, CS_RW_NN,  false, true, true, true, IF_CONST_LONG, OP_STORE, AM_MEM_DIRECT_D_DX, OPERAND_INT16, "Store a non-negative constant"},
