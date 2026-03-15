@@ -48,6 +48,8 @@
 #define  SYS_TA    0x4
 #define  SYS_TB    0x8
 #define  SYS_MEM_PROT   0x10 /* Mem Protect Enabled*/
+#define  SYS_SUROM    0x20 /* currently SUROM is not implemented */
+
 
 
 /* mask for simreg.ft */
@@ -154,20 +156,33 @@ static inline int count_leading_zeros(uint16_t x) {
     return n;
 #endif
 }
+#define TIM_A 0
+#define TIM_B 1
+
 
 /* Simulator register file */
 struct regs
   {
     short  r[16];  /* 0..15 */
-    ushort pir;    /* 16 */
-    ushort mk;     /* 17 */
-    ushort ft;     /* 18 */
-    ushort ic;     /* 19 */
-    ushort sw;     /* 20 */
-    ushort ta;     /* 21 */
-    ushort tb;     /* 22 */
+    union{
+    struct { /* These 3 are one unit in this specific order */
+    ushort mk;     /* 16 */
+    ushort sw;     /* 17 */
+    ushort ic;     /* 18 */
+    };
+    ushort mk_sw_ic[3];
+    };
+    ushort pir;
+    ushort pir_update;    
+    ushort ft;
+    ushort timer[2]; 
     ushort go;     /* not a real register but handled like TA/TB */
     ushort sys;    /* system configuration register */
+    ushort sys_update; /* when interrupts are being enabled, the change only take effect after next instruction*/
+    ushort ioic_l1; /* ioic level 1 */
+    ushort ioic_l2; /* ioic level 2 */
+    ushort dsctout; /* discretes output */
+    ushort dsctin; /* discretes input */
   };
 
 /* extern struct regs simreg; defined in cpu.c */
@@ -175,10 +190,17 @@ struct regs
 /* MMU related */
 struct mmureg
   {
-    ushort ppa      : 8;
-    ushort reserved : 3;
-    ushort e_w      : 1;
-    ushort al       : 4;
+    union
+      {
+        struct /*swap if simulator runs on big endian system*/
+          {
+          ushort ppa      : 8;
+          ushort reserved : 3;
+          ushort e_w      : 1;
+          ushort al       : 4;
+          };
+          ushort word;
+      };
   };
   /* will allow us to skip checks*/
 struct mem_access_cache_r
@@ -195,16 +217,30 @@ struct mem_access_cache_w
 struct cpu_state {
   mem_t *mem[N_PAGES];
   ushort mem_protect[2][64]; // write protection. first for cpu, second for dma.
+  struct mmureg pagereg[2][16][16];
   struct mem_access_cache_r data_read_cache;
+  struct mem_access_cache_r data_read_cache_intr;
   struct mem_access_cache_r code_read_cache;
   struct mem_access_cache_w data_write_cache;
   struct regs reg;
+
   /* A quickie for communication between workout_interrupts() and ex_bex() */ 
-  ushort bex_index;
-  struct mmureg pagereg[2][16][16];
+
   uint num_phys_mem_pages; // size of installed memory, in pages (4096 words per page)
   uint instcnt;
-  u_int64_t total_cycles;
+
+  uint64_t total_cycles;
+  uint64_t next_scheduled_timer_calc_cycles;
+  uint64_t total_cycles_timers_snap;
+  uint64_t timer_ns_remainder;
+  uint32_t global_10usec_timer_clock;
+  uint32_t timer_b_global_snap;
+  uint32_t timer_go_global_snap;
+
+
+  ushort bex_index;
+  bool disable_timers;
+  /*old timing mechanism */
   struct {
     ushort one_tatick_in_ns, one_tbtick_in_tatix;
     ushort one_gotick_in_10usec;

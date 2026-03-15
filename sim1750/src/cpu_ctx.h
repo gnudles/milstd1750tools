@@ -10,7 +10,6 @@
 struct cpu_context {
   struct cpu_state state;
   char name[32];
-  bool disable_timers;
   struct regs bt_buff[BT_SIZE];
   int bt_next;
   int bt_cnt;

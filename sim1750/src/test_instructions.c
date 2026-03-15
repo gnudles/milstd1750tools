@@ -39,14 +39,12 @@ void reset_cpu() {
       int logaddr_hinibble = 0;
       for (; logaddr_hinibble <= 0xF; logaddr_hinibble++)
         {
-          ctx.state.pagereg[CODE][as][logaddr_hinibble].al = 0xF;
 	      ctx.state.pagereg[CODE][as][logaddr_hinibble].ppa = i;
-          ctx.state.pagereg[DATA][as][logaddr_hinibble].al = 0xF;
 	      ctx.state.pagereg[DATA][as][logaddr_hinibble].ppa = i++;
-
         }
     }
     memset(mock_memory, 0, sizeof(mock_memory));
+    ctx.state.reg.sys |= SYS_TA | SYS_TB;
     ctx.state.num_phys_mem_pages = 16;
 }
 
@@ -70,7 +68,7 @@ void test_LB_Base_Relative() {
     /* Verifications */
     assert(ctx.state.reg.r[2] == (int16_t)0xFFFB); // Loaded correctly
     assert(ctx.state.reg.ic == 1);                 // IC incremented
-    assert(ctx.state.total_cycles == 3);           // Cycles added
+    assert(ctx.state.total_cycles == CLK_CYC_LB);           // Cycles added
     
     /* Flag Verification: -5 should set the Negative (N) flag */
     assert(ctx.state.reg.sw & 0x1000); // CS_N_BIT

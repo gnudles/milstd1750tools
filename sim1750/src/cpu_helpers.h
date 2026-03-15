@@ -1,4 +1,5 @@
 #include "cpu_ctx.h"
+#include "clock_cycles.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -177,6 +178,37 @@ static inline uint get_page_address_read_data(struct cpu_state *cpu, uint16_t lo
     return phys_page;
 }
 
+
+
+static inline uint get_page_address_read_data_intr(struct cpu_state *cpu, uint16_t logical_page)
+{
+    if (cpu->data_read_cache_intr.valid & (0x8000U >> logical_page))
+    {
+        return (uint)cpu->data_read_cache_intr.page[logical_page];
+    }
+    
+    uint phys_page = cpu->pagereg[DATA][0][logical_page].ppa;
+    if (cpu->num_phys_mem_pages <= phys_page)
+    {
+        cpu->reg.pir |= INTR_MACHERR;
+        cpu->reg.ft |= FT_ILL_ADDR;
+        return 0xFFFFFFFF;
+    }
+    if (cpu->mem[phys_page] == NULL)
+    {
+        /* try to allocate*/
+        if ((cpu->mem[phys_page] = (mem_t *) calloc (1, sizeof (mem_t))) == MNULL)
+        {
+            fprintf(stderr, "get_page_address_read_data: dynamic memory exhausted\n");
+            exit(EXIT_FAILURE);
+        }
+    }
+    cpu->data_read_cache_intr.valid |= 0x8000U >> (logical_page);
+    cpu->data_read_cache_intr.page[logical_page] = phys_page;
+    //printf("get_page_address_read_data: translated 0x%05X to 0x%05X\n", logical_page<<12, phys_page<<12);
+    return phys_page;
+}
+
 static inline uint get_page_address_read_code(struct cpu_state *cpu, uint16_t logical_page)
 {
     if (cpu->code_read_cache.valid & (0x8000U >> logical_page))
@@ -234,6 +266,25 @@ uint16_t fetch_data_words(struct cpu_context *cpu_ctx, uint16_t addr, uint16_t c
     while (count)
     {
         uint phys_addr = get_page_address_read_data(&cpu_ctx->state, addr >> 12);
+        if (phys_addr == 0xFFFFFFFF) return count;
+        
+        uint remaining = 4096 - (addr  & 0xFFF);
+        if (remaining > count) remaining = count;
+        
+        for (uint i = 0; i < remaining; i++) {
+            data[i] = access_memory(&cpu_ctx->state, phys_addr)[(addr + i) & 0xFFF];
+        }
+        count -= remaining;
+        addr += remaining;
+    }
+    return 0;
+}
+
+uint16_t fetch_data_words_intr(struct cpu_context *cpu_ctx, uint16_t addr, uint16_t count, uint16_t *data) {
+
+    while (count)
+    {
+        uint phys_addr = get_page_address_read_data_intr(&cpu_ctx->state, addr >> 12);
         if (phys_addr == 0xFFFFFFFF) return count;
         
         uint remaining = 4096 - (addr  & 0xFFF);
@@ -432,6 +483,7 @@ static inline void calculate_flags_48bit_reg(struct cpu_context *cpu_ctx, uint16
 }
 
 /* obsolete */
+#if 0
 static inline int16_t fetch_code_word(struct cpu_context *cpu_ctx, uint16_t addr, bool *ok) {
     uint phys_addr =  get_phys_address (&cpu_ctx->state, CODE, cpu_ctx->state.reg.sw & 0xF, addr);
     ushort word;
@@ -442,7 +494,7 @@ static inline int16_t fetch_code_word(struct cpu_context *cpu_ctx, uint16_t addr
     }
     return (int16_t)word;
 }
-
+#endif
 
 
 static inline void unpack_float32(int16_t w1, int16_t w2, int32_t *m, int16_t *e) {
@@ -515,14 +567,640 @@ static inline void pack_float48(struct cpu_context *cpu_ctx, uint16_t RA, int64_
 }
 
 
-static inline invalidate_mem_cache(struct cpu_context *cpu_ctx) {
+static inline void invalidate_mem_cache(struct cpu_context *cpu_ctx) {
     /* we need to invalidate after XIO, and after interrupt or LST*/
     cpu_ctx->state.data_read_cache.valid = 0x0000;
     cpu_ctx->state.code_read_cache.valid = 0x0000;
     cpu_ctx->state.data_write_cache.valid = 0x0000;
+    /* no need to invalidate cache for intr*/
+}
+/*should be called right after calculate_timers*/
+static void calculate_next_scheduled_timers_check(struct cpu_context *cpu_ctx) {
+    
+    uint64_t time_to_timer_b_expiration_ns = 0;
+    uint64_t go_timer_expiration_ns = 0;
+    uint64_t nearest_time;
+
+    go_timer_expiration_ns  = (0x10000 - cpu_ctx->state.reg.go) * 10000 * GOTIMER_PERIOD_IN_10uSEC;
+    go_timer_expiration_ns -= cpu_ctx->state.timer_ns_remainder;
+    go_timer_expiration_ns = (go_timer_expiration_ns + CYCLE_DURATION_IN_NS-1) / CYCLE_DURATION_IN_NS;
+    nearest_time = go_timer_expiration_ns;
+
+    if (cpu_ctx->state.reg.sys & SYS_TA)
+    {
+        uint64_t time_to_timer_a_expiration_ns;
+        time_to_timer_a_expiration_ns  = (0x10000 - cpu_ctx->state.reg.timer[TIM_A]) * 10000;
+        time_to_timer_a_expiration_ns -= cpu_ctx->state.timer_ns_remainder;
+        time_to_timer_a_expiration_ns = (time_to_timer_a_expiration_ns + CYCLE_DURATION_IN_NS-1) / CYCLE_DURATION_IN_NS;
+        if (time_to_timer_a_expiration_ns < nearest_time)
+        {
+            nearest_time = time_to_timer_a_expiration_ns;
+        }
+    }
+    if (cpu_ctx->state.reg.sys & SYS_TB)
+    {
+        uint64_t time_to_timer_b_expiration_ns;
+        time_to_timer_b_expiration_ns  = (0x10000 - cpu_ctx->state.reg.timer[TIM_B]) * 100000;
+        time_to_timer_b_expiration_ns -= cpu_ctx->state.timer_ns_remainder;
+        time_to_timer_b_expiration_ns = (time_to_timer_b_expiration_ns + CYCLE_DURATION_IN_NS-1) / CYCLE_DURATION_IN_NS;
+        if (time_to_timer_b_expiration_ns < nearest_time)
+        {
+            nearest_time = time_to_timer_b_expiration_ns;
+        }
+    }
+    cpu_ctx->state.next_scheduled_timer_calc_cycles = cpu_ctx->state.total_cycles + nearest_time;
+
+}
+static void calculate_timers(struct cpu_context *cpu_ctx) {
+  cpu_ctx->state.timer_ns_remainder += (cpu_ctx->state.total_cycles - cpu_ctx->state.total_cycles_timers_snap)*CYCLE_DURATION_IN_NS;
+  cpu_ctx->state.total_cycles_timers_snap = cpu_ctx->state.total_cycles;
+  uint32_t timer_a_inc = cpu_ctx->state.timer_ns_remainder / 10000;
+  cpu_ctx->state.global_10usec_timer_clock += timer_a_inc;
+  cpu_ctx->state.timer_ns_remainder = cpu_ctx->state.timer_ns_remainder % 10000;
+
+  if (!timer_a_inc)
+  {
+    return;
+  }
+
+  if (cpu_ctx->state.reg.sys & SYS_TA)
+  {
+    if (cpu_ctx->state.reg.timer[TIM_A] <= 0xFFFF && (uint32_t)cpu_ctx->state.reg.timer[TIM_A] + timer_a_inc >= 0x10000)
+    {
+        cpu_ctx->state.reg.pir |= INTR_TA;
+    }
+    cpu_ctx->state.reg.timer[TIM_A] += timer_a_inc;
+  }
+  int timer_b_inc = (cpu_ctx->state.global_10usec_timer_clock - cpu_ctx->state.timer_b_global_snap) / 10;
+  if (timer_b_inc)
+  {
+    cpu_ctx->state.timer_b_global_snap += timer_b_inc * 10;
+    if (cpu_ctx->state.reg.sys & SYS_TB)
+    {
+        if (cpu_ctx->state.reg.timer[TIM_B] <= 0xFFFF && (uint32_t)cpu_ctx->state.reg.timer[TIM_B] + timer_b_inc >= 0x10000)
+        {
+            cpu_ctx->state.reg.pir |= INTR_TB;
+        }
+        cpu_ctx->state.reg.timer[TIM_B] += timer_b_inc;
+    }
+  }
+  int timer_go_inc = (cpu_ctx->state.global_10usec_timer_clock - cpu_ctx->state.timer_go_global_snap) / GOTIMER_PERIOD_IN_10uSEC;
+  if (timer_go_inc)
+  {
+    cpu_ctx->state.timer_go_global_snap += timer_go_inc * GOTIMER_PERIOD_IN_10uSEC;
+
+    if (cpu_ctx->state.reg.go <= 0xFFFF && (uint32_t)cpu_ctx->state.reg.go + timer_go_inc >= 0x10000)
+    {
+        cpu_ctx->state.reg.pir |= INTR_MACHERR;   /* machine error         */
+	    cpu_ctx->state.reg.ft |= FT_SYSFAULT0;    /* sysfault 0 : watchdog */
+    }
+    cpu_ctx->state.reg.go += timer_go_inc;
+  }
+}
+static inline void
+process_xio_0_8 (struct cpu_context *cpu_ctx, ushort xio_address, ushort *transfer)
+{
+/*
+OYXX PO		Programmed Output:  This command outputs 16 bits of data from
+		RA to a programmed I/O port.  Y may be from 0 through 3.
+        */
+/*
+8YXX PI		Programmed Input:  This command inputs 16 bits of data into RA
+		from the programmed I/O port.  Y may be from 0 through 3.
+*/
+}
+static inline void
+process_xio_1_9 (struct cpu_context *cpu_ctx, ushort xio_address, ushort *transfer)
+{
+
+}
+static inline void
+process_xio_2_A (struct cpu_context *cpu_ctx, ushort xio_address, ushort *transfer)
+{
+/*
+2000 SMK	Set Interrupt Mask:  This command outputs the 16-bit contents
+		of the register RA to the interrupt mask register.  A "1" in
+		the corresponding bit position allows the interrupt to occur
+		and a "0" prevents the interrupt from occurring except for those
+		interrupts that are defined such that they cannot be masked.
+
+2001 CLIR	Clear Interrupt Request:  All interrupts are cleared (i.e., the
+		pending interrupt register is cleared to all zeros) and the contents
+		of the fault register are reset to zero.
+
+2002 ENBL	Enable Interrupts:  This command enables all interrupts which
+		are not masked out.  The enable operation takes place after execution
+		of the next instruction.
+
+2003 DSBL	Disable Interrupts:  This command disables all interrupts (except
+		those that are defined such that they cannot be disabled) at the
+		beginning of the execution of the DSBL instruction.
+
+2004 RPI	Reset Pending Interrupt:  The individual interrupt bit to be reset
+		shall be designated in register RA as a right justified four bit
+		code.  (0 (Base 16) represents interrupt number 0, F (Base 16)
+		represents interrupt number 15).  If interrupt 1 (Base 16) is to
+		be cleared, then the contents of the fault register shall also be
+		set to zero.
+
+2005 SPI	Set Pending Interrupt Register:  This command ORs the 16-bit 
+		contents of RA with the pending interrupt register.  If there is a
+		one in the corresponding bit position of the interrupt mask (same
+		bit set in both the PI and the MK), and the interrupts are enabled,
+		then an interrupt shall occur after execution of the next instruction.
+		If PI  is set to 1, then N is assumed to be 0 (see paragraph 5.30).
+		     5
+
+200E WSW	Write Status Word:  This command transfers the contents of RA to
+		the status word.
+
+2008 OD		Output Discretes:  This command outputs the 16-bit contents of the 
+		register RA to the discrete output buffer.  A "1" indicates an "on"
+		condition and a "0" indicates an "off" condition.
+
+200A RNS	Reset Normal Power Up Discrete:  This command resets the normal
+		power up discrete bit.
+*/
+/*
+A000 RMK	Read Interrupt Mask:  The current interrupt mask is transfered into
+		register RA.  The interrupt mask is not altered.
+
+A004 RPIR	Read Pending Interrupt Register:  This command transfers the contents
+		of the pending interrupt register into RA.  The pending interrupt
+		register is not altered.
+
+A00E RSW 	Read Status Word:  This command transfers the 16-bit status word
+		into register RA.  The status word remains unchanged.
+
+A00F RCFR	Read and Clear Fault Register:  This command inputs the 16-bit fault
+		register to register RA.  The contents of the fault register are
+		reset to zero.  Bit 1 in the pending interrupt register is reset
+		to zero.
+
+A001 RIC1	Read Input/Output Interrupt Code, Level 1:  This command inputs
+		the contents of the level 1 IOIC register into register RA.  The
+		channel number is right justified.
+
+A002 RIC2	Read Input/Output Interrupt Code, Level 2:  This command inputs
+		the contents of the level 2 IOIC register into register RA.  The
+		channel number is right justified.
+
+A008 RDOR	Read Discrete Output Register:  This command inputs the 16-bit
+		discrete output buffer into register RA.
+
+A009 RDI	Read Discrete Input:  This command inputs the 16-bit discrete input
+		word into register RA.  A "1" indicates an "on" condition and a
+		"0" indicates an "off" condition.
+
+A00B TPIO	Test Programmed Output:  This command inputs the 16-bit contents
+		of the programmed output buffer into register RA.  This command
+		may be used to test the PIO channel by means of a wrap around test.
+
+A00D RMFS	Read Memory Fault Status:  This command transfers the 16-bit
+		contents of the memory fault status register to RA.  The fields
+		within the memory fault status register shall delineate memory
+		related fault types and shall provide the page register designators
+		associated with the designated fault.
+*/
+    switch(xio_address)
+    {
+        case 0x2000: /*set interrupt mask*/
+            cpu_ctx->state.reg.mk = *transfer;
+            break;
+        case 0x2001: /*clear interrupt request*/
+            cpu_ctx->state.reg.pir = 0;
+            cpu_ctx->state.reg.ft = 0;
+            break;
+        case 0x2002: /*enable interrupts*/
+            cpu_ctx->state.reg.sys_update |= SYS_INT;
+            break;
+        case 0x2003: /*disable interrupts*/
+            cpu_ctx->state.reg.sys &= ~(SYS_INT);
+            break;
+        case 0x2004: /*reset pending interrupt*/            
+        	cpu_ctx->state.reg.pir &= ~(0x8000 >> (*transfer & 0xF));
+	        if ((*transfer & 0xF) == 1)
+	            cpu_ctx->state.reg.ft = 0;
+            break;
+        case 0x2005: /*set pending interrupt register*/
+            cpu_ctx->state.reg.pir_update |= *transfer;
+            break;
+        case 0x200E: /*write status word*/
+            cpu_ctx->state.reg.sw = *transfer;
+            break;
+        case 0x2008: /*output discretes*/
+            cpu_ctx->state.reg.dsctout = *transfer;
+    }
+}
+static inline void
+process_xio_3_B (struct cpu_context *cpu_ctx, ushort xio_address, ushort *transfer)
+{
+
+}
+void handle_console_xio(struct cpu_context *cpu_ctx, ushort xio_address, ushort *transfer)
+{
+
+}
+static inline void
+process_xio_4_C (struct cpu_context *cpu_ctx, ushort xio_address, ushort *transfer)
+{
+/*
+4000 CO		Console Output:  The 16-bit contents (2 bytes) of register RA are
+		output to the console.  The eight most significant bits (byte) are
+		sent first.  If no console is present, then this command is treated
+		as a NOP (see page 137).
+
+4001 CLC	Clear Console:  This command clears the console interface.
+
+4003 MPEN	Memory Protect Enable:  This command allows the memory protect
+		RAM to control memory protection.
+
+4004 ESUR	Enable Start Up ROM:  This command enables the start up ROM (i.e.,
+		the ROM overlays main memory).
+
+4005 DSUR	Disable Start Up ROM:  This command disables the start up ROM.
+
+4006 DMAE	Direct Memory Access Enable:  This command enables direct memory
+		access (DMA).
+
+4007 DMAD	Direct Memory Access Disable:  This command disables DMA.
+
+4008 TAS	Timer A, Start:  This command starts timer A from its current state.
+		The timer is incremented every 10 microseconds.
+
+4009 TAH	Timer A, Halt:  This command halts timer A at its current state.
+
+400A OTA	Output Timer A:  The contents of register RA are loaded (i.e.,
+		jam transfered) into timer A and the timer automatically starts
+		operation by incrementing from the loaded timer in steps of ten
+		microseconds.  Bit fifteen is the least significant bit and shall 
+		represent ten microseconds.
+
+400B GO		Trigger Go Indicator:  This command restarts a counter which is
+		connected to a discrete output.  The period of time from restart
+		to time-out shall be determined by the system requirements.  When
+		the Go timer is started, the discrete output shall go high and
+		remain high for
+		TBD milliseconds, at which time the output shall go low unless 
+		another GO is executed.  The Go discrete output signal may be 
+		used as a software fault indicator.
+
+400C TBS	Timer B, Start:  This command starts timer B from its current
+		state.  The timer is incremented every 100 microseconds.
+
+400D TBH	Timer B, Halt:  This command halts timer B at its current state.
+
+400E OTB	Output Timer B:  The contents of register RA are loaded (i.e.,
+		jam transfered) into timer B and the timer automatically starts
+		operation by incrementing from the loaded timer in steps of one
+		hundred microseconds.  Bit fifteen is the least significant bit
+		and shall represent one hundred microseconds.
+*/
+/*
+C000 CI		Console Input:  This command inputs the 16-bits (2 bytes) from
+		the console into register RA.  The eight most significant bits
+		of RA shall represent the first byte.
+
+C001 RCS	Read Console Status:  This command inputs the console interface
+		status into register RA.  The status is right justified.
+
+C00A ITA	Input Timer A:  This command inputs the 16-bit contents of timer A
+		into register RA.  Bit fifteen is the least significant bit and
+		represents a time increment of ten microseconds.
+
+C00E ITB	Input Timer B:  This command inputs the 16-bit contents of timer B
+		into register RA.  Bit fifteen is the least significant bit and
+		represents a time increment of one hundred microseconds.
+
+*/
+    if ((xio_address & 0x0FFE) == 0x0000) /* CI RCS CO CLC */
+    {
+        // all console related stuff
+        handle_console_xio(cpu_ctx, xio_address, transfer);
+        return;
+    }
+    int timer_indx =(xio_address&0x000F) >= 0x000C ? TIM_B: TIM_A;
+    int sys_flag = (xio_address&0x000F) >= 0x000C ? SYS_TB: SYS_TA;
+    switch(xio_address)
+    {
+        case 0x4003: /*memory protect enable*/
+            cpu_ctx->state.reg.sys |= SYS_MEM_PROT;
+            break;
+        case 0x4004: /*enable start up rom*/
+            cpu_ctx->state.reg.sys |= SYS_SUROM;
+            break;
+        case 0x4005: /*disable start up rom*/
+            cpu_ctx->state.reg.sys &= ~SYS_SUROM;
+            break;
+        case 0x4006: /*direct memory access enable*/
+            cpu_ctx->state.reg.sys |= SYS_DMA;
+            break;
+        case 0x4007: /*direct memory access disable*/
+            cpu_ctx->state.reg.sys &= ~SYS_DMA;
+            break;
+        case 0x400B: /* go timer reset*/
+            calculate_timers(cpu_ctx);
+            cpu_ctx->state.reg.go = 0;
+            calculate_next_scheduled_timers_check(cpu_ctx);
+            break;
+        case 0x4008: /*timer A start*/
+        case 0x400C: /*timer B start*/
+            calculate_timers(cpu_ctx);
+            cpu_ctx->state.reg.sys |= sys_flag;
+            calculate_next_scheduled_timers_check(cpu_ctx);
+            break;
+        case 0x4009: /*timer A halt*/
+        case 0x400D: /*timer B halt*/
+            calculate_timers(cpu_ctx);
+            cpu_ctx->state.reg.sys &= ~sys_flag;
+            calculate_next_scheduled_timers_check(cpu_ctx);
+            break;
+        case 0xC00A:
+        case 0xC00E:
+        case 0x400A:
+        case 0x400E:
+            calculate_timers(cpu_ctx);
+            if (xio_address & 0x8000)
+            {
+                /* make sure timer values are correct */
+                *transfer = cpu_ctx->state.reg.timer[timer_indx];
+            }
+            else
+            {
+                cpu_ctx->state.reg.sys |= sys_flag;
+	            cpu_ctx->state.reg.timer[timer_indx] = *transfer;
+                calculate_next_scheduled_timers_check(cpu_ctx);
+            }
+            break;
+    }
+}
+static inline void
+process_xio_5_D (struct cpu_context *cpu_ctx, ushort xio_address, ushort *transfer)
+{
+/*
+50XX LMP 	Load Memory Protect RAM (5000 + RAM address):  This command outputs
+		the 16-bit contents of register RA to the memory protect RAM.
+		A "1" in a bit provides write protection and a "0" in a bit permits
+		writing to the corresponding 1024 word physical memory block.
+		The RAM word MSB (bit 0) represents the lowest number block and
+		the RAM word LSB (bit 15) represents the highest block (i.e., 
+		bit 0 represents locations 0 through 1023 and bit 15 represents
+		locations 15360 through 16383 for word zero).  Each word represents 
+		consecutive 16K blocks of physical memory.  The RAM words of 0
+		through 63 apply to processor write protect and words 64 through 
+		127 apply to DMA write protect.
+
+51XY WIPR	Write Instruction Page Register:  This command transfers the contents
+		of register RA to page register Y of the instruction set group X.
+
+52XY WOPR	Write Operand Page Register:  This command transfers the contents
+		of register RA to page register Y of the operand set of group X.
+
+*/
+/*
+D0XX RMP	Read Memory Protect RAM (D000 + RAM address):  This command inputs
+		the appropriate memory protect word into register RA.  A "1" in
+		a bit provides write protection and a "0" in a bit permits writing
+		to the corresponding 1024 word physical memory block.  The RAM
+		words MSB (bit 0) represents the lowest number block and the RAM
+		word LSB (bit 15) represents the highest block (i.e., bit 0 
+		represents locations 0 through 1023 and bit 15 represents locations 
+		15360 through 16383 for word zero).  Each word represents consecutive 
+		16K blocks of physical memory.  The RAM words of 0 through 63 
+		apply to processor write protect and words 64 through 127 apply
+		to DMA write protect.
+
+D1XY RIPR	Read Instruction Page Register:  This command transfers the 16-bit
+		contents of the page register Y of the instruction set of group X
+		to register RA.
+
+D2XY ROPR	Read Operand Page Register:  This command transfers the 16-bit contents
+		of page register Y of the operand set of group X to register RA.
+*/
+    switch (xio_address & 0x0F00)
+    {
+        case 0x5000: // or 0xD000
+            {
+            ushort a = xio_address & 0x00FF;
+            if (a > 127)
+                break;
+            if (xio_address&0x8000)
+            {
+                *transfer = cpu_ctx->state.mem_protect[a/64][a%64];
+            }
+            else
+            {
+                cpu_ctx->state.mem_protect[a/64][a%64] = *transfer;
+                cpu_ctx->state.data_write_cache.valid = 0;
+            }
+            }
+            break;
+        case 0x5100: // or 0xD100
+        case 0x5200: // or 0xD200
+            {
+                ushort bank = ((xio_address & 0x0F00) >> 8) - 1; /* CODE = 0, DATA = 1*/
+                ushort grp = (xio_address & 0x00F0) >> 4;
+                ushort page = xio_address &(xio_address & 0x000F);
+                if (xio_address&0x8000)
+                {
+                    *transfer = cpu_ctx->state.pagereg[bank][grp][page].word;
+                }
+                else
+                {
+                    cpu_ctx->state.pagereg[bank][grp][page].word = *transfer;
+                    if (bank == CODE)
+                    {
+                        cpu_ctx->state.code_read_cache.valid = 0;
+                    }
+                    else
+                    {
+                        if (grp == 0)
+                            cpu_ctx->state.data_read_cache_intr.valid = 0;
+                        cpu_ctx->state.data_read_cache.valid = 0;
+                        cpu_ctx->state.data_write_cache.valid = 0;
+                    }
+                }
+            }
+            break;
+            default:
+            break;
+    }
+
+}
+static inline void
+process_xio_6_E (struct cpu_context *cpu_ctx, ushort xio_address, ushort *transfer)
+{
+
+}
+static inline void
+process_xio_7_F (struct cpu_context *cpu_ctx, ushort xio_address, ushort *transfer)
+{
+
+}
+static void
+process_xio (struct cpu_context *cpu_ctx, ushort xio_address, ushort *transfer)
+{
+    switch(xio_address & 0x7000)
+    {
+        case 0x0000:
+            process_xio_0_8(cpu_ctx, xio_address, transfer);
+            break;
+        case 0x1000:
+            process_xio_1_9(cpu_ctx, xio_address, transfer);
+            break;
+        case 0x2000:
+            process_xio_2_A(cpu_ctx, xio_address, transfer);
+            break;
+        case 0x3000:
+            process_xio_3_B(cpu_ctx, xio_address, transfer);
+            break;
+        case 0x4000:
+            process_xio_4_C(cpu_ctx, xio_address, transfer);
+            break;
+        case 0x5000:
+            process_xio_5_D(cpu_ctx, xio_address, transfer);
+            break;
+        case 0x6000:
+            process_xio_6_E(cpu_ctx, xio_address, transfer);
+            break;
+        case 0x7000:
+            process_xio_7_F(cpu_ctx, xio_address, transfer);
+            break;
+        default:
+            break;
+    }
 }
 
-static void
-realize_xio (struct cpu_context *cpu_ctx, ushort xio_address, ushort *transfer)
+static inline bool has_pending_interrupt(struct cpu_context *cpu_ctx)
 {
+  if (!cpu_ctx->state.reg.pir) return false;
+  uint16_t unmaskable = cpu_ctx->state.reg.pir & 0x8400;
+  if (unmaskable) return true;
+  uint16_t maskable_undisable = (cpu_ctx->state.reg.pir & cpu_ctx->state.reg.mk) & 0x4000;
+  if (maskable_undisable) return true;
+  uint16_t maskable_disableable = (cpu_ctx->state.reg.sys & SYS_INT) ? (cpu_ctx->state.reg.pir & cpu_ctx->state.reg.mk & ~0xC400) : 0;
+  if (maskable_disableable) return true;
+  return false;
+
+}
+
+void process_interrupt(struct cpu_context *cpu_ctx)
+{
+    ushort intnum, pirmask;
+    static char *intr_name[] =
+        { "Power-Down", "Machine-Error", "User-0", "Floating-Overflow",
+        "Integer-Overflow", "Executive-Call", "Floating-Underflow", "Timer-A",
+        "User-1", "Timer-B", "User-2", "User-3",
+        "IO-Level-1", "User-4", "IO-Level-2", "User-5" };
+
+
+  uint16_t unmaskable = cpu_ctx->state.reg.pir & 0x8400;
+  uint16_t maskable_undisable = (cpu_ctx->state.reg.pir & cpu_ctx->state.reg.mk) & 0x4000;
+  uint16_t maskable_disableable = (cpu_ctx->state.reg.sys & SYS_INT) ? (cpu_ctx->state.reg.pir & cpu_ctx->state.reg.mk & ~0xC400) : 0;
+  uint16_t active_interrupts = unmaskable | maskable_undisable | maskable_disableable;
+
+  if (active_interrupts == 0)
+    return;
+
+  intnum = count_leading_zeros(active_interrupts);
+  pirmask = 0x8000U >> intnum;
+  cpu_ctx->state.reg.pir &= ~pirmask;
+  cpu_ctx->state.reg.sys &= ~(SYS_INT);  /* clear the Master Interrupt Enable */
+  struct mk_sw_ic_t{
+    ushort mk, sw, ic;
+  } old_mk_sw_ic = {cpu_ctx->state.reg.mk, cpu_ctx->state.reg.sw, cpu_ctx->state.reg.ic};
+
+  struct 
+  {
+    /* data */
+    ushort lp, svp;
+  }v_entry;
+
+
+  fetch_data_words_intr(cpu_ctx, 0x20 + intnum * 2, 2, (uint16_t*)&v_entry);
+  struct mk_sw_ic_t new_mk_sw_ic;
+  if (intnum == 5)
+  {
+    fetch_data_words_intr(cpu_ctx, v_entry.svp, 2, (uint16_t*)&new_mk_sw_ic);  
+    fetch_data_words_intr(cpu_ctx, v_entry.svp + 2 + cpu_ctx->state.bex_index, 1, &new_mk_sw_ic.ic);
+    cpu_ctx->state.bex_index = 0; /* we reset to 0, in case XIO SPI will turn this interrupt on.*/
+  }
+  else
+  {
+    fetch_data_words_intr(cpu_ctx, v_entry.svp, 3, (uint16_t*)&new_mk_sw_ic);
+  }
+  if ((old_mk_sw_ic.sw ^ new_mk_sw_ic.sw)& 0x00FF)
+  {
+    invalidate_mem_cache(cpu_ctx);
+  }
+  cpu_ctx->state.reg.mk = new_mk_sw_ic.mk;
+  cpu_ctx->state.reg.sw = new_mk_sw_ic.sw;
+  cpu_ctx->state.reg.ic = new_mk_sw_ic.ic;
+  store_data_words(cpu_ctx, v_entry.lp, 3, (uint16_t*)&old_mk_sw_ic);
+
+}
+static void (*op_func_map[256])(struct cpu_context *cpu_ctx, uint16_t opcode, uint16_t imm_value);
+static inline void process_instruction(struct cpu_context *cpu_ctx, uint16_t opcode, uint16_t imm_value)
+{
+    op_func_map[opcode>>8](cpu_ctx, opcode, imm_value);
+}
+static inline void apply_updates(struct cpu_state * cpu)
+{
+    cpu->reg.pir |= cpu->reg.pir_update;
+    cpu->reg.pir_update = 0;
+    cpu->reg.sys |= cpu->reg.sys_update;
+    cpu->reg.sys_update = 0;
+}
+
+int cpu_mainloop(struct cpu_context *cpu_ctx, uint64_t up_to_cycles)
+{
+    uint64_t nearest_cycles_stop = up_to_cycles > cpu_ctx->state.next_scheduled_timer_calc_cycles ? cpu_ctx->state.next_scheduled_timer_calc_cycles: up_to_cycles;
+    bool continue_loop = true;
+    uint phys_page;
+    ushort opcode;
+    ushort immediate;
+    while (continue_loop)
+    {   
+        uint phys_page = get_page_address_read_code(&cpu_ctx->state, cpu_ctx->state.reg.ic >> 12);
+        if (phys_page == 0xFFFFFFFF)
+        {
+            process_interrupt(cpu_ctx);
+        }
+        opcode = access_memory(&cpu_ctx->state, phys_page)[cpu_ctx->state.reg.ic  & 0xFFF];
+        if (cpu_ctx->state.reg.ic & 0x0FFF == 0x0FFF)
+        {
+            phys_page = get_page_address_read_code(&cpu_ctx->state, (cpu_ctx->state.reg.ic + 1) >> 12);
+            if (phys_page == 0xFFFFFFFF)
+            {
+                process_interrupt(cpu_ctx);
+            }
+        }
+        immediate = access_memory(&cpu_ctx->state, phys_page)[(cpu_ctx->state.reg.ic + 1) & 0xFFF];
+
+        process_instruction(cpu_ctx, opcode, immediate);
+
+        if (cpu_ctx->state.total_cycles >= nearest_cycles_stop)
+        {
+            if (cpu_ctx->state.total_cycles >= cpu_ctx->state.next_scheduled_timer_calc_cycles)
+            {
+                calculate_timers(cpu_ctx);
+                calculate_next_scheduled_timers_check(cpu_ctx);
+                nearest_cycles_stop = up_to_cycles > cpu_ctx->state.next_scheduled_timer_calc_cycles ? cpu_ctx->state.next_scheduled_timer_calc_cycles: up_to_cycles;            
+            }
+            if (cpu_ctx->state.total_cycles >= up_to_cycles)
+            {
+                continue_loop = false;
+            }
+        }
+        if (has_pending_interrupt(cpu_ctx))
+        {
+            process_interrupt(cpu_ctx);
+        }
+        apply_updates(&cpu_ctx->state); // we can apply updates only after interrupts were processed
+
+    }    
+}
+void interpret_ILLEGAL(struct cpu_context *cpu_ctx, uint16_t opcode, uint16_t /*imm_value*/) {
+    cpu_ctx->state.reg.pir |= INTR_MACHERR;
+    cpu_ctx->state.reg.ft |= FT_ILL_INSTR;
 }

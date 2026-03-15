@@ -82,8 +82,7 @@ static int   leave = 0;			/* leave command interpreter */
 struct cpu_context cpu_contexts[MAX_CPUS] = {
      {
     .bpindex = -1,
-    .disable_timers = false,
-    .state = {.instcnt = 0, .total_cycles = 0, .num_phys_mem_pages = 256},
+    .state = {.instcnt = 0, .total_cycles = 0, .num_phys_mem_pages = 256, .disable_timers = false},
     .name = "default",
     .n_breakpts = 0
      }
@@ -842,15 +841,15 @@ co_timers (int argc, char *argv[])
   if (argc > 1)
     {
       if (eq (argv[1], "on"))
-	sim_cpu_ctx->disable_timers = FALSE;
+	sim_cpu_ctx->state.disable_timers = FALSE;
       else if (eq (argv[1], "off"))
-	sim_cpu_ctx->disable_timers = TRUE;
+	sim_cpu_ctx->state.disable_timers = TRUE;
       else
 	return error ("invalid parameter -- must be 'on' or 'off'");
     }
   else
-    sim_cpu_ctx->disable_timers = ! sim_cpu_ctx->disable_timers;
-  info ("Timers A/B are now %sabled", sim_cpu_ctx->disable_timers ? "dis" : "en");
+    sim_cpu_ctx->state.disable_timers = ! sim_cpu_ctx->state.disable_timers;
+  info ("Timers A/B are now %sabled", sim_cpu_ctx->state.disable_timers ? "dis" : "en");
   return (OKAY);
 }
 
@@ -987,7 +986,7 @@ co_cpu (int argc, char *argv[])
       strncpy(new_cpu->name, argv[2], sizeof(new_cpu->name) - 1);
       new_cpu->name[sizeof(new_cpu->name) - 1] = '\0';
       new_cpu->bpindex = -1;
-      new_cpu->disable_timers = false;
+      new_cpu->state.disable_timers = false;
       new_cpu->state.num_phys_mem_pages = num_pages;
       init_simulator (new_cpu, 0);
 
@@ -1124,8 +1123,8 @@ dis_reg (struct cpu_state *cpu)
   lprintf ("MK: %04hX  ", cpu->reg.mk);
   lprintf ("FT: %04hX  ", cpu->reg.ft);
   lprintf ("SW: %04hX  ", cpu->reg.sw);
-  lprintf ("TA: %04hX  ", cpu->reg.ta);
-  lprintf ("TB: %04hX  ", cpu->reg.tb);
+  lprintf ("TA: %04hX  ", cpu->reg.timer[TIM_A]);
+  lprintf ("TB: %04hX  ", cpu->reg.timer[TIM_B]);
   lprintf ("GO: %04hX\n", cpu->reg.go);
 
   lprintf (" IC:%04hX%c %-20s", cpu->reg.ic,

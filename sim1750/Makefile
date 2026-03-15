@@ -57,7 +57,7 @@ interp_gen: $(OBJ)/jit_defs.o $(OBJ)/interp_gen.o
 	$(CC) $(CFLAGS) -o $(PROJ_DIR)/interp_gen $(OBJ)/jit_defs.o $(OBJ)/interp_gen.o
 $(SRC)/generated_cpu.h: interp_gen
 	./interp_gen > $(SRC)/generated_cpu.h
-test_inst: $(SRC)/test_instructions.c $(SRC)/generated_cpu.h 
+test_inst: $(SRC)/test_instructions.c $(SRC)/generated_cpu.h $(SRC)/cpu_helpers.h
 	gcc -fsanitize=undefined -g $(SRC)/test_instructions.c -o test_inst
 	./test_inst
 $(OBJ):

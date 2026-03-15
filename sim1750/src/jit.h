@@ -411,7 +411,6 @@ enum OpCode8bit
 typedef struct {
     const char * name;     /* Human-readable name of the instruction for debugging */
     enum OpCode8bit code;
-    uint16_t  base_cycles; /* Base cycles for the instruction */
     /* CS = Condition Status */
     uint8_t     rw_cs; /* Which condition codes are written (bitmask) for dead code elimination */
     bool     is_branch;    /* Whether the instruction is a branch */

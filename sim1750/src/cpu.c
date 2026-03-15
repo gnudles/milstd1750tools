@@ -53,7 +53,6 @@
 //struct regs simreg;	     /* The 1750 register file */
 int   bpindex = -1;	     /* Index of breakpoint when hitting one */
 			     /* (unused in BSVC) */
-bool  disable_timers = 0;
 
 /* Total execution time in uSec since go command */
 //double total_time_in_us = 0.0;
@@ -141,7 +140,7 @@ workout_timing (struct cpu_state *cpu, int cycles)
 #define TIMER_A_LIMIT_IN_NS 10000
 #endif
 
-  if (disable_timers)
+  if (cpu->disable_timers)
     return;
 
   cpu->timers.one_tatick_in_ns += uP_CYCLE_IN_NS * cycles;
@@ -151,30 +150,32 @@ workout_timing (struct cpu_state *cpu, int cycles)
       cpu->timers.one_tatick_in_ns -= TIMER_A_LIMIT_IN_NS;
       if (cpu->reg.sys & SYS_TA)
 	{
-	  if (cpu->reg.ta == 0xFFFF)
+	  if (cpu->reg.timer[TIM_A] == 0xFFFF)
 	    {
-	      cpu->reg.ta = 0;
+	      cpu->reg.timer[TIM_A] = 0;
 	      cpu->reg.pir |= INTR_TA;
 	    }
 	  else
-	    cpu->reg.ta++;
+	    cpu->reg.timer[TIM_A]++;
 	}
-      if (cpu->reg.sys & SYS_TB)
-	{
+
 	  if (cpu->timers.one_tbtick_in_tatix == 9)
 	    {
 	      cpu->timers.one_tbtick_in_tatix = 0;
-	      if (cpu->reg.tb == 0xFFFF)
-		{
-		  cpu->reg.tb = 0;
-		  cpu->reg.pir |= INTR_TB;
-		}
-	      else
-	        cpu->reg.tb++;
-	    }
+        if (cpu->reg.sys & SYS_TB)
+        {
+          if (cpu->reg.timer[TIM_B] == 0xFFFF)
+          {
+            cpu->reg.timer[TIM_B] = 0;
+            cpu->reg.pir |= INTR_TB;
+          }
           else
-            cpu->timers.one_tbtick_in_tatix++;
-	}
+            cpu->reg.timer[TIM_B]++;
+        }
+	    }
+      else
+        cpu->timers.one_tbtick_in_tatix++;
+	
 
       if (++cpu->timers.one_gotick_in_10usec >= GOTIMER_PERIOD_IN_10uSEC)
 	{
@@ -196,8 +197,6 @@ static int
 workout_interrupts (struct cpu_state *cpu)
 {
   ushort intnum, pirmask;
-  ushort old_mk = cpu->reg.mk, old_sw = cpu->reg.sw, old_ic = cpu->reg.ic;
-  ushort lp, svp;
   static char *intr_name[] =
     { "Power-Down", "Machine-Error", "User-0", "Floating-Overflow",
       "Integer-Overflow", "Executive-Call", "Floating-Underflow", "Timer-A",
@@ -219,14 +218,15 @@ workout_interrupts (struct cpu_state *cpu)
   pirmask = 1 << (15 - intnum);
 
   info ("\tInterrupt %2d (%s)", (unsigned) intnum, intr_name[intnum]);
-
+  ushort old_mk = cpu->reg.mk, old_sw = cpu->reg.sw, old_ic = cpu->reg.ic;
+  ushort lp, svp;
   ushort as;
   cpu->reg.pir &= ~pirmask;
   cpu->reg.sys &= ~SYS_INT;  /* clear the Master Interrupt Enable */
   /************** Switch to the interrupt context ***************/
-  cpu->reg.sw &= 0xFFF0;      /* LP and SVP in AS 0 */
-  get_raw (cpu, CODE, 0, 0x20 + intnum * 2, &lp);
-  get_raw (cpu, CODE, 0, 0x21 + intnum * 2, &svp);
+  cpu->reg.sw &= 0xFF00;      /* LP and SVP in AS 0, PS 0 */
+  get_raw (cpu, DATA, 0, 0x20 + intnum * 2, &lp);
+  get_raw (cpu, DATA, 0, 0x21 + intnum * 2, &svp);
   /* get new MK/SW/IC */
   get_raw (cpu, DATA, 0, svp, &cpu->reg.mk);
   get_raw (cpu, DATA, 0, svp + 1, &cpu->reg.sw);
@@ -906,16 +906,16 @@ realize_xio (struct cpu_context *cpu_ctx, ushort xio_address, ushort *transfer)
 	  cpu_ctx->state.reg.sys |= SYS_TA;
 	elsecase X_OTA:
 	  cpu_ctx->state.reg.sys |= SYS_TA;
-	  cpu_ctx->state.reg.ta = *transfer;
+	  cpu_ctx->state.reg.timer[TIM_A] = *transfer;
 	elsecase X_ITA:
-	  *transfer = cpu_ctx->state.reg.ta;
+	  *transfer = cpu_ctx->state.reg.timer[TIM_A];
 	elsecase X_TBS:
 	  cpu_ctx->state.reg.sys |= SYS_TB;
 	elsecase X_OTB:
 	  cpu_ctx->state.reg.sys |= SYS_TB;
-	  cpu_ctx->state.reg.tb = *transfer;
+	  cpu_ctx->state.reg.timer[TIM_B] = *transfer;
 	elsecase X_ITB:
-	  *transfer = cpu_ctx->state.reg.tb;
+	  *transfer = cpu_ctx->state.reg.timer[TIM_B];
 	elsecase X_GO:
 	  cpu_ctx->state.reg.go = 0;
 	elsecase X_RSW:

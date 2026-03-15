@@ -180,13 +180,19 @@ void emit_shift_instruction (OpcodeDef *def)
     }
 
     printf("    cpu_ctx->state.reg.ic += 1;\n");
-    printf("    cpu_ctx->state.total_cycles += %d;\n", def->base_cycles);
+    printf("    cpu_ctx->state.total_cycles += CLK_CYC_%s(shift);\n", def->name);
     printf("}\n\n");
 }
 /* this file will generate C code for new instruction interpreter */
 void emit_instruction (OpcodeDef *def)
 {
+    bool complicated_clock_cycles_calc = def->op_type == OP_MOVE ||
+        def->op_type == OP_ABS || def->op_type == OP_ABS_FLOAT || def->op_type == OP_BRANCH ||
+        def->op_type == OP_SUBTR_JUMP || def->op_type == OP_MULT_REG ||
+        def->op_type == OP_JUMP_COND || def->op_type == OP_XIO;
     printf("/* %s - %s*/\n", def->name, def->description);
+    if ((def->code >= OPC_IMM_AIM && def->code <= OPC_IMM_NIM) || (def->code >= OPC_BRX_LBX && def->code <= OPC_BRX_ORBX)) // imm and brx sub opcodes will be inlined
+        printf("static inline ");
     printf("void interpret_%s(struct cpu_context *cpu_ctx, uint16_t opcode, uint16_t %s) {\n", def->name, def->is_imm?"imm_value":"/* imm_value */");
     if (def->op_type == OP_SHIFT) {
         emit_shift_instruction(def);
@@ -987,10 +993,10 @@ void emit_instruction (OpcodeDef *def)
             break;
         case OP_LOAD_STATUS:
             /* DO[0] -> Status Word, DO[1] -> Mask Register */
+            printf("    if ((DO[1] ^ cpu_ctx->state.reg.sw) & 0xFF ) { invalidate_mem_cache(cpu_ctx); }\n");
             printf("    cpu_ctx->state.reg.mk = DO[0];\n");
             printf("    cpu_ctx->state.reg.sw = DO[1];\n");
             printf("    cpu_ctx->state.reg.ic = DO[2];\n");
-            printf("    invalidate_mem_cache(cpu_ctx)\n");
             break;
         case OP_MULT_REG:
             switch(def->code)
@@ -1111,7 +1117,7 @@ void emit_instruction (OpcodeDef *def)
         case OP_XIO:
             if(def->code == OPC_XIO)
             {
-                printf("    realize_xio (cpu_ctx, DO[0], (ushort *) &cpu_ctx->state.reg.r[RA]);\n");
+                printf("    process_xio (cpu_ctx, DO[0], (ushort *) &cpu_ctx->state.reg.r[RA]);\n");
             }
             else /*VIO*/
             {
@@ -1126,16 +1132,53 @@ void emit_instruction (OpcodeDef *def)
                 printf("    uint16_t current_cmd = vio.io_cmd;\n");
                 printf("    for (int i = 0; i < 16; i++) {\n");
                 printf("        if (vector & (0x8000 >> i)) {\n");
-                printf("            realize_xio(cpu_ctx, current_cmd, &cpu_ctx->state.reg.r[i]);\n");
+                printf("            process_xio(cpu_ctx, current_cmd, &cpu_ctx->state.reg.r[i]);\n");
                 printf("            current_cmd += cmd_inc;\n");
                 printf("        }\n");
                 printf("    }\n");
             }
-            printf("    invalidate_mem_cache(cpu_ctx);\n");
+            break;
+        case OP_MOVE:
+        /*TODO: check how many we can move until we have timer interrupt */
+            printf("    uint16_t count = (uint16_t)cpu_ctx->state.reg.r[(RA+1)&0xF]; /* count range is 0 - 2^16-1*/\n");
+            printf("    uint16_t total_written = 0;\n");
+            printf("    const int move_steps_1_tick = (TIMER_A_RES_IN_10uSEC*10000)/(CLK_CYC_MOV_STEP(1)*CYCLE_DURATION_IN_NS);\n");
+            printf("    const int move_steps = move_steps_1_tick == 0 ? 1 : move_steps_1_tick;\n");
+            printf("    cpu_ctx->state.total_cycles += CLK_CYC_MOV_INIT;\n");
+            printf("    while(count > 0){\n");
+            printf("        uint16_t partial_count = (count > move_steps)? move_steps: count;\n");
+            printf("        uint16_t remaining = move_words(cpu_ctx, cpu_ctx->state.reg.r[RB], cpu_ctx->state.reg.r[RA], partial_count);\n");
+            printf("        total_written += partial_count - remaining;\n");
+            printf("        count -= partial_count - remaining;\n");
+            printf("        cpu_ctx->state.total_cycles += CLK_CYC_MOV_STEP(partial_count - remaining);\n");
+            printf("        calculate_timers(cpu_ctx);\n");
+            printf("        if (has_pending_interrupt(cpu_ctx)) break;\n");
+            printf("    }\n");
+            printf("    cpu_ctx->state.reg.r[(RA+1)&0xF] = count;\n");
+            printf("    cpu_ctx->state.reg.r[RA] += total_written;\n");
+            printf("    cpu_ctx->state.reg.r[RB] += total_written;\n");
+            printf("    if (count == 0){\n");
+            printf("        cpu_ctx->state.total_cycles += CLK_CYC_MOV_FINI(total_written);\n");
+            printf("        cpu_ctx->state.reg.ic +=1;\n");
+            printf("    }\n");
             break;
         case OP_BIF:
-        case OP_BR_EXECUTIVE:
             break;
+        case OP_BR_EXECUTIVE:
+              printf("    cpu_ctx->state.bex_index = (opcode & 0xF);\n");
+              printf("    cpu_ctx->state.reg.pir |= INTR_BEX;\n");
+            break;
+        case OP_EXTENSION:
+            printf("    switch (opcode & 0xFF){\n");
+            printf("      case 0x00:  /*NOP*/\n");
+            printf("        cpu_ctx->state.reg.ic +=1;\n");
+            printf("        break;\n");
+            printf("      case 0xFF:  /* BPT */\n");
+            printf("        break;\n");
+            printf("      default:\n");
+            printf("        interpret_ILLEGAL(cpu_ctx, opcode, 0);\n");
+            printf("        break;\n");
+            printf("    }\n");
 
         default:
             printf("    /* TODO: Implement interpretation logic for %s */\n", def->name);
@@ -1146,9 +1189,12 @@ void emit_instruction (OpcodeDef *def)
         printf("    }\n");
     }
     
-
+    if (!complicated_clock_cycles_calc)
+        printf("    cpu_ctx->state.total_cycles += CLK_CYC_%s;\n", def->name);
+      
     if (def->op_type != OP_BRANCH && def->op_type != OP_JUMP_SUBRTN && def->op_type != OP_RET_SUBRTN && def->op_type != OP_LOAD_STATUS 
-        && def->op_type != OP_EXTENSION && def->op_type != OP_SPECIAL && def->op_type != OP_LOAD_STATUS)
+        && def->op_type != OP_EXTENSION && def->op_type != OP_SPECIAL && def->op_type != OP_LOAD_STATUS &&
+        def->op_type != OP_MOVE)
     {
         if (def->is_imm)
         {
@@ -1159,7 +1205,8 @@ void emit_instruction (OpcodeDef *def)
             printf("    cpu_ctx->state.reg.ic += 1;\n");
         }
     }
-    printf("    cpu_ctx->state.total_cycles += %d;\n", def->base_cycles);
+
+
 
     printf("}\n\n");
 }
@@ -1167,6 +1214,7 @@ void emit_instruction (OpcodeDef *def)
 void generate_interpreter_code()
 {
     printf("#include \"cpu_helpers.h\"\n");
+    printf("#include \"clock_cycles.h\"\n");
     
     for (int i = 0; i < 16; i++) {
         OpcodeDef *def = &opcode_defs_6bit[i];
@@ -1192,7 +1240,63 @@ void generate_interpreter_code()
         if (!def->valid) continue;
         emit_instruction(def);
     }
-
+    
+    {
+        
+    printf("void interpret_BRX(struct cpu_context *cpu_ctx, uint16_t opcode, uint16_t imm_value) {\n");
+    printf("    switch ((opcode & 0x00F0) >> 4) {\n");
+    for (int i = 0; i < 16; i++) {
+        printf("      case 0x%1X:\n", i);
+        OpcodeDef *def = &opcode_defs_brx[i];
+        if (!def->valid) continue;
+        printf("        interpret_%s(cpu_ctx, opcode, imm_value);\n", def->name);
+    }
+    printf("      default:\n");
+    printf("        interpret_ILLEGAL(cpu_ctx, opcode, imm_value);\n");
+    printf("    }\n");
+    printf("}\n");
+    }
+    // now for imm
+    {
+    printf("void interpret_IMM(struct cpu_context *cpu_ctx, uint16_t opcode, uint16_t imm_value) {\n");
+    printf("    switch (opcode & 0x000F) {\n");
+    for (int i = 0; i < 16; i++) {
+        printf("      case 0x%1X:\n", i);
+        OpcodeDef *def = &opcode_defs_imm[i];
+        if (!def->valid) continue;
+        printf("        interpret_%s(cpu_ctx, opcode, imm_value);\n", def->name);
+    }
+    printf("      default:\n");
+    printf("        interpret_ILLEGAL(cpu_ctx, opcode, imm_value);\n");
+    printf("    }\n");
+    printf("}\n");
+    }
+    /* now create the opcode func map*/
+    printf("static void (*op_func_map[256])(struct cpu_context *cpu_ctx, uint16_t opcode, uint16_t imm_value) = {\n");
+    int opcode = 0;
+    for (int i = 0; i < 17; i++) {
+        OpcodeDef *def = &opcode_defs_6bit[i];
+        /* because these are 6 bit opcodes, we print them 4 times to fit 8bit opcodes*/
+        for (int j = 0 ; j < 4; j++)
+        {            
+            if (!def->valid) 
+            printf("interpret_ILLEGAL, /* 0x%02X */\n",opcode);
+            else
+            printf("interpret_%s, /* 0x%02X */\n", def->name, opcode);
+            opcode++;
+        }
+    }
+    for (int i = 0 ; i < 188; i++) {
+        
+        OpcodeDef *def = &opcode_defs_8bit[i];
+        if (!def->valid) 
+        printf("interpret_ILLEGAL, /* 0x%02X */\n",opcode);
+        else
+        printf("interpret_%s, /* 0x%02X */\n", def->name, opcode);
+        opcode++;
+    }
+    printf("};\n");
+    
 }
 
 
