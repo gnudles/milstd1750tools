@@ -1206,9 +1206,8 @@ static inline void BIF_logic(struct cpu_context *cpu_ctx, uint16_t opcode, uint1
         case 0x00:
             switch (sub_opcode & 0x000F)
             {
-                /* the op-codes numbers are not accurate because messy pdf file*/
-                /* if you plan to use these, please revisit these opcode numbers*/
-                case 0x01: // R3DP
+
+                case 0x03: // R3DP
                 {
                     int64_t sum_product;
                     sum_product = (int32_t)cpu_ctx->state.reg.r[0] *
@@ -1237,7 +1236,7 @@ static inline void BIF_logic(struct cpu_context *cpu_ctx, uint16_t opcode, uint1
                     break;
                 }
                 
-                case 0x0A: // STAL (Store all 48 bits to R0, R1, R2)
+                case 0x04: // STAL (Store all 48 bits to R0, R1, R2)
                     cpu_ctx->state.reg.r[0] = (uint16_t)((cpu_ctx->state.reg.accumulator >> 32) & 0xFFFF);
                     cpu_ctx->state.reg.r[1] = (uint16_t)((cpu_ctx->state.reg.accumulator >> 16) & 0xFFFF);
                     cpu_ctx->state.reg.r[2] = (uint16_t)(cpu_ctx->state.reg.accumulator & 0xFFFF);
@@ -1255,7 +1254,7 @@ static inline void BIF_logic(struct cpu_context *cpu_ctx, uint16_t opcode, uint1
                                                 ((int64_t)(uint16_t)cpu_ctx->state.reg.r[1] << 16);
                     cpu_ctx->state.total_cycles += 10;
                     break;
-                case 0x00: // LACL (Load all 48 bits from R0, R1, R2)
+                case 0x07: // LACL (Load all 48 bits from R0, R1, R2)
                     cpu_ctx->state.reg.accumulator = ((int64_t)(int16_t)cpu_ctx->state.reg.r[0] << 32) |
                                                 ((int64_t)(uint16_t)cpu_ctx->state.reg.r[1] << 16) |
                                                 (uint16_t)cpu_ctx->state.reg.r[2];
@@ -1307,7 +1306,7 @@ static inline void BIF_logic(struct cpu_context *cpu_ctx, uint16_t opcode, uint1
                     cpu_ctx->state.total_cycles += 6*(n+1)+8;
                     break;
                 }
-                case 0x07: // CLAC
+                case 0x00: // CLAC
                     cpu_ctx->state.reg.accumulator = 0;
                     cpu_ctx->state.total_cycles += 4;
                     break;
@@ -1376,6 +1375,9 @@ static inline void BIF_logic(struct cpu_context *cpu_ctx, uint16_t opcode, uint1
             cpu_ctx->state.total_cycles += 1;
             break;
     }
+}
+#else
+static inline void BIF_logic(struct cpu_context *cpu_ctx, uint16_t opcode, uint16_t /*imm_value*/) {
 }
 #endif // PACE
 

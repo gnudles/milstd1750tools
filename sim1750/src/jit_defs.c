@@ -82,7 +82,7 @@ OpcodeDef opcode_defs_8bit[188] = {
 #else
         {"ILLEGAL", OPC_ILLEGAL,  CS_RW_NN,  false, false, false, false}, /* 0x4E */
 #endif
-        {"BIF", OPC_BIF,  CS_W_ALL,  false, false, true, false, IF_SPECIAL, OP_SPECIAL, AM_SPECIAL_S, OPERAND_INT16, "Built-In-Function"}, /* 0x4F */ /* not jitable */
+        {"BIF", OPC_BIF,  CS_W_ALL,  false, false, true, false, IF_SPECIAL, OP_BIF, AM_SPECIAL_S, OPERAND_INT16, "Built-In-Function"}, /* 0x4F */ /* not jitable */
 
 
             /* 50 - 5F */

@@ -1163,6 +1163,7 @@ void emit_instruction (OpcodeDef *def)
             printf("    }\n");
             break;
         case OP_BIF:
+            printf("    BIF_logic(cpu_ctx, opcode, %s);\n", def->is_imm? "imm_value" : "0");
             break;
         case OP_BR_EXECUTIVE:
               printf("    cpu_ctx->state.bex_index = (opcode & 0xF);\n");
