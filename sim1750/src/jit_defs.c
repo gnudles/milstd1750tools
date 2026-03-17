@@ -72,8 +72,16 @@ OpcodeDef opcode_defs_8bit[188] = {
         {"IMM", OPC_IMM,  CS_RW_NN,  false, false, true, false, IF_IMMEDIATE, OP_SPECIAL, AM_IMM_LONG_IM_IMX, OPERAND_INT16, "Immediate op codes group"}, /* 0x4A */ /* special, see opcode_defs_imm */
         {"ILLEGAL", OPC_ILLEGAL,  CS_RW_NN,  false, false, false, false}, /* 0x4B */
         {"ILLEGAL", OPC_ILLEGAL,  CS_RW_NN,  false, false, false, false}, /* 0x4C */
+#ifdef GVSC
+        {"ESQR", OPC_ESQR,  CS_W_ALL,  false, true, true, false, IF_REG_REG, OP_SQRT, AM_REG_DIRECT_R, OPERAND_EXFLOAT, "Extended precision square root"},
+#else
         {"ILLEGAL", OPC_ILLEGAL,  CS_RW_NN,  false, false, false, false}, /* 0x4D */
+#endif
+#ifdef GVSC
+        {"SQRT", OPC_SQRT,  CS_W_ALL,  false, true, true, false, IF_REG_REG, OP_SQRT, AM_REG_DIRECT_R, OPERAND_FLOAT, "Single precision square root"},
+#else
         {"ILLEGAL", OPC_ILLEGAL,  CS_RW_NN,  false, false, false, false}, /* 0x4E */
+#endif
         {"BIF", OPC_BIF,  CS_W_ALL,  false, false, true, false, IF_SPECIAL, OP_SPECIAL, AM_SPECIAL_S, OPERAND_INT16, "Built-In-Function"}, /* 0x4F */ /* not jitable */
 
 
@@ -154,7 +162,11 @@ OpcodeDef opcode_defs_8bit[188] = {
         {"STCI", OPC_STCI,  CS_RW_NN,  false, true, true, true, IF_CONST_LONG, OP_STORE, AM_MEM_INDIRECT_I_IX, OPERAND_INT16, "Store a non-negative constant, Indirect"},
         {"MOV", OPC_MOV,  CS_RW_NN,  false, true, true, false, IF_REG_REG, OP_MOVE, AM_SPECIAL_S, OPERAND_INT16, "Move multiple words, memory-to-memory"},
         {"STI", OPC_STI,  CS_RW_NN,  false, true, true, true, IF_LONG, OP_STORE, AM_MEM_INDIRECT_I_IX, OPERAND_INT16, "Single precision store, Indirect"},
+#ifdef GVSC
+        {"SFBS", OPC_SFBS,  CS_W_ALL,  false, true, true, false, IF_REG_REG, OP_SFBS, AM_REG_DIRECT_R, OPERAND_INT16, "Scan for first bit set"},
+#else
         {"ILLEGAL", OPC_ILLEGAL,  CS_RW_NN,  false, false, false, false},
+#endif
         {"DST", OPC_DST,  CS_RW_NN,  false, true, true, true, IF_LONG, OP_STORE, AM_MEM_DIRECT_D_DX, OPERAND_INT32, "Double precision store"},
         {"SRM", OPC_SRM,  CS_RW_NN,  false, true, true, true, IF_LONG, OP_STORE_MASK, AM_MEM_DIRECT_D_DX, OPERAND_INT16, "Store register through mask"},
         {"DSTI", OPC_DSTI,  CS_RW_NN,  false, true, true, true, IF_LONG, OP_STORE, AM_MEM_INDIRECT_I_IX, OPERAND_INT32, "Double precision store, Indirect"},
@@ -179,8 +191,13 @@ OpcodeDef opcode_defs_8bit[188] = {
         {"EFA", OPC_EFA,  CS_W_ALL,  false, true, true, true, IF_LONG, OP_ADD_EXFLOAT, AM_MEM_DIRECT_D_DX, OPERAND_EXFLOAT, "Extended precision floating point add"},
         {"EFAR", OPC_EFAR,  CS_W_ALL,  false, true, true, false, IF_REG_REG, OP_ADD_EXFLOAT, AM_REG_DIRECT_R, OPERAND_EXFLOAT, "Extended precision floating point add, Register"},
         {"FABS", OPC_FABS,  CS_W_ALL,  false, true, true, false, IF_REG_REG, OP_ABS_FLOAT, AM_REG_DIRECT_R, OPERAND_FLOAT, "Floating point absolute value of register"},
+#ifdef GVSC
+        {"UAR", OPC_UAR,  CS_W_ALL,  false, true, true, false, IF_REG_REG, OP_UAR, AM_REG_DIRECT_R, OPERAND_INT16, "Unsigned add, Register"},
+        {"UA", OPC_UA,  CS_W_ALL,  false, true, true, true, IF_LONG, OP_UA, AM_MEM_DIRECT_D_DX, OPERAND_INT16, "Unsigned add"},
+#else
         {"ILLEGAL", OPC_ILLEGAL,  0x00,  false, false, false, false},
         {"ILLEGAL", OPC_ILLEGAL,  0x00,  false, false, false, false},
+#endif
         {"ILLEGAL", OPC_ILLEGAL,  0x00,  false, false, false, false},
         /* B0 - BF */ /* SUBTRACTION/ NEGATION */
         {"S", OPC_S,  CS_W_ALL,  false, true, true, true, IF_LONG, OP_SUB, AM_MEM_DIRECT_D_DX, OPERAND_INT16, "Single precision integer subtract"},
@@ -196,8 +213,13 @@ OpcodeDef opcode_defs_8bit[188] = {
         {"EFS", OPC_EFS,  CS_W_ALL,  false, true, true, true, IF_LONG, OP_SUB_EXFLOAT, AM_MEM_DIRECT_D_DX, OPERAND_EXFLOAT, "Extended precision floating point subtract"},
         {"EFSR", OPC_EFSR,  CS_W_ALL,  false, true, true, false, IF_REG_REG, OP_SUB_EXFLOAT, AM_REG_DIRECT_R, OPERAND_EXFLOAT, "Extended precision floating point subtract, Register"},
         {"FNEG", OPC_FNEG,  CS_W_ALL,  false, true, true, false, IF_REG_REG, OP_NEG_FLOAT, AM_REG_DIRECT_R, OPERAND_FLOAT, "Floating point negate register"},
+#ifdef GVSC
+        {"USR", OPC_USR,  CS_W_ALL,  false, true, true, false, IF_REG_REG, OP_USR, AM_REG_DIRECT_R, OPERAND_INT16, "Unsigned subtract, Register"},
+        {"US", OPC_US,  CS_W_ALL,  false, true, true, true, IF_LONG, OP_US, AM_MEM_DIRECT_D_DX, OPERAND_INT16, "Unsigned subtract"},
+#else
         {"ILLEGAL", OPC_ILLEGAL,  0x00,  false, false, false, false},
         {"ILLEGAL", OPC_ILLEGAL,  0x00,  false, false, false, false},
+#endif
         {"ILLEGAL", OPC_ILLEGAL,  0x00,  false, false, false, false},
         /* C0 - CF */ /* MULTIPLICATION */
         {"MS", OPC_MS,  CS_W_ALL,  false, true, true, true, IF_LONG, OP_MULT_PROD16, AM_MEM_DIRECT_D_DX, OPERAND_INT16, "Single precision integer multiply with 16-bit product"},
@@ -229,10 +251,17 @@ OpcodeDef opcode_defs_8bit[188] = {
         {"FDR", OPC_FDR,  CS_W_ALL,  false, true, true, false, IF_REG_REG, OP_DIV_FLOAT, AM_REG_DIRECT_R, OPERAND_FLOAT, "Floating point divide, Register"},
         {"EFD", OPC_EFD,  CS_W_ALL,  false, true, true, true, IF_LONG, OP_DIV_EXFLOAT, AM_MEM_DIRECT_D_DX, OPERAND_EXFLOAT, "Extended precision floating point divide"},
         {"EFDR", OPC_EFDR,  CS_W_ALL,  false, true, true, false, IF_REG_REG, OP_DIV_EXFLOAT, AM_REG_DIRECT_R, OPERAND_EXFLOAT, "Extended precision floating point divide, Register"},
+#ifdef GVSC
+        {"STE", OPC_STE,  CS_RW_NN,  false, true, true, true, IF_LONG, OP_STORE, AM_MEM_DIRECT_D_DX, OPERAND_INT16, "Store extended"},
+        {"DSTE", OPC_DSTE,  CS_RW_NN,  false, true, true, true, IF_LONG, OP_STORE, AM_MEM_DIRECT_D_DX, OPERAND_INT32, "Double precision store extended"},
+        {"LE", OPC_LE,  CS_W_ALL,  false, true, true, true, IF_LONG, OP_LOAD, AM_MEM_DIRECT_D_DX, OPERAND_INT16, "Load extended"},
+        {"DLE", OPC_DLE,  CS_W_ALL,  false, true, true, true, IF_LONG, OP_LOAD, AM_MEM_DIRECT_D_DX, OPERAND_INT32, "Double precision load extended"},
+#else
         {"ILLEGAL", OPC_ILLEGAL,  0x00,  false, false, false, false},
         {"ILLEGAL", OPC_ILLEGAL,  0x00,  false, false, false, false},
         {"ILLEGAL", OPC_ILLEGAL,  0x00,  false, false, false, false},
         {"ILLEGAL", OPC_ILLEGAL,  0x00,  false, false, false, false},
+#endif
         /* E0 - EF */ /* LOGICAL OPERATIONS */
         {"OR", OPC_OR,  CS_W_ALL,  false, true, true, true, IF_LONG, OP_OR, AM_MEM_DIRECT_D_DX, OPERAND_INT16, "Inclusive logical OR"},
         {"ORR", OPC_ORR,  CS_W_ALL,  false, true, true, false, IF_REG_REG, OP_OR, AM_REG_DIRECT_R, OPERAND_INT16, "Inclusive logical OR, Register"},
@@ -258,15 +287,24 @@ OpcodeDef opcode_defs_8bit[188] = {
         {"CISP", OPC_CISP,  CS_W_ALL,  false, true, true, false, IF_REG_CONST, OP_COMPARE, AM_IMM_SHRT_POS_ISP, OPERAND_INT16, "Single precision compare, Immediate Short Positive"},
         {"CISN", OPC_CISN,  CS_W_ALL,  false, true, true, false, IF_REG_CONST, OP_COMPARE, AM_IMM_SHRT_NEG_ISN, OPERAND_INT16, "Single precision compare, Immediate Short Negative"},
         {"CBL", OPC_CBL,  CS_W_ALL,  false, true, true, true, IF_LONG, OP_COMP_LIM, AM_MEM_DIRECT_D_DX, OPERAND_INT16, "Compare between limits"},
+#ifdef GVSC
+        {"UCIM", OPC_UCIM,  CS_W_ALL,  false, true, true, true, IF_LONG, OP_COMPARE, AM_IMM_LONG_IM_IMX, OPERAND_INT16, "Unsigned compare, Immediate"},
+#else
         {"ILLEGAL", OPC_ILLEGAL,  0x00,  false, false, false, false},
+#endif
         {"DC", OPC_DC,  CS_W_ALL,  false, true, true, true, IF_LONG, OP_COMPARE, AM_MEM_DIRECT_D_DX, OPERAND_INT32, "Double precision compare"},
         {"DCR", OPC_DCR,  CS_W_ALL,  false, true, true, false, IF_REG_REG, OP_COMPARE, AM_REG_DIRECT_R, OPERAND_INT32, "Double precision compare, Register"},
         {"FC", OPC_FC,  CS_W_ALL,  false, true, true, true, IF_LONG, OP_COMPARE_FLOAT, AM_MEM_DIRECT_D_DX, OPERAND_FLOAT, "Floating point compare"},
         {"FCR", OPC_FCR,  CS_W_ALL,  false, true, true, false, IF_REG_REG, OP_COMPARE_FLOAT, AM_REG_DIRECT_R, OPERAND_FLOAT, "Floating point compare, Register"},
         {"EFC", OPC_EFC,  CS_W_ALL,  false, true, true, true, IF_LONG, OP_COMPARE_EXFLOAT, AM_MEM_DIRECT_D_DX, OPERAND_EXFLOAT, "Extended precision floating point compare"},
         {"EFCR", OPC_EFCR,  CS_W_ALL,  false, true, true, false, IF_REG_REG, OP_COMPARE_EXFLOAT, AM_REG_DIRECT_R, OPERAND_EXFLOAT, "Extended precision floating point compare, Register"},
+#ifdef GVSC
+        {"UCR", OPC_UCR,  CS_W_ALL,  false, true, true, false, IF_REG_REG, OP_COMPARE, AM_REG_DIRECT_R, OPERAND_INT16, "Unsigned compare, Register"},
+        {"UC", OPC_UC,  CS_W_ALL,  false, true, true, true, IF_LONG, OP_COMPARE, AM_MEM_DIRECT_D_DX, OPERAND_INT16, "Unsigned compare"},
+#else
         {"ILLEGAL", OPC_ILLEGAL,  0x00,  false, false, false, false},
         {"ILLEGAL", OPC_ILLEGAL,  0x00,  false, false, false, false},
+#endif
         {"ILLEGAL", OPC_ILLEGAL,  0x00,  false, false, false, false},
         {"NOP_BPT", OPC_NOP_BPT,  CS_RW_NN,  false, true, true, false, IF_SPECIAL, OP_EXTENSION, AM_SPECIAL_S, OPERAND_INT16, "No operation / Break point"} /* this is a special pseudo-opcode for JIT, it is not an actual opcode in the instruction set */
         

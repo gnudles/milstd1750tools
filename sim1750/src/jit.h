@@ -192,6 +192,10 @@ enum OpCode8bit
     OPC_IMM = 0x4A,
     // ILLEGAL = 0x4B
     // ILLEGAL = 0x4C
+#ifdef GVSC
+    OPC_ESQR = 0x4D,
+    OPC_SQRT = 0x4E,
+#endif
     // ILLEGAL = 0x4D
     // ILLEGAL = 0x4E
     OPC_BIF = 0x4F,
@@ -264,6 +268,9 @@ enum OpCode8bit
     OPC_STCI = 0x92,
     OPC_MOV = 0x93,
     OPC_STI = 0x94,
+#ifdef GVSC
+    OPC_SFBS = 0x95,
+#endif
     // ILLEGAL = 0x95
     OPC_DST = 0x96,
     OPC_SRM = 0x97,
@@ -288,6 +295,10 @@ enum OpCode8bit
     OPC_EFA = 0xAA,
     OPC_EFAR = 0xAB,
     OPC_FABS = 0xAC,
+#ifdef GVSC
+    OPC_UAR = 0xAD,
+    OPC_UA = 0xAE,
+#endif
     // ILLEGAL = 0xAD
     // ILLEGAL = 0xAE
     // ILLEGAL = 0xAF
@@ -304,6 +315,10 @@ enum OpCode8bit
     OPC_EFS = 0xBA,
     OPC_EFSR = 0xBB,
     OPC_FNEG = 0xBC,
+#ifdef GVSC
+    OPC_USR = 0xBD,
+    OPC_US = 0xBE,
+#endif
     // ILLEGAL = 0xBD
     // ILLEGAL = 0xBE
     // ILLEGAL = 0xBF
@@ -335,6 +350,12 @@ enum OpCode8bit
     OPC_FDR = 0xD9,
     OPC_EFD = 0xDA,
     OPC_EFDR = 0xDB,
+#ifdef GVSC
+    OPC_STE = 0xDC,
+    OPC_DSTE = 0xDD,
+    OPC_LE = 0xDE,
+    OPC_DLE = 0xDF,
+#endif
     // ILLEGAL = 0xDC
     // ILLEGAL = 0xDD
     // ILLEGAL = 0xDE
@@ -360,6 +381,9 @@ enum OpCode8bit
     OPC_CISP = 0xF2,
     OPC_CISN = 0xF3,
     OPC_CBL = 0xF4,
+#ifdef GVSC
+    OPC_UCIM = 0xF5,
+#endif
     // ILLEGAL = 0xF5
     OPC_DC = 0xF6,
     OPC_DCR = 0xF7,
@@ -367,6 +391,10 @@ enum OpCode8bit
     OPC_FCR = 0xF9,
     OPC_EFC = 0xFA,
     OPC_EFCR = 0xFB,
+#ifdef GVSC
+    OPC_UCR = 0xFC,
+    OPC_UC = 0xFD,
+#endif
     // ILLEGAL = 0xFC
     // ILLEGAL = 0xFD
     // ILLEGAL = 0xFE
