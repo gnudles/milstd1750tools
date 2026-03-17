@@ -15,7 +15,8 @@
 extern uint16_t mock_memory[0x10000];
 static inline ushort* access_memory(struct cpu_state *cpu, uint16_t phys_page)
 {
-    return &mock_memory[(uint)phys_page<<12];
+    if (phys_page == 0xFFFFFFFF) return &mock_memory[0];
+    return &mock_memory[((uint)phys_page<<12) & 0xFFFF];
 }
 #else
 static inline ushort* access_memory(struct cpu_state *cpu, uint16_t phys_page)
@@ -1151,7 +1152,7 @@ int cpu_mainloop(struct cpu_context *cpu_ctx, uint64_t up_to_cycles)
     uint phys_page;
     ushort opcode;
     ushort immediate;
-    while (continue_loop)
+    while (continue_loop && cpu_ctx->state.halt == false)
     {   
         uint phys_page = get_page_address_read_code(&cpu_ctx->state, cpu_ctx->state.reg.ic >> 12);
         if (phys_page == 0xFFFFFFFF)
@@ -1190,7 +1191,7 @@ int cpu_mainloop(struct cpu_context *cpu_ctx, uint64_t up_to_cycles)
         }
         apply_updates(&cpu_ctx->state); // we can apply updates only after interrupts were processed
 
-    }    
+    }
 }
 void interpret_ILLEGAL(struct cpu_context *cpu_ctx, uint16_t opcode, uint16_t /*imm_value*/) {
     cpu_ctx->state.reg.pir |= INTR_MACHERR;

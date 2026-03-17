@@ -242,6 +242,7 @@ struct cpu_state {
 
 
   ushort bex_index;
+  bool halt;
   bool disable_timers;
   /*old timing mechanism */
   struct {
