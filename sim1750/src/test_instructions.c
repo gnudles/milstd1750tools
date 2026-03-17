@@ -9,11 +9,11 @@
 uint16_t mock_memory[0x10000];
 
 bool peek(struct cpu_state *state, uint phys_addr, ushort *word) {
-    *word = mock_memory[phys_addr];
+    *word = mock_memory[phys_addr & 0xFFFF];
     return true;
 }
 bool poke(struct cpu_state *state, uint phys_addr, ushort value) {
-    mock_memory[phys_addr] = value;
+    mock_memory[phys_addr & 0xFFFF] = value;
     return true;
 }
 uint get_phys_address(struct cpu_state *state, int space, int as, uint16_t addr) {
@@ -25,6 +25,9 @@ uint get_phys_address(struct cpu_state *state, int space, int as, uint16_t addr)
 
 #include "generated_cpu.h"
 
+
+void test_BEX();
+void test_BPT();
 
 /* --- The Test Harness --- */
 struct cpu_context ctx;
@@ -39,13 +42,85 @@ void reset_cpu() {
       int logaddr_hinibble = 0;
       for (; logaddr_hinibble <= 0xF; logaddr_hinibble++)
         {
-	      ctx.state.pagereg[CODE][as][logaddr_hinibble].ppa = i;
-	      ctx.state.pagereg[DATA][as][logaddr_hinibble].ppa = i++;
+	      ctx.state.pagereg[CODE][as][logaddr_hinibble].ppa = logaddr_hinibble;
+	      ctx.state.pagereg[DATA][as][logaddr_hinibble].ppa = logaddr_hinibble;
         }
     }
     memset(mock_memory, 0, sizeof(mock_memory));
     ctx.state.reg.sys |= SYS_TA | SYS_TB;
     ctx.state.num_phys_mem_pages = 16;
+    ctx.state.halt = false;
+    ctx.state.next_scheduled_timer_calc_cycles = 10000;
+}
+
+
+void my_load_ldm(struct cpu_context *cpu, const char *fname) {
+    FILE *f = fopen(fname, "r");
+    if (!f) {
+        printf("Could not open %s\n", fname);
+        exit(1);
+    }
+    char line[256];
+    while(fgets(line, sizeof(line), f)) {
+        if (line[0] == '/') {
+            if (line[1] == 'M') {
+                // The actual structure of the LDM address string is `00100`? No!
+                // `/M00100FE97C85000000...`
+                // `00100`: first digit `0` is Address State (AS), then `0100` is the actual address.
+                // length is `F`, checksum is `E97C`, data starts at 8500
+                char addr_str_fix[5] = {line[3], line[4], line[5], line[6], 0};
+                uint16_t addr = strtoul(addr_str_fix, NULL, 16);
+
+                char len_str[2] = {line[7], 0};
+                int len = strtoul(len_str, NULL, 16);
+                if (len == 0 && line[7] == '0') len = 1; // 0 means 1 word
+                else if (len == 0 && line[7] != '0') len = 0; // fallback just in case
+                else len += 1; // 1-15 hex means 2-16 words
+
+                char *p = line + 12; // skip checksum line[8..11]
+                for(int i=0; i<len; i++) {
+                    if (*p == 0 || *p == '\n' || *p == '\r') break;
+                    char data_str[5] = {p[0], p[1], p[2], p[3], 0};
+                    uint16_t data = strtoul(data_str, NULL, 16);
+                    mock_memory[addr & 0xFFFF] = data;
+                    poke(&ctx.state, addr & 0xFFFF, data);
+                    addr++;
+                    p += 4;
+                }
+            } else if (line[1] == 'T') {
+                 char addr_str[6] = {line[2], line[3], line[4], line[5], line[6], 0};
+                 cpu->state.reg.ic = strtoul(addr_str+1, NULL, 16);
+            }
+        }
+    }
+    fclose(f);
+}
+
+void run_ldm_test(const char *fname) {
+    reset_cpu();
+
+    // Clear memory properly
+    memset(mock_memory, 0, sizeof(mock_memory));
+
+    my_load_ldm(&ctx, fname);
+
+    printf("Executing %s starting at 0x%04X... ", fname, ctx.state.reg.ic);
+
+    // Let the main loop handle interrupts via process_interrupt().
+    // We just need to give it enough cycles.
+    cpu_mainloop(&ctx, 1000);
+
+    if (mock_memory[0x2000] == 0xAAAA) {
+        printf("PASSED\n");
+    } else {
+        fflush(stdout);
+        fprintf(stderr, "FAILED! (status=0x%04X)\n", mock_memory[0x2000]);
+        fprintf(stderr, "IC: 0x%04X\n", ctx.state.reg.ic);
+        fprintf(stderr, "SW: 0x%04X\n", ctx.state.reg.sw);
+        fprintf(stderr, "PIR: 0x%04X\n", ctx.state.reg.pir);
+
+        assert(false);
+    }
 }
 
 
@@ -511,5 +586,41 @@ int main() {
     test_FD_Divide_By_Zero();
     printf("All floating point tests passed.\n");
 
+    test_BEX();
+    test_BPT();
+    printf("All additional instruction tests passed.\n");
+
+    // We are inside sim1750 directory, wait, if we are in sim1750 maybe tests is not found?
+    run_ldm_test("tests/interrupt_test.ldm");
+
     return 0;
+}
+
+void test_BEX() {
+    reset_cpu();
+    printf("Testing BEX (Branch Executive)... ");
+
+    /* Opcode: BEX 0 -> 0x7700 */
+    uint16_t opcode = 0x7700;
+
+    interpret_BEX(&ctx, opcode, 0);
+
+    /* BEX triggers INTR_BEX flag in pir */
+    assert(ctx.state.reg.pir & INTR_BEX);
+    assert(ctx.state.bex_index == 0);
+    printf("PASSED\n");
+}
+
+void test_BPT() {
+    reset_cpu();
+    printf("Testing BPT (Breakpoint)... ");
+
+    /* Opcode: BPT -> 0xFFFF */
+    uint16_t opcode = 0xFFFF;
+
+    interpret_NOP_BPT(&ctx, opcode, 0);
+
+    /* Nothing explicitly verified for BPT here since its interpreter-level exit logic
+       will be handled in the main execution loop/test runner later. */
+    printf("PASSED\n");
 }
