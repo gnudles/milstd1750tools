@@ -1,3 +1,6 @@
+
+#ifndef _CPU_HELPERS_H
+#define _CPU_HELPERS_H
 #include "cpu_ctx.h"
 #include "clock_cycles.h"
 #include <stdio.h>
@@ -482,19 +485,6 @@ static inline void calculate_flags_48bit_reg(struct cpu_context *cpu_ctx, uint16
     // Note: Carry flag needs to be set by the specific operation logic
 }
 
-/* obsolete */
-#if 0
-static inline int16_t fetch_code_word(struct cpu_context *cpu_ctx, uint16_t addr, bool *ok) {
-    uint phys_addr =  get_phys_address (&cpu_ctx->state, CODE, cpu_ctx->state.reg.sw & 0xF, addr);
-    ushort word;
-    bool peek_ok = peek(&cpu_ctx->state, phys_addr, &word);
-    if (!peek_ok) {
-        *ok = peek_ok;
-        printf("Failed to peek at address 0x%04X\n", phys_addr);
-    }
-    return (int16_t)word;
-}
-#endif
 
 
 static inline void unpack_float32(int16_t w1, int16_t w2, int32_t *m, int16_t *e) {
@@ -628,6 +618,7 @@ static void calculate_timers(struct cpu_context *cpu_ctx) {
     if (cpu_ctx->state.reg.timer[TIM_A] <= 0xFFFF && (uint32_t)cpu_ctx->state.reg.timer[TIM_A] + timer_a_inc >= 0x10000)
     {
         cpu_ctx->state.reg.pir |= INTR_TA;
+        cpu_ctx->state.reg.timer[TIM_A] += cpu_ctx->state.reg.timer_reset_val[TIM_A];
     }
     cpu_ctx->state.reg.timer[TIM_A] += timer_a_inc;
   }
@@ -640,6 +631,7 @@ static void calculate_timers(struct cpu_context *cpu_ctx) {
         if (cpu_ctx->state.reg.timer[TIM_B] <= 0xFFFF && (uint32_t)cpu_ctx->state.reg.timer[TIM_B] + timer_b_inc >= 0x10000)
         {
             cpu_ctx->state.reg.pir |= INTR_TB;
+            cpu_ctx->state.reg.timer[TIM_B] += cpu_ctx->state.reg.timer_reset_val[TIM_B];
         }
         cpu_ctx->state.reg.timer[TIM_B] += timer_b_inc;
     }
@@ -900,7 +892,7 @@ C00E ITB	Input Timer B:  This command inputs the 16-bit contents of timer B
             break;
         case 0x400B: /* go timer reset*/
             calculate_timers(cpu_ctx);
-            cpu_ctx->state.reg.go = 0;
+            cpu_ctx->state.reg.go = cpu_ctx->state.reg.timer_go_reset_val;
             calculate_next_scheduled_timers_check(cpu_ctx);
             break;
         case 0x4008: /*timer A start*/
@@ -1204,3 +1196,186 @@ void interpret_ILLEGAL(struct cpu_context *cpu_ctx, uint16_t opcode, uint16_t /*
     cpu_ctx->state.reg.pir |= INTR_MACHERR;
     cpu_ctx->state.reg.ft |= FT_ILL_INSTR;
 }
+extern void process_xio(struct cpu_context *cpu_ctx, ushort io_addr, ushort *transfer);
+
+#ifdef PACE
+static inline void BIF_logic(struct cpu_context *cpu_ctx, uint16_t opcode, uint16_t /*imm_value*/) {
+    uint16_t sub_opcode = opcode & 0x00FF;
+    switch (sub_opcode & 0x00F0) {
+        case 0x00:
+            switch (sub_opcode & 0x000F)
+            {
+                /* the op-codes numbers are not accurate because messy pdf file*/
+                /* if you plan to use these, please revisit these opcode numbers*/
+                case 0x01: // R3DP
+                {
+                    int64_t sum_product;
+                    sum_product = (int32_t)cpu_ctx->state.reg.r[0] *
+                            (int32_t)cpu_ctx->state.reg.r[3];
+                    sum_product += (int32_t)cpu_ctx->state.reg.r[1] *
+                            (int32_t)cpu_ctx->state.reg.r[4];
+                    sum_product += (int32_t)cpu_ctx->state.reg.r[2] *
+                            (int32_t)cpu_ctx->state.reg.r[5];
+                    cpu_ctx->state.reg.accumulator += sum_product << 16;
+                    /* check if we overflowed the signed 48 bit  accum*/
+                    if (cpu_ctx->state.reg.accumulator > 0x7FFFFFFFFFFFLL || cpu_ctx->state.reg.accumulator < -0x800000000000LL )
+                    {
+                        cpu_ctx->state.reg.pir |= INTR_FIXOFL;
+                    }
+                    cpu_ctx->state.total_cycles += 6;
+                    break;
+                }
+                case 0x02: // MACD multiply 32 bit (r0 msw, r1 lsw) * (r2 msw, r3 lsw) and accum
+                {
+                    // we need to shift r0, and r2 by 16 bit
+                    int64_t sum_product;
+                    sum_product = (int64_t)(((int32_t)cpu_ctx->state.reg.r[0] << 16) | (uint16_t)cpu_ctx->state.reg.r[1]) * 
+                        (int64_t)(((int32_t)cpu_ctx->state.reg.r[2] << 16) | (uint16_t)cpu_ctx->state.reg.r[3]);
+                    cpu_ctx->state.reg.accumulator += sum_product;
+                    cpu_ctx->state.total_cycles += 8;
+                    break;
+                }
+                
+                case 0x0A: // STAL (Store all 48 bits to R0, R1, R2)
+                    cpu_ctx->state.reg.r[0] = (uint16_t)((cpu_ctx->state.reg.accumulator >> 32) & 0xFFFF);
+                    cpu_ctx->state.reg.r[1] = (uint16_t)((cpu_ctx->state.reg.accumulator >> 16) & 0xFFFF);
+                    cpu_ctx->state.reg.r[2] = (uint16_t)(cpu_ctx->state.reg.accumulator & 0xFFFF);
+                    cpu_ctx->state.total_cycles += 10;
+                    break;
+                case 0x08:
+                        // STA (Store MS 32 bits to R0, R1)
+                    cpu_ctx->state.reg.r[0] = (uint16_t)((cpu_ctx->state.reg.accumulator >> 32) & 0xFFFF);
+                    cpu_ctx->state.reg.r[1] = (uint16_t)((cpu_ctx->state.reg.accumulator >> 16) & 0xFFFF);
+                    cpu_ctx->state.total_cycles += 7;
+                    break;
+
+                case 0x05: // LAC (Load MS 32 bits from R0, R1)
+                    cpu_ctx->state.reg.accumulator = ((int64_t)(int16_t)cpu_ctx->state.reg.r[0] << 32) |
+                                                ((int64_t)(uint16_t)cpu_ctx->state.reg.r[1] << 16);
+                    cpu_ctx->state.total_cycles += 10;
+                    break;
+                case 0x00: // LACL (Load all 48 bits from R0, R1, R2)
+                    cpu_ctx->state.reg.accumulator = ((int64_t)(int16_t)cpu_ctx->state.reg.r[0] << 32) |
+                                                ((int64_t)(uint16_t)cpu_ctx->state.reg.r[1] << 16) |
+                                                (uint16_t)cpu_ctx->state.reg.r[2];
+                    cpu_ctx->state.total_cycles += 9;
+                    break;
+                case 0x0D: // LTAR (Load Timer A Reset Register)
+                    cpu_ctx->state.reg.timer_reset_val[TIM_A] = cpu_ctx->state.reg.r[0];
+                    cpu_ctx->state.total_cycles += 4;
+                    break;
+                case 0x0E: // LTBR (Load Timer B Reset Register)
+                    cpu_ctx->state.reg.timer_reset_val[TIM_B] = cpu_ctx->state.reg.r[0];
+                    cpu_ctx->state.total_cycles += 4;
+                    break;
+                case 0x0F: // IOMV (Fast block move memory to I/O)
+                {
+                    uint16_t io_addr = cpu_ctx->state.reg.r[0];
+                    uint16_t count = cpu_ctx->state.reg.r[1];
+                    uint16_t mem_addr = cpu_ctx->state.reg.r[2];
+                    for (uint16_t i = 0; i < count; i++) {
+                        int16_t val;
+                        fetch_data_word(cpu_ctx, mem_addr + i, &val);
+                        process_xio(cpu_ctx, io_addr + i, (uint16_t*)&val);
+                    }
+                    cpu_ctx->state.total_cycles += 8*(count)+22;
+                    break;
+                }
+                case 0x06: // POLY
+                {
+                    uint16_t addr_An = cpu_ctx->state.reg.r[0];
+                    int16_t x_val = cpu_ctx->state.reg.r[1];
+                    uint16_t n = cpu_ctx->state.reg.r[2];
+
+                    double x_frac = (double)x_val / 32768.0;
+                    double result = 0.0;
+                    uint16_t current_address = addr_An;
+
+                    for (int i = n; i >= 0; i--) {
+                        int16_t coef_val;
+                        fetch_data_word(cpu_ctx, current_address, &coef_val);
+                        double coef_frac = (double)coef_val / 32768.0;
+
+                        result *= x_frac;
+                        result += coef_frac;
+                        current_address++;
+                    }
+
+                    int64_t res_int = (int64_t)(result * 8388608.0); // 2^23 for 24-bit fraction
+                    cpu_ctx->state.reg.accumulator += res_int << 16;
+                    cpu_ctx->state.total_cycles += 6*(n+1)+8;
+                    break;
+                }
+                case 0x07: // CLAC
+                    cpu_ctx->state.reg.accumulator = 0;
+                    cpu_ctx->state.total_cycles += 4;
+                    break;
+                default:
+                    // Illegal or unimplemented PACE BIF
+                    cpu_ctx->state.reg.pir |= INTR_MACHERR;
+                    cpu_ctx->state.reg.ft |= FT_ILL_INSTR;
+                    cpu_ctx->state.total_cycles += 1;
+                    break;
+            }
+
+            break;
+        case 0x10: // VDPD
+            {
+            uint16_t RA = (opcode & 0x000F);
+            uint16_t addr_M = cpu_ctx->state.reg.r[RA];
+            uint16_t addr_N = cpu_ctx->state.reg.r[(RA + 1) & 0xF];
+            uint16_t n = cpu_ctx->state.reg.r[(RA + 2) & 0xF];
+
+            int64_t sum_product = 0;
+            for (uint16_t i = 0; i < n; i++) {
+                int16_t val_M[2], val_N[2];
+                fetch_data_words(cpu_ctx, addr_M + i*2, 2, val_M);
+                fetch_data_words(cpu_ctx, addr_N + i*2, 2, val_N);
+                sum_product += (int64_t)(((int32_t)val_M[0] << 16) | (uint16_t)val_M[1]) * 
+                        (int64_t)(((int32_t)val_N[0] << 16) | (uint16_t)val_N[1]);
+            }
+
+            cpu_ctx->state.reg.accumulator += sum_product;
+            cpu_ctx->state.reg.r[(RA + 2) & 0xF] = 0;
+            cpu_ctx->state.total_cycles += 16*(n)+10;
+            break;
+            }
+
+        case 0x30: // VDPS
+        {
+            uint16_t RA = (opcode & 0x000F);
+            uint16_t addr_M = cpu_ctx->state.reg.r[RA];
+            uint16_t addr_N = cpu_ctx->state.reg.r[(RA + 1) & 0xF];
+            uint16_t n = cpu_ctx->state.reg.r[(RA + 2) & 0xF];
+
+            int64_t sum_product = 0;
+            for (uint16_t i = 0; i < n; i++) {
+                int16_t val_M, val_N;
+                fetch_data_word(cpu_ctx, addr_M + i, &val_M);
+                fetch_data_word(cpu_ctx, addr_N + i, &val_N);
+                sum_product += (int64_t)val_M * (int64_t)val_N;
+            }
+
+            cpu_ctx->state.reg.accumulator += sum_product << 16; 
+            if (cpu_ctx->state.reg.accumulator > 0x7FFFFFFFFFFFLL || cpu_ctx->state.reg.accumulator < -0x800000000000LL )
+            {
+                cpu_ctx->state.reg.pir |= INTR_FIXOFL;
+            }
+            cpu_ctx->state.reg.r[(RA + 2) & 0xF] = 0;
+            cpu_ctx->state.total_cycles += 8*(n)+10;
+            break;
+        }
+            
+        
+        
+        default:
+            // Illegal or unimplemented PACE BIF
+            cpu_ctx->state.reg.pir |= INTR_MACHERR;
+            cpu_ctx->state.reg.ft |= FT_ILL_INSTR;
+            cpu_ctx->state.total_cycles += 1;
+            break;
+    }
+}
+#endif // PACE
+
+#endif // _CPU_HELPERS_H
