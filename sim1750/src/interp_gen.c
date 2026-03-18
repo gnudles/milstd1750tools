@@ -644,8 +644,8 @@ void emit_instruction (OpcodeDef *def)
 
         case OP_DMULT_PROD32:
             /* 32-bit * 32-bit = 32-bit Product (DMR, DM) */
-            printf("    int32_t A = ((int32_t)cpu_ctx->state.reg.r[(RA+0)&0xF] << 16) | (uint16_t)cpu_ctx->state.reg.r[(RA+1)&0xF];\n");
-            printf("    int32_t B = ((int32_t)DO[0] << 16) | (uint16_t)DO[1];\n");
+            printf("    int32_t A = (int32_t)(((uint32_t)(uint16_t)cpu_ctx->state.reg.r[(RA+0)&0xF] << 16) | (uint16_t)cpu_ctx->state.reg.r[(RA+1)&0xF]);\n");
+            printf("    int32_t B = (int32_t)(((uint32_t)(uint16_t)DO[0] << 16) | (uint16_t)DO[1]);\n");
             printf("    int64_t prod = (int64_t)A * (int64_t)B;\n");
             
             /* Overflow if product exceeds 32-bit bounds */
@@ -678,7 +678,7 @@ void emit_instruction (OpcodeDef *def)
 
         case OP_DIV_REM_32_16:
             /* 32-bit / 16-bit = 16-bit Quotient (RA), 16-bit Remainder (RA+1) */
-            printf("    int32_t A = ((int32_t)cpu_ctx->state.reg.r[(RA+0)&0xF] << 16) | (uint16_t)cpu_ctx->state.reg.r[(RA+1)&0xF];\n");
+            printf("    int32_t A = (int32_t)(((uint32_t)(uint16_t)cpu_ctx->state.reg.r[(RA+0)&0xF] << 16) | (uint16_t)cpu_ctx->state.reg.r[(RA+1)&0xF]);\n");
             printf("    int16_t B = (int16_t)DO[0];\n");
             printf("    if (B == 0) {\n");
             printf("        cpu_ctx->state.reg.pir |= INTR_FIXOFL;\n");
@@ -697,8 +697,8 @@ void emit_instruction (OpcodeDef *def)
 
         case OP_DIV_32_32:
             /* 32-bit / 32-bit = 32-bit Quotient (RA, RA+1). Remainder is LOST. */
-            printf("    int32_t A = ((int32_t)cpu_ctx->state.reg.r[(RA+0)&0xF] << 16) | (uint16_t)cpu_ctx->state.reg.r[(RA+1)&0xF];\n");
-            printf("    int32_t B = ((int32_t)DO[0] << 16) | (uint16_t)DO[1];\n");
+            printf("    int32_t A = (int32_t)(((uint32_t)(uint16_t)cpu_ctx->state.reg.r[(RA+0)&0xF] << 16) | (uint16_t)cpu_ctx->state.reg.r[(RA+1)&0xF]);\n");
+            printf("    int32_t B = (int32_t)(((uint32_t)(uint16_t)DO[0] << 16) | (uint16_t)DO[1]);\n");
             printf("    if (B == 0) {\n");
             printf("        cpu_ctx->state.reg.pir |= INTR_FIXOFL;\n");
             printf("    } else if (A == (int32_t)0x80000000 && B == -1) {\n");
@@ -866,8 +866,8 @@ void emit_instruction (OpcodeDef *def)
         case OP_COMPARE:
             printf("    cpu_ctx->state.reg.sw &= 0x0FFF; /* Destroy Carry, P, Z, N */\n");
             if (def->operands_type == OPERAND_INT32) {
-                printf("    int32_t A = ((int32_t)cpu_ctx->state.reg.r[(RA+0)&0xF] << 16) | (uint16_t)cpu_ctx->state.reg.r[(RA+1)&0xF];\n");
-                printf("    int32_t B = ((int32_t)DO[0] << 16) | (uint16_t)DO[1];\n");
+                printf("    int32_t A = (int32_t)(((uint32_t)(uint16_t)cpu_ctx->state.reg.r[(RA+0)&0xF] << 16) | (uint16_t)cpu_ctx->state.reg.r[(RA+1)&0xF]);\n");
+                printf("    int32_t B = (int32_t)(((uint32_t)(uint16_t)DO[0] << 16) | (uint16_t)DO[1]);\n");
                 printf("    if (A == B) cpu_ctx->state.reg.sw |= CS_ZERO;\n");
                 printf("    else if (A > B) cpu_ctx->state.reg.sw |= CS_POSITIVE;\n");
                 printf("    else cpu_ctx->state.reg.sw |= CS_NEGATIVE;\n");
@@ -955,7 +955,9 @@ void emit_instruction (OpcodeDef *def)
             1111   F     unconditional                      --   --   --
             */
             
-            printf("    if ((mask & 0x7000) == 0x7000 || (cpu_ctx->state.reg.sw & mask) != 0) {\n");
+            printf("    if (N == 0) {\n");
+            printf("        cpu_ctx->state.reg.ic += 2;\n");
+            printf("    } else if ((mask & 0x7000) == 0x7000 || (cpu_ctx->state.reg.sw & mask) != 0) {\n");
             printf("        cpu_ctx->state.reg.ic = DO_ADDR;\n");
             printf("    } else {\n");
             printf("        cpu_ctx->state.reg.ic += 2;\n"); // JC and JCI has an immediate
@@ -1163,7 +1165,6 @@ void emit_instruction (OpcodeDef *def)
             printf("    }\n");
             break;
         case OP_BIF:
-            printf("    BIF_logic(cpu_ctx, opcode, %s);\n", def->is_imm? "imm_value" : "0");
             break;
         case OP_BR_EXECUTIVE:
               printf("    cpu_ctx->state.bex_index = (opcode & 0xF);\n");

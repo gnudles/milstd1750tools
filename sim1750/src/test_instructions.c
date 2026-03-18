@@ -590,8 +590,11 @@ int main() {
     test_BPT();
     printf("All additional instruction tests passed.\n");
 
-    // We are inside sim1750 directory, wait, if we are in sim1750 maybe tests is not found?
-    run_ldm_test("tests/interrupt_test.ldm");
+    // We are inside sim1750 directory
+    run_ldm_test("automated_tests/interrupt_test.ldm");
+    run_ldm_test("automated_tests/simple_math.ldm");
+    run_ldm_test("automated_tests/simple_logic.ldm");
+    run_ldm_test("automated_tests/cmp_test.ldm");
 
     return 0;
 }
