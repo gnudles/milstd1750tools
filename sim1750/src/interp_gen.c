@@ -955,9 +955,7 @@ void emit_instruction (OpcodeDef *def)
             1111   F     unconditional                      --   --   --
             */
             
-            printf("    if (N == 0) {\n");
-            printf("        cpu_ctx->state.reg.ic += 2;\n");
-            printf("    } else if ((mask & 0x7000) == 0x7000 || (cpu_ctx->state.reg.sw & mask) != 0) {\n");
+            printf("    if ((mask & 0x7000) == 0x7000 || (cpu_ctx->state.reg.sw & mask) != 0) {\n");
             printf("        cpu_ctx->state.reg.ic = DO_ADDR;\n");
             printf("    } else {\n");
             printf("        cpu_ctx->state.reg.ic += 2;\n"); // JC and JCI has an immediate
@@ -1165,6 +1163,7 @@ void emit_instruction (OpcodeDef *def)
             printf("    }\n");
             break;
         case OP_BIF:
+            printf("    BIF_logic(cpu_ctx, opcode, %s);\n", def->is_imm? "imm_value" : "0");
             break;
         case OP_BR_EXECUTIVE:
               printf("    cpu_ctx->state.bex_index = (opcode & 0xF);\n");

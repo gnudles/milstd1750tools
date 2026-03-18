@@ -176,13 +176,16 @@ struct regs
     ushort pir_update;    
     ushort ft;
     ushort timer[2]; 
+    ushort timer_reset_val[2]; // timers will reset to this value after roll over
     ushort go;     /* not a real register but handled like TA/TB */
+    ushort timer_go_reset_val; // when issuing timer go reset, it will reset to this value
     ushort sys;    /* system configuration register */
     ushort sys_update; /* when interrupts are being enabled, the change only take effect after next instruction*/
     ushort ioic_l1; /* ioic level 1 */
     ushort ioic_l2; /* ioic level 2 */
     ushort dsctout; /* discretes output */
     ushort dsctin; /* discretes input */
+    int64_t accumulator; /*used in PACE1750AE (48bit accumulator) */
   };
 
 /* extern struct regs simreg; defined in cpu.c */
