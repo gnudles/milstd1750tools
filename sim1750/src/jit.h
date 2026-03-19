@@ -111,7 +111,7 @@ enum OperationType {
     OP_LOAD,    /* 16bit : L, LR, LISP, LISN, LI, LIM, LB, LBX */
                 /* 32bit : DL, DLB, DLR, DLBX, DLI */
                 /* 48bit : EFL */
-    OP_MULT_REG, /* LM, POPM, STM, PSHM */
+    OP_LD_ST_REGS, /* LM, POPM, STM, PSHM */
     OP_LOAD_BYTE, /* LUB, LUBI, LLB, LLBI */
     OP_STORE, /* 16bit : STB, ST, STBX, STI, STC, STCI (STZ, STZI are special case of STC, STCI where N is 0) */
                 /* 32bit : DST, DSTI, DSTB, DSTX */

@@ -415,7 +415,7 @@
 #define CLK_CYC_SJS    22
 #define CLK_CYC_URS    15
 #define CLK_CYC_NOP     9
-#define CLK_CYC_NOP_BPT    27
+#define CLK_CYC_BPT    27
 #define CLK_CYC_BIF    34
 #define CLK_CYC_XIO    60  /* very roughly */
 #define CLK_CYC_VIO(data_words)   (70+20*data_words) /* very roughly */
@@ -1269,7 +1269,7 @@
 #define CLK_CYC_LSTI   46
 #define CLK_CYC_SJS    22
 #define CLK_CYC_URS    15
-#define CLK_CYC_NOP_BPT     9
+#define CLK_CYC_NOP     9
 #define CLK_CYC_BPT    27
 #define CLK_CYC_BIF    34
 #define CLK_CYC_XIO    60  /* very roughly */

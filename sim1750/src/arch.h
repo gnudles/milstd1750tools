@@ -49,6 +49,7 @@
 #define  SYS_TB    0x8
 #define  SYS_MEM_PROT   0x10 /* Mem Protect Enabled*/
 #define  SYS_SUROM    0x20 /* currently SUROM is not implemented */
+#define  SYS_PWRUP 0x40
 
 
 
@@ -181,8 +182,8 @@ struct regs
     ushort timer_go_reset_val; // when issuing timer go reset, it will reset to this value
     ushort sys;    /* system configuration register */
     ushort sys_update; /* when interrupts are being enabled, the change only take effect after next instruction*/
-    ushort ioic_l1; /* ioic level 1 */
-    ushort ioic_l2; /* ioic level 2 */
+    ushort ioic1; /* ioic level 1 */
+    ushort ioic2; /* ioic level 2 */
     ushort dsctout; /* discretes output */
     ushort dsctin; /* discretes input */
     int64_t accumulator; /*used in PACE1750AE (48bit accumulator) */

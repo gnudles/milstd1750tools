@@ -331,9 +331,9 @@ bool fetch_data_word(struct cpu_context *cpu_ctx, uint16_t addr, uint16_t *data)
 
     return true;
 }
-ushort* get_address_data(struct cpu_context *cpu_ctx, uint16_t addr, uint16_t *data) {
+ushort* get_address_data(struct cpu_context *cpu_ctx, uint16_t addr) {
     uint phys_addr = get_quarter_page_address_write_data(&cpu_ctx->state, addr >> 10);
-    if (phys_addr == 0xFFFFFFFF) return false;
+    if (phys_addr == 0xFFFFFFFF) return NULL;
     return &access_memory(&cpu_ctx->state, phys_addr)[(addr ) & 0xFFF];
 }
 /* get multiple address*/
@@ -406,8 +406,8 @@ bool store_data_word(struct cpu_context *cpu_ctx, uint16_t addr, uint16_t data) 
 uint16_t move_words(struct cpu_context *cpu_ctx, uint16_t from_addr, uint16_t to_addr, uint16_t count) {
     uint from_logical_page = 0xFFFFFFFF;
     uint to_logical_qpage = 0xFFFFFFFF;
-    uint from_phys_addr;
-    uint to_phys_addr;
+    uint from_phys_addr = 0;
+    uint to_phys_addr = 0;
     while (count)
     {
         if (from_logical_page != from_addr >> 12)
@@ -556,6 +556,69 @@ static inline void pack_float48(struct cpu_context *cpu_ctx, uint16_t RA, int64_
     }
     calculate_flags_48bit_reg(cpu_ctx, RA);
 }
+/* mult and shift right */
+static inline int64_t mult128_shift_0_63(int64_t a, int64_t b, int shift) {
+    /* shift is guaranteed to be in range [0,63] */
+    /* use __int128 if supported*/
+    #ifdef __SIZEOF_INT128__
+    return (int64_t)(((__int128)a * (__int128)b) >> shift);
+    #else
+    uint32_t a_lo = (uint32_t)a, a_hi = (uint32_t)((uint64_t)a >> 32);
+    uint32_t b_lo = (uint32_t)b, b_hi = (uint32_t)((uint64_t)b >> 32);
+
+    uint64_t p0 = (uint64_t)a_lo * b_lo;
+    uint64_t p1 = (uint64_t)a_hi * b_lo;
+    uint64_t p2 = (uint64_t)a_lo * b_hi;
+    uint64_t p3 = (uint64_t)a_hi * b_hi;
+
+    uint64_t mid = (p0 >> 32) + (uint32_t)p1 + (uint32_t)p2;
+    uint64_t lo = ((uint64_t)(uint32_t)mid << 32) | (uint32_t)p0;
+    uint64_t hi = p3 + (p1 >> 32) + (p2 >> 32) + (mid >> 32);
+
+    int64_t hi_s = (int64_t)hi;
+    if (a < 0) hi_s -= b;
+    if (b < 0) hi_s -= a;
+
+    if (shift == 0) {
+        return (int64_t)lo;
+    }
+    
+    return (int64_t)((lo >> shift) | ((uint64_t)hi_s << (64 - shift)));
+    #endif
+
+}
+/* mult and shift right */
+static inline int64_t mult128_shift_64_127(int64_t a, int64_t b, int shift) {
+    /* shift is guaranteed to be in range [64,127] */
+    /* use __int128 if supported*/
+    #ifdef __SIZEOF_INT128__
+    return (int64_t)(((__int128)a * (__int128)b) >> shift);
+    #else
+    uint32_t a_lo = (uint32_t)a, a_hi = (uint32_t)((uint64_t)a >> 32);
+    uint32_t b_lo = (uint32_t)b, b_hi = (uint32_t)((uint64_t)b >> 32);
+
+    uint64_t p0 = (uint64_t)a_lo * b_lo;
+    uint64_t p1 = (uint64_t)a_hi * b_lo;
+    uint64_t p2 = (uint64_t)a_lo * b_hi;
+    uint64_t p3 = (uint64_t)a_hi * b_hi;
+
+    // We still need the carry from the lower multiplications
+    uint64_t mid = (p0 >> 32) + (uint32_t)p1 + (uint32_t)p2;
+    
+    // Calculate the upper 64 bits (we skip assembling 'lo' entirely)
+    uint64_t hi = p3 + (p1 >> 32) + (p2 >> 32) + (mid >> 32);
+
+    // Apply signed correction
+    int64_t hi_s = (int64_t)hi;
+    if (a < 0) hi_s -= b;
+    if (b < 0) hi_s -= a;
+
+    // A shift of 64 maps to >> 0 on the high bits.
+    // The compiler will naturally compile this down to an arithmetic right shift (sar)
+    // preserving the sign bit across the result.
+    return hi_s >> (shift - 64);
+    #endif
+}
 
 
 static inline void invalidate_mem_cache(struct cpu_context *cpu_ctx) {
@@ -572,7 +635,7 @@ static void calculate_next_scheduled_timers_check(struct cpu_context *cpu_ctx) {
     uint64_t go_timer_expiration_ns = 0;
     uint64_t nearest_time;
 
-    go_timer_expiration_ns  = (0x10000 - cpu_ctx->state.reg.go) * 10000 * GOTIMER_PERIOD_IN_10uSEC;
+    go_timer_expiration_ns  = (0x10000 - cpu_ctx->state.reg.go) * 10000LL * GOTIMER_PERIOD_IN_10uSEC;
     go_timer_expiration_ns -= cpu_ctx->state.timer_ns_remainder;
     go_timer_expiration_ns = (go_timer_expiration_ns + CYCLE_DURATION_IN_NS-1) / CYCLE_DURATION_IN_NS;
     nearest_time = go_timer_expiration_ns;
@@ -580,7 +643,7 @@ static void calculate_next_scheduled_timers_check(struct cpu_context *cpu_ctx) {
     if (cpu_ctx->state.reg.sys & SYS_TA)
     {
         uint64_t time_to_timer_a_expiration_ns;
-        time_to_timer_a_expiration_ns  = (0x10000 - cpu_ctx->state.reg.timer[TIM_A]) * 10000;
+        time_to_timer_a_expiration_ns  = (0x10000 - cpu_ctx->state.reg.timer[TIM_A]) * 10000LL;
         time_to_timer_a_expiration_ns -= cpu_ctx->state.timer_ns_remainder;
         time_to_timer_a_expiration_ns = (time_to_timer_a_expiration_ns + CYCLE_DURATION_IN_NS-1) / CYCLE_DURATION_IN_NS;
         if (time_to_timer_a_expiration_ns < nearest_time)
@@ -591,7 +654,7 @@ static void calculate_next_scheduled_timers_check(struct cpu_context *cpu_ctx) {
     if (cpu_ctx->state.reg.sys & SYS_TB)
     {
         uint64_t time_to_timer_b_expiration_ns;
-        time_to_timer_b_expiration_ns  = (0x10000 - cpu_ctx->state.reg.timer[TIM_B]) * 100000;
+        time_to_timer_b_expiration_ns  = (0x10000 - cpu_ctx->state.reg.timer[TIM_B]) * 100000LL;
         time_to_timer_b_expiration_ns -= cpu_ctx->state.timer_ns_remainder;
         time_to_timer_b_expiration_ns = (time_to_timer_b_expiration_ns + CYCLE_DURATION_IN_NS-1) / CYCLE_DURATION_IN_NS;
         if (time_to_timer_b_expiration_ns < nearest_time)
@@ -783,6 +846,37 @@ A00D RMFS	Read Memory Fault Status:  This command transfers the 16-bit
             break;
         case 0x2008: /*output discretes*/
             cpu_ctx->state.reg.dsctout = *transfer;
+            break;
+        case 0x200A: /*reset normal power up discrete*/
+            cpu_ctx->state.reg.sys &= ~SYS_PWRUP;
+            break;
+        case 0xA000:
+            *transfer = cpu_ctx->state.reg.mk;
+            break;
+        case 0xA004:
+            *transfer = cpu_ctx->state.reg.pir;
+            break;
+        case 0xA00E:
+            *transfer = cpu_ctx->state.reg.sw;
+            break;
+        case 0xA00F:
+            *transfer = cpu_ctx->state.reg.ft;
+            cpu_ctx->state.reg.ft = 0;
+            cpu_ctx->state.reg.pir &= ~INTR_MACHERR;
+            break;
+        case 0xA001:
+            *transfer = cpu_ctx->state.reg.ioic1;
+            break;
+        case 0xA002:
+            *transfer = cpu_ctx->state.reg.ioic2;
+            break;
+        case 0xA008:
+            *transfer = cpu_ctx->state.reg.dsctout;
+            break;
+        case 0xA009:
+            *transfer = cpu_ctx->state.reg.dsctin;
+            break;
+        
     }
 }
 static inline void
@@ -924,6 +1018,9 @@ C00E ITB	Input Timer B:  This command inputs the 16-bit contents of timer B
 	            cpu_ctx->state.reg.timer[timer_indx] = *transfer;
                 calculate_next_scheduled_timers_check(cpu_ctx);
             }
+            break;
+        case 0x401D:
+            cpu_ctx->state.reg.timer_go_reset_val = *transfer;
             break;
     }
 }
