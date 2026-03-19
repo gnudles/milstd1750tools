@@ -1175,8 +1175,8 @@ void emit_instruction (OpcodeDef *def)
             printf("        cpu_ctx->state.reg.ic +=1;\n");
             printf("        break;\n");
             printf("      case 0xFF:  /* BPT */\n");
-            printf("        cpu_ctx->state.reg.ic +=1;\n");
             printf("        cpu_ctx->state.halt = true;\n");
+            printf("        cpu_ctx->state.reg.ic += 1;\n");
             printf("        break;\n");
             printf("      default:\n");
             printf("        interpret_ILLEGAL(cpu_ctx, opcode, 0);\n");
