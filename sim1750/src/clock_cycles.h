@@ -854,7 +854,6 @@
 /***************************** end of MA31750 *****************************/
 
 #elif defined (MAS281)
-#elif defined (MAS281)
 
 /*
  * GEC-Plessey MAS281 timing from the GEC-Plessey data sheet, DS3563-3.3
