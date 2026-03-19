@@ -116,11 +116,16 @@ enum OperationType {
     OP_STORE, /* 16bit : STB, ST, STBX, STI, STC, STCI (STZ, STZI are special case of STC, STCI where N is 0) */
                 /* 32bit : DST, DSTI, DSTB, DSTX */
                 /* 48bit : EFST */
+    OP_STORE_EFFECTIVE, /*16bit: STE*/
+                        /*32bit: DSTE*/
+    OP_LOAD_EFFECTIVE, /*16bit: LE*/
+                       /*32bit: DLE*/
     OP_MOVE, /* MOV */
     OP_STORE_MASK, /* SRM */
     OP_STORE_BYTE, /* STUB, SUBI, STLB, SLBI */
     OP_ADD, /* 16bit: AR, AB, ABX, AISP, A, AIM*/
             /* 32bit: DAR, DA*/
+    OP_UNS_ADD, /* UAR, UA*/
     OP_INC_DEC_MEM, /* INCM, DECM */
     OP_ABS, /* 16bit: ABS */
         /* 32bit: DABS */
@@ -129,6 +134,7 @@ enum OperationType {
     OP_ABS_FLOAT, /* FABS - Floating point absolute value */
     OP_SUB, /* 16bit: SR, SBB, SBBX, SISP, S, SIM*/
             /* 32bit: DSR, DS*/
+    OP_UNS_SUB, /* USR, US*/
     OP_NEG, /* 16bit: NEG */
         /* 32bit: DNEG */
     OP_NEG_FLOAT, /* FNEG */
@@ -156,6 +162,7 @@ enum OperationType {
     OP_EXCHANGE_WORD, /* XWR */
     OP_COMPARE, /* 16bit: CR, CB, CBX, CISP, CISN, C, CIM */
                 /* 32bit: DCR, DC */
+    OP_UNS_COMPARE, /* UC, UCR, UCIM */
     OP_COMP_LIM, /* Compare between limits - CBL */
     OP_COMPARE_FLOAT, /* FCR, FC, FCB, FCBX */
     OP_COMPARE_EXFLOAT, /* EFCR, EFC */
@@ -163,6 +170,8 @@ enum OperationType {
     OP_BR_EXECUTIVE, /* BEX */
     OP_XIO, /* XIO, VIO */
     OP_BIF, /* BIF */
+    OP_SFBS,
+    OP_SQRT,
 
     OP_SPECIAL,  /* Special cases that don't fit the above categories ( IMM, BRX) */
 };
@@ -192,10 +201,10 @@ enum OpCode8bit
     OPC_IMM = 0x4A,
     // ILLEGAL = 0x4B
     // ILLEGAL = 0x4C
-#ifdef GVSC
+//#ifdef GVSC
     OPC_ESQR = 0x4D,
     OPC_SQRT = 0x4E,
-#endif
+//#endif
     // ILLEGAL = 0x4D
     // ILLEGAL = 0x4E
     OPC_BIF = 0x4F,
@@ -268,9 +277,9 @@ enum OpCode8bit
     OPC_STCI = 0x92,
     OPC_MOV = 0x93,
     OPC_STI = 0x94,
-#ifdef GVSC
+//#ifdef GVSC
     OPC_SFBS = 0x95,
-#endif
+//#endif
     // ILLEGAL = 0x95
     OPC_DST = 0x96,
     OPC_SRM = 0x97,
@@ -295,10 +304,10 @@ enum OpCode8bit
     OPC_EFA = 0xAA,
     OPC_EFAR = 0xAB,
     OPC_FABS = 0xAC,
-#ifdef GVSC
+//#ifdef GVSC
     OPC_UAR = 0xAD,
     OPC_UA = 0xAE,
-#endif
+//#endif
     // ILLEGAL = 0xAD
     // ILLEGAL = 0xAE
     // ILLEGAL = 0xAF
@@ -315,10 +324,10 @@ enum OpCode8bit
     OPC_EFS = 0xBA,
     OPC_EFSR = 0xBB,
     OPC_FNEG = 0xBC,
-#ifdef GVSC
+//#ifdef GVSC
     OPC_USR = 0xBD,
     OPC_US = 0xBE,
-#endif
+//#endif
     // ILLEGAL = 0xBD
     // ILLEGAL = 0xBE
     // ILLEGAL = 0xBF
@@ -350,12 +359,12 @@ enum OpCode8bit
     OPC_FDR = 0xD9,
     OPC_EFD = 0xDA,
     OPC_EFDR = 0xDB,
-#ifdef GVSC
+//#ifdef GVSC
     OPC_STE = 0xDC,
     OPC_DSTE = 0xDD,
     OPC_LE = 0xDE,
     OPC_DLE = 0xDF,
-#endif
+//#endif
     // ILLEGAL = 0xDC
     // ILLEGAL = 0xDD
     // ILLEGAL = 0xDE
@@ -381,9 +390,9 @@ enum OpCode8bit
     OPC_CISP = 0xF2,
     OPC_CISN = 0xF3,
     OPC_CBL = 0xF4,
-#ifdef GVSC
+//#ifdef GVSC
     OPC_UCIM = 0xF5,
-#endif
+//#endif
     // ILLEGAL = 0xF5
     OPC_DC = 0xF6,
     OPC_DCR = 0xF7,
@@ -391,10 +400,10 @@ enum OpCode8bit
     OPC_FCR = 0xF9,
     OPC_EFC = 0xFA,
     OPC_EFCR = 0xFB,
-#ifdef GVSC
+//#ifdef GVSC
     OPC_UCR = 0xFC,
     OPC_UC = 0xFD,
-#endif
+//#endif
     // ILLEGAL = 0xFC
     // ILLEGAL = 0xFD
     // ILLEGAL = 0xFE
@@ -430,10 +439,14 @@ enum OpCode8bit
     OPC_IMM_CIM = 0x4A0A,
     OPC_IMM_NIM = 0x4A0B,
 
-
-
 };
 
+enum Validity
+{
+    INVALID,
+    VALID,
+    VALID_IN_GVSC
+};
 
 /* 1. The Global Constant Dictionary (Used only during Decode) */
 typedef struct {
@@ -443,7 +456,7 @@ typedef struct {
     uint8_t     rw_cs; /* Which condition codes are written (bitmask) for dead code elimination */
     bool     is_branch;    /* Whether the instruction is a branch */
     bool jitable;             /* Whether the instruction is suitable for JIT compilation */
-    bool valid;              /* Whether this opcode is valid (for quick checks) */
+    enum Validity valid;              /* Whether this opcode is valid (for quick checks) */
     bool is_imm;             /* Whether this instruction has an immediate operand (for special handling) */
     enum InstructionFormat format; /* The instruction format for this opcode */
     enum OperationType op_type; /* The type of operation this instruction performs  */

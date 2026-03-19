@@ -1277,6 +1277,20 @@
 
 #endif
 
+#define CLK_CYC_ESQR 180 /* very roughly, applies only to GVSC */
+#define CLK_CYC_SQRT 130 /* very roughly, applies only to GVSC */
+#define CLK_CYC_SFBS 6 /* applies only to GVSC */
+#define CLK_CYC_UC  CLK_CYC_C
+#define CLK_CYC_UCR  CLK_CYC_CR
+#define CLK_CYC_UCIM  CLK_CYC_CIM
+#define CLK_CYC_US  CLK_CYC_S
+#define CLK_CYC_USR  CLK_CYC_SR
+#define CLK_CYC_UA  CLK_CYC_A
+#define CLK_CYC_UAR  CLK_CYC_AR
+#define CLK_CYC_LE  CLK_CYC_L
+#define CLK_CYC_DLE  CLK_CYC_DL
+#define CLK_CYC_STE  CLK_CYC_ST
+#define CLK_CYC_DSTE  CLK_CYC_DST
 
 /* The ERA MAS281 board has a 10MHz clock */
 #define CYCLE_DURATION_IN_NS 100

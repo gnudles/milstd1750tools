@@ -25,6 +25,11 @@ static inline ushort* access_memory(struct cpu_state *cpu, uint16_t phys_page)
 }
 #endif
 
+static inline ushort* access_effective_address(struct cpu_state *cpu, uint32_t phys_addr)
+{
+    return &access_memory(cpu, phys_addr >> 12)[phys_addr & 0xFFF];
+}
+
 static inline uint16_t popcount16(uint16_t v) {
     /* 1. Count bits in each 2-bit field */
     v = v - ((v >> 1) & 0x5555);
@@ -620,6 +625,31 @@ static inline int64_t mult128_shift_64_127(int64_t a, int64_t b, int shift) {
     #endif
 }
 
+/*
+ * sqrt_n_bits:
+ * Takes a 64-bit left-aligned radicand and computes 'iters' bits of the square root.
+ * Since the 1750A mantissas are pre-normalized, we skip CLZ and dynamic scaling.
+ */
+static inline uint64_t sqrt_n_bits(uint64_t x, int iters)
+{
+    uint64_t a = 0ULL;   /* accumulator   */
+    uint64_t r = 0ULL;   /* remainder     */
+    uint64_t e = 0ULL;   /* trial product */
+
+    for (int i = 0; i < iters; i++)
+    {
+        r = (r << 2) + (x >> 62); 
+        x <<= 2;
+        a <<= 1;
+        e = (a << 1) + 1;
+        if (r >= e)
+        {
+            r -= e;
+            a++;
+        }
+    }
+    return a;
+}
 
 static inline void invalidate_mem_cache(struct cpu_context *cpu_ctx) {
     /* we need to invalidate after XIO, and after interrupt or LST*/

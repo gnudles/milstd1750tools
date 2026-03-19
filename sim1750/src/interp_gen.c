@@ -320,7 +320,7 @@ void emit_instruction (OpcodeDef *def)
     }
     if (has_DO_ADDR)
     {
-        if (def->op_type != OP_STORE && def->op_type != OP_JUMP_COND && def->op_type != OP_JUMP_SUBRTN && def->op_type != OP_RET_SUBRTN && def->op_type != OP_XIO)
+        if (def->op_type != OP_STORE && def->op_type != OP_STORE_EFFECTIVE && def->op_type != OP_LOAD_EFFECTIVE && def->op_type != OP_JUMP_COND && def->op_type != OP_JUMP_SUBRTN && def->op_type != OP_RET_SUBRTN && def->op_type != OP_XIO)
         {
             //if not store operation, we need to fetch derived operand (DO) from memory
             
@@ -338,9 +338,43 @@ void emit_instruction (OpcodeDef *def)
             }
         }
     }
+    if (def->op_type == OP_STORE_EFFECTIVE || def->op_type == OP_LOAD_EFFECTIVE)
+    {
+        printf("    uint32_t eff_addr = imm_value;\n");
+        printf("    if (RX == 0) {\n");
+        printf("        eff_addr += cpu_ctx->state.reg.r[15];\n");
+        printf("    }\n");
+        printf("    else {\n");
+        printf("        eff_addr += cpu_ctx->state.reg.r[RX];\n");
+        printf("        eff_addr += (cpu_ctx->state.reg.r[RX-1] & 0x7F) << 16; /* ok to subtract one since RX != 0 */\n");
+        printf("    }\n");
+        printf("    if (eff_addr + %d > cpu_ctx->state.num_phys_mem_pages * 4096) {\n", DO_SIZE);
+        printf("        cpu_ctx->state.reg.pir |= INTR_MACHERR;\n");
+        printf("        cpu_ctx->state.reg.ft |= FT_ILL_ADDR;\n");
+        printf("    } else {\n");
+    }
+
     
     switch (def->op_type)
     {
+        case OP_LOAD_EFFECTIVE:
+            for (int i = 0 ; i < DO_SIZE; ++i)
+            {
+                printf("        cpu_ctx->state.reg.r[(RA+%d)&0xF] = *access_effective_address(&cpu_ctx->state, eff_addr + %d);\n", i, i);
+            }
+            if (DO_SIZE == 1)
+                printf("        calculate_flags_16bit(cpu_ctx, cpu_ctx->state.reg.r[RA]);\n");
+            else if (DO_SIZE == 2)
+                printf("        calculate_flags_32bit_reg(cpu_ctx, RA);\n");
+            printf("    }\n"); // close the block of else
+            break;
+        case OP_STORE_EFFECTIVE:
+            for (int i = 0 ; i < DO_SIZE; ++i)
+            {
+                printf ("        *access_effective_address(&cpu_ctx->state, eff_addr + %d) = cpu_ctx->state.reg.r[(RA+%d)&0xF];\n", i, i);
+            }
+            printf("    }\n"); // close the block of else
+            break;
         case OP_LOAD:
             for (int i = 0 ; i < DO_SIZE; ++i)
             {
@@ -365,7 +399,6 @@ void emit_instruction (OpcodeDef *def)
             printf("    calculate_flags_16bit(cpu_ctx, cpu_ctx->state.reg.r[RA]);\n");
         
             break;
-
         case OP_STORE:
             /* store contents of RA into DO_ADDR*/
             if (def->format == IF_CONST_LONG) /* STC, STCI*/
@@ -504,7 +537,25 @@ void emit_instruction (OpcodeDef *def)
             printf("        cpu_ctx->state.reg.sw |= CS_ZERO;\n");
             printf("    }\n");
             break;
-            
+        case OP_UNS_ADD: // only in GVSC
+        case OP_UNS_SUB: // only in GVSC
+            printf("    uint32_t a = (uint16_t)cpu_ctx->state.reg.r[(RA+0)&0xF];\n");
+            printf("    uint32_t b = (uint16_t)DO[0];\n");
+            if (def->op_type == OP_ADD) {
+                printf("    uint32_t res = a + b;\n");
+            }
+            else {
+                printf("    uint32_t res = a - b;\n");
+            }
+            printf("    cpu_ctx->state.reg.r[(RA+0)&0xF] = (int16_t)res;\n");
+            printf("    if (res > 0xFFFF) {\n");
+            printf("        cpu_ctx->state.reg.sw = CS_CARRY | (cpu_ctx->state.reg.sw & 0x0FFF);\n");
+            printf("    }\n");
+            printf("    else {\n");
+            printf("        calculate_flags_16bit(cpu_ctx, (int16_t)res);\n");
+            printf("    }\n");
+            break;
+
         case OP_ADD:
         case OP_SUB:
             if (DO_SIZE == 1)
@@ -884,6 +935,13 @@ void emit_instruction (OpcodeDef *def)
                 printf("    else cpu_ctx->state.reg.sw |= CS_NEGATIVE;\n");
             }
             break;
+        case OP_UNS_COMPARE: // only in GVSC
+            printf("    cpu_ctx->state.reg.sw &= 0x0FFF; /* Destroy Carry, P, Z, N */\n");
+            printf("    uint16_t A = (uint16_t)cpu_ctx->state.reg.r[(RA+0)&0xF];\n");
+            printf("    uint16_t B = (uint16_t)DO[0];\n");
+            printf("    if (A == B) cpu_ctx->state.reg.sw |= CS_ZERO;\n");
+            printf("    else if (A > B) cpu_ctx->state.reg.sw |= CS_POSITIVE;\n");
+            printf("    else cpu_ctx->state.reg.sw |= CS_NEGATIVE;\n");
 
         case OP_COMP_LIM:
             /* Compare Between Limits (CBL) */
@@ -1191,6 +1249,77 @@ void emit_instruction (OpcodeDef *def)
               printf("    cpu_ctx->state.bex_index = (opcode & 0xF);\n");
               printf("    cpu_ctx->state.reg.pir |= INTR_BEX;\n");
             break;
+        case OP_SQRT:
+            if (def->code == OPC_SQRT)
+            {
+                printf(
+                "    int32_t M; int16_t E;\n"
+                "    unpack_float32(cpu_ctx->state.reg.r[(RA+0)&0xF], cpu_ctx->state.reg.r[(RA+1)&0xF], &M, &E);\n"
+
+    
+                "    if (M < 0) {\n"
+                "        /* Square root of a negative number triggers a Fixed Point Overflow trap */\n"
+                "        cpu_ctx->state.reg.pir |= INTR_FIXOFL;\n"
+                "    } else if (M == 0) {\n"
+                "        pack_float32(cpu_ctx, RA, 0, 0);\n"
+                "    } else {\n"
+                "        int adj_E = E;\n"
+                    
+                "        /* Left-align the 24-bit mantissa to the top of the 64-bit word (bit 62) */\n"
+                "        uint64_t x = (uint64_t)M << 40; \n"
+                    
+                "        /* If the exponent is odd, multiply mantissa by 2 (shift to bit 63) to even it out */\n"
+                "        if (adj_E & 1) {\n"
+                "            x <<= 1;\n"
+                "            adj_E -= 1;\n"
+                "        }\n"
+                    
+                "        /* 24 iterations generates a 24-bit root (providing 1 guard bit for the normalizer) */\n"
+                "        uint64_t A = sqrt_n_bits(x, 24);\n"
+                "        /* Fixed scaling logic: mathematically equivalent to adj_E/2 - 1 */\n"
+                "        pack_float32(cpu_ctx, RA, (int32_t)A, (adj_E / 2) - 1);\n"
+                "    }\n");
+            }
+            else
+            {
+                printf(
+                "    int64_t M; int16_t E;\n"
+                "    unpack_float48(cpu_ctx->state.reg.r[(RA+0)&0xF], cpu_ctx->state.reg.r[(RA+1)&0xF], cpu_ctx->state.reg.r[(RA+2)&0xF], &M, &E);\n"
+    
+                "    if (M < 0) {\n"
+                "        cpu_ctx->state.reg.pir |= INTR_FIXOFL;\n"
+                "    } else if (M == 0) {\n"
+                "        pack_float48(cpu_ctx, RA, 0, 0);\n"
+                "    } else {\n"
+                "        int adj_E = E;\n"
+                    
+                "        /* Left-align the 40-bit mantissa to the top of the 64-bit word (bit 62) */\n"
+                "        uint64_t x = (uint64_t)M << 24; \n"
+                    
+                "        if (adj_E & 1) {\n"
+                "            x <<= 1;\n"
+                "            adj_E -= 1;\n"
+                "        }\n"
+                    
+                "        /* 40 iterations generates a 40-bit root */\n"
+                "        uint64_t A = sqrt_n_bits(x, 40);\n"
+                    
+                "        pack_float48(cpu_ctx, RA, (int64_t)A, (adj_E / 2) - 1);\n"
+                "    }\n");
+            
+            }
+            break;
+        case OP_SFBS:
+            printf("    /* Fetch the word to search */\n"
+            "    uint16_t val = cpu_ctx->state.reg.r[RA];\n"
+            
+            "    /* Calculate the number of leading zeros (0 to 16) */\n"
+            "    uint16_t zeros = count_leading_zeros(val);\n"
+            
+            "    /* Store the result into RB */\n"
+            "    cpu_ctx->state.reg.r[RB] = zeros;\n"
+            "    calculate_flags_16bit(cpu_ctx, (int16_t)val);\n");
+            break;
         case OP_EXTENSION:
             printf("    switch (opcode & 0xFF){\n");
             printf("      case 0x00:  /*NOP*/\n");
@@ -1206,6 +1335,7 @@ void emit_instruction (OpcodeDef *def)
             printf("        interpret_ILLEGAL(cpu_ctx, opcode, 0);\n");
             printf("        break;\n");
             printf("    }\n");
+            break;
 
         default:
             printf("    /* TODO: Implement interpretation logic for %s */\n", def->name);
@@ -1261,7 +1391,7 @@ void generate_interpreter_code()
         emit_instruction(def);
     }
 
-    for (int i = 11 ; i < 188; i++) {
+    for (int i = 9 ; i < 188; i++) {
         
         OpcodeDef *def = &opcode_defs_8bit[i];
         if (!def->valid) continue;
@@ -1320,8 +1450,16 @@ void generate_interpreter_code()
     for (int i = 0 ; i < 188; i++) {
         
         OpcodeDef *def = &opcode_defs_8bit[i];
-        if (!def->valid) 
-        printf("interpret_ILLEGAL, /* 0x%02X */\n",opcode);
+        if (def->valid == INVALID) 
+            printf("interpret_ILLEGAL, /* 0x%02X */\n",opcode);
+        else if (def->valid == VALID_IN_GVSC)
+        {
+            printf("#ifdef GVSC\n");
+            printf("interpret_%s, /* 0x%02X */\n", def->name, opcode);
+            printf("#else\n");
+            printf("interpret_ILLEGAL, /* 0x%02X */\n",opcode);
+            printf("#endif\n");
+        }
         else
         printf("interpret_%s, /* 0x%02X */\n", def->name, opcode);
         opcode++;
