@@ -48,15 +48,19 @@ OBJECTS= $(OBJ)/arith.o		\
 
 SOURCES= $(OBJECTS:$(OBJ)/%.o=$(SRC)/%.c)
 
-all: sim1750 interp_gen test_inst
+all: sim1750 interp_gen jit_gen test_inst
 
-sim1750: $(OBJ) $(OBJECTS)
+sim1750: $(OBJ) $(OBJECTS) $(SRC)/generated_jit.h
 	# $(CC) $(CFLAGS) -o $(PROJ_DIR)/sim1750 $(OBJECTS) -lm -ltermcap
 	$(CC) $(CFLAGS) -o $(PROJ_DIR)/sim1750 $(OBJECTS) -lm -lreadline
 interp_gen: $(OBJ)/jit_defs.o $(OBJ)/interp_gen.o
 	$(CC) $(CFLAGS) -o $(PROJ_DIR)/interp_gen $(OBJ)/jit_defs.o $(OBJ)/interp_gen.o
 $(SRC)/generated_cpu.h: interp_gen
 	./interp_gen > $(SRC)/generated_cpu.h
+jit_gen: $(OBJ)/jit_defs.o $(OBJ)/jit_gen.o
+	$(CC) $(CFLAGS) -o $(PROJ_DIR)/jit_gen $(OBJ)/jit_defs.o $(OBJ)/jit_gen.o
+$(SRC)/generated_jit.h: jit_gen
+	./jit_gen > $(SRC)/generated_jit.h
 test_inst: $(SRC)/test_instructions.c $(SRC)/generated_cpu.h $(SRC)/cpu_helpers.h
 	gcc -fsanitize=undefined -g $(SRC)/test_instructions.c -o test_inst
 	./test_inst
@@ -151,11 +155,13 @@ $(OBJ)/utils.o: $(SRC)/type.h $(SRC)/utils.h $(SRC)/utils.c
 
 $(OBJ)/xiodef.o: $(SRC)/xiodef.h $(SRC)/xiodef.c
 	$(CC) -c $(CFLAGS) $(SRC)/xiodef.c	-o $(OBJ)/xiodef.o
-$(OBJ)/jit.o: $(SRC)/jit.h $(SRC)/jit.c
+$(OBJ)/jit.o: $(SRC)/jit.h $(SRC)/jit.c $(SRC)/generated_jit.h
 	$(CC) -c $(CFLAGS) $(SRC)/jit.c	-o $(OBJ)/jit.o
 $(OBJ)/jit_defs.o: $(SRC)/jit.h $(SRC)/jit_defs.c
 	$(CC) -c $(CFLAGS) $(SRC)/jit_defs.c	-o $(OBJ)/jit_defs.o
 $(OBJ)/interp_gen.o: $(SRC)/jit.h $(SRC)/interp_gen.c
 	$(CC) -c $(CFLAGS) $(SRC)/interp_gen.c	-o $(OBJ)/interp_gen.o
+$(OBJ)/jit_gen.o: $(SRC)/jit.h $(SRC)/jit_gen.c
+	$(CC) -c $(CFLAGS) $(SRC)/jit_gen.c	-o $(OBJ)/jit_gen.o
 $(OBJ)/sljitLir.o: $(SRC)/sljit/sljit_src/sljitLir.c $(SRC)/sljit/sljit_src/sljitLir.h
 	$(CC) -c $(CFLAGS) $(SRC)/sljit/sljit_src/sljitLir.c	-o $(OBJ)/sljitLir.o
