@@ -451,7 +451,7 @@ uint16_t move_words(struct cpu_context *cpu_ctx, uint16_t from_addr, uint16_t to
 }
 
 
-static inline void calculate_flags_16bit(struct cpu_context *cpu_ctx, int16_t result) {
+void calculate_flags_16bit(struct cpu_context *cpu_ctx, int16_t result) {
     cpu_ctx->state.reg.sw &= 0x0FFF; /* resets carry too */
     if (result & 0x8000) cpu_ctx->state.reg.sw |= CS_NEGATIVE;
     else if (result == 0) cpu_ctx->state.reg.sw |= CS_ZERO;
