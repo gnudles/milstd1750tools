@@ -1268,8 +1268,10 @@ void emit_instruction (OpcodeDef *def)
                 "        /* Left-align the 24-bit mantissa to the top of the 64-bit word (bit 62) */\n"
                 "        uint64_t x = (uint64_t)M << 40; \n"
                     
-                "        /* If the exponent is odd, multiply mantissa by 2 (shift to bit 63) to even it out */\n"
-                "        if (adj_E & 1) {\n"
+                "        /* If the exponent is even, we shift the mantissa so it pairs correctly for square root. \n"
+                "           The 1750A mantissa's MSB (excluding sign) represents 0.5. \n"
+                "           Therefore an odd exponent naturally aligns the value to be multiplied by a clean power of 2 during the sqrt iterations */\n"
+                "        if ((adj_E & 1) == 0) {\n"
                 "            x <<= 1;\n"
                 "            adj_E -= 1;\n"
                 "        }\n"
@@ -1277,7 +1279,7 @@ void emit_instruction (OpcodeDef *def)
                 "        /* 24 iterations generates a 24-bit root (providing 1 guard bit for the normalizer) */\n"
                 "        uint64_t A = sqrt_n_bits(x, 24);\n"
                 "        /* Fixed scaling logic: mathematically equivalent to adj_E/2 - 1 */\n"
-                "        pack_float32(cpu_ctx, RA, (int32_t)A, (adj_E / 2) - 1);\n"
+                "        pack_float32(cpu_ctx, RA, (int32_t)A, adj_E >> 1);\n"
                 "    }\n");
             }
             else
@@ -1296,7 +1298,7 @@ void emit_instruction (OpcodeDef *def)
                 "        /* Left-align the 40-bit mantissa to the top of the 64-bit word (bit 62) */\n"
                 "        uint64_t x = (uint64_t)M << 24; \n"
                     
-                "        if (adj_E & 1) {\n"
+                "        if ((adj_E & 1) == 0) {\n"
                 "            x <<= 1;\n"
                 "            adj_E -= 1;\n"
                 "        }\n"
@@ -1304,7 +1306,7 @@ void emit_instruction (OpcodeDef *def)
                 "        /* 40 iterations generates a 40-bit root */\n"
                 "        uint64_t A = sqrt_n_bits(x, 40);\n"
                     
-                "        pack_float48(cpu_ctx, RA, (int64_t)A, (adj_E / 2) - 1);\n"
+                "        pack_float48(cpu_ctx, RA, (int64_t)A, adj_E >> 1);\n"
                 "    }\n");
             
             }
