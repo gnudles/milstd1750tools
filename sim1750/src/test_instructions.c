@@ -660,7 +660,7 @@ void test_SQRT() {
     double_to_1750a_float(1.0, &ctx.state.reg.r[6], &ctx.state.reg.r[7]);
     interpret_SQRT(&ctx, 0x4E60, 0);
     result = float_1750a_to_double(ctx.state.reg.r[6], ctx.state.reg.r[7]);
-    assert(fabs(result - 1.0) < 0.000001);
+    assert(result == 1.0);
     printf("PASSED\n");
 
     printf("Testing SQRT (sqrt(0.5) = 0.707106...)... ");
@@ -674,14 +674,14 @@ void test_SQRT() {
     double_to_1750a_float(0.25, &ctx.state.reg.r[6], &ctx.state.reg.r[7]);
     interpret_SQRT(&ctx, 0x4E60, 0);
     result = float_1750a_to_double(ctx.state.reg.r[6], ctx.state.reg.r[7]);
-    assert(fabs(result - 0.5) < 0.000001);
+    assert(result == 0.5);
     printf("PASSED\n");
 
     printf("Testing SQRT (sqrt(25.0) = 5.0)... ");
     double_to_1750a_float(25.0, &ctx.state.reg.r[6], &ctx.state.reg.r[7]);
     interpret_SQRT(&ctx, 0x4E60, 0);
     result = float_1750a_to_double(ctx.state.reg.r[6], ctx.state.reg.r[7]);
-    assert(fabs(result - 5.0) < 0.000001);
+    assert(result == 5.0);
     printf("PASSED\n");
 
     printf("Testing SQRT (sqrt(5.0) = 2.236067...)... ");
@@ -736,7 +736,7 @@ void test_ESQR() {
     double_to_1750a_efloat(1.0, &ctx.state.reg.r[6], &ctx.state.reg.r[7], &ctx.state.reg.r[8]);
     interpret_ESQR(&ctx, 0x4D60, 0);
     result = efloat_1750a_to_double(ctx.state.reg.r[6], ctx.state.reg.r[7], ctx.state.reg.r[8]);
-    assert(fabs(result - 1.0) < 0.000000001);
+    assert(result == 1.0);
     printf("PASSED\n");
 
     printf("Testing ESQR (sqrt(0.5) = 0.707106...)... ");
@@ -750,14 +750,14 @@ void test_ESQR() {
     double_to_1750a_efloat(0.25, &ctx.state.reg.r[6], &ctx.state.reg.r[7], &ctx.state.reg.r[8]);
     interpret_ESQR(&ctx, 0x4D60, 0);
     result = efloat_1750a_to_double(ctx.state.reg.r[6], ctx.state.reg.r[7], ctx.state.reg.r[8]);
-    assert(fabs(result - 0.5) < 0.000000001);
+    assert(result == 0.5);
     printf("PASSED\n");
 
     printf("Testing ESQR (sqrt(25.0) = 5.0)... ");
     double_to_1750a_efloat(25.0, &ctx.state.reg.r[6], &ctx.state.reg.r[7], &ctx.state.reg.r[8]);
     interpret_ESQR(&ctx, 0x4D60, 0);
     result = efloat_1750a_to_double(ctx.state.reg.r[6], ctx.state.reg.r[7], ctx.state.reg.r[8]);
-    assert(fabs(result - 5.0) < 0.000000001);
+    assert(result == 5.0);
     printf("PASSED\n");
 
     printf("Testing ESQR (sqrt(5.0) = 2.236067...)... ");

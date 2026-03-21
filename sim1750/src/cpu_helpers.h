@@ -914,10 +914,6 @@ process_xio_3_B (struct cpu_context *cpu_ctx, ushort xio_address, ushort *transf
 {
 
 }
-void handle_console_xio(struct cpu_context *cpu_ctx, ushort xio_address, ushort *transfer)
-{
-
-}
 static inline void
 process_xio_4_C (struct cpu_context *cpu_ctx, ushort xio_address, ushort *transfer)
 {
@@ -990,16 +986,48 @@ C00E ITB	Input Timer B:  This command inputs the 16-bit contents of timer B
 		represents a time increment of one hundred microseconds.
 
 */
-    if ((xio_address & 0x0FFE) == 0x0000) /* CI RCS CO CLC */
-    {
-        // all console related stuff
-        handle_console_xio(cpu_ctx, xio_address, transfer);
-        return;
-    }
+
     int timer_indx =(xio_address&0x000F) >= 0x000C ? TIM_B: TIM_A;
     int sys_flag = (xio_address&0x000F) >= 0x000C ? SYS_TB: SYS_TA;
     switch(xio_address)
     {
+        case 0x4000: /* CO: Console Output (Outputs 2 bytes, MSB first) */
+        {
+            char msb = (*transfer >> 8) & 0xFF;
+            char lsb = *transfer & 0xFF;
+            if (msb) putchar(msb); /* Only print if not null */
+            if (lsb) putchar(lsb);
+            fflush(stdout); /* Ensure it hits the screen immediately */
+            break;
+        }
+        case 0xC000: /* CI: Console Input (Inputs 2 bytes, MSB first) */
+        {
+            /* Warning: Standard getchar() is blocking. For a real-time 
+               emulator, you usually want to hook this into a non-blocking 
+               keyboard queue. For now, we block. */
+            int c1 = getchar();
+            if (c1 == EOF) c1 = 0;
+            
+            int c2 = getchar();
+            if (c2 == EOF) c2 = 0;
+            
+            *transfer = ((c1 & 0xFF) << 8) | (c2 & 0xFF);
+            break;
+        }
+        case 0xC001: /* RCS: Read Console Status */
+        {
+            /* The OS polls this to see if it's safe to read/write.
+               Bit 0 = Tx Ready (We are always ready to print to stdout)
+               Bit 1 = Rx Data Available (Harder to mock without OS-specific non-blocking I/O)
+               Let's tell the 1750A we are always ready to transmit, but have no input. */
+            *transfer = 0x0001; /* 1 = Tx Ready, 0 = No Rx Data */
+            break;
+        }
+        case 0x4001: /* CLC: Clear Console */
+        {
+            /* We don't really have a hardware buffer to clear, so NOP */
+            break;
+        }
         case 0x4003: /*memory protect enable*/
             cpu_ctx->state.reg.sys |= SYS_MEM_PROT;
             break;
@@ -1319,6 +1347,7 @@ int cpu_mainloop(struct cpu_context *cpu_ctx, uint64_t up_to_cycles)
         apply_updates(&cpu_ctx->state); // we can apply updates only after interrupts were processed
 
     }
+    return 0;
 }
 void interpret_ILLEGAL(struct cpu_context *cpu_ctx, uint16_t opcode, uint16_t /*imm_value*/) {
     cpu_ctx->state.reg.pir |= INTR_MACHERR;
