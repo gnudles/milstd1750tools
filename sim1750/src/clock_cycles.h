@@ -618,7 +618,7 @@
 #define CLK_CYC_STM(n_stores)    55
 #define CLK_CYC_MOV_INIT 0
 #define CLK_CYC_MOV_STEP(n_moves) (42 * n_moves)
-#define CLK_CYC_MOV_FINI(n_moves) 0    42
+#define CLK_CYC_MOV_FINI(n_moves) 0
 /* Program control */
 #define CLK_CYC_JC(jump_taken)      7
 #define CLK_CYC_JCI(jump_taken)    12
@@ -831,8 +831,8 @@
 #define CLK_CYC_LM(n_loads)     ((3+n_loads)*MEM_CYCLE)
 #define CLK_CYC_STM(n_stores)    ((2+n_stores)*MEM_CYCLE + 1*INT_CYCLE)
 #define CLK_CYC_MOV_INIT 0
-#define CLK_CYC_MOV_STEP(n_moves) (((1+2*n_moves)*MEM_CYCLE + 7*INT_CYCLE))
-#define CLK_CYC_MOV_FINI(n_moves) 0    ((1+2*n_moves)*MEM_CYCLE + 7*INT_CYCLE)
+#define CLK_CYC_MOV_STEP(n_moves) (((2*n_moves)*MEM_CYCLE))
+#define CLK_CYC_MOV_FINI(n_moves)    ((1)*MEM_CYCLE + 7*INT_CYCLE)
 /* Program control */
 #define CLK_CYC_JC(jump_taken)     (3*MEM_CYCLE)
 #define CLK_CYC_JCI(jump_taken)    (4*MEM_CYCLE)
@@ -1045,8 +1045,8 @@
 #define CLK_CYC_LM(n_loads)     ((3+n_loads)*MEM_CYCLE + 1*INT_CYCLE)
 #define CLK_CYC_STM(n_stores)    ((3+n_stores)*MEM_CYCLE + 1*INT_CYCLE)
 #define CLK_CYC_MOV_INIT 0
-#define CLK_CYC_MOV_STEP(n_moves) (((1+4*n_moves)*MEM_CYCLE + (1+7*n_moves)*INT_CYCLE))
-#define CLK_CYC_MOV_FINI(n_moves) 0    ((1+4*n_moves)*MEM_CYCLE + (1+7*n_moves)*INT_CYCLE)
+#define CLK_CYC_MOV_STEP(n_moves) (((4*n_moves)*MEM_CYCLE + (7*n_moves)*INT_CYCLE))
+#define CLK_CYC_MOV_FINI(n_moves)  ((1)*MEM_CYCLE + (1)*INT_CYCLE)
 /* Program control */
 #define CLK_CYC_JC(jump_taken)     (2*MEM_CYCLE + 1*INT_CYCLE)
 #define CLK_CYC_JCI(jump_taken)    (3*MEM_CYCLE + 1*INT_CYCLE)

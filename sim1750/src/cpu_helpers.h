@@ -78,6 +78,7 @@ static inline uint get_quarter_page_address_write_data(struct cpu_state *cpu, ui
     {
         cpu->reg.pir |= INTR_MACHERR;
         cpu->reg.ft |= FT_ILL_ADDR;
+        cpu->halt = true;
         return 0xFFFFFFFF;
     }
     uint phys_qpage = (phys_page << 2) | (logical_qpage & 0x3);
@@ -170,6 +171,8 @@ static inline uint get_page_address_read_data(struct cpu_state *cpu, uint16_t lo
     {
         cpu->reg.pir |= INTR_MACHERR;
         cpu->reg.ft |= FT_ILL_ADDR;
+        cpu->halt = true;
+        fprintf(stderr, "Accessing non existing page!\n");
         return 0xFFFFFFFF;
     }
     if (cpu->mem[phys_page] == NULL)
@@ -201,6 +204,8 @@ static inline uint get_page_address_read_data_intr(struct cpu_state *cpu, uint16
     {
         cpu->reg.pir |= INTR_MACHERR;
         cpu->reg.ft |= FT_ILL_ADDR;
+        cpu->halt = true;
+        fprintf(stderr, "Accessing non existing page!\n");
         return 0xFFFFFFFF;
     }
     if (cpu->mem[phys_page] == NULL)
@@ -230,6 +235,7 @@ static inline uint get_page_address_read_code(struct cpu_state *cpu, uint16_t lo
     {
         cpu->reg.pir |= INTR_MACHERR;
         cpu->reg.ft |= FT_MEMPROT;
+        cpu->halt = true;
         return 0xFFFFFFFF;
     }
 
@@ -249,16 +255,25 @@ static inline uint get_page_address_read_code(struct cpu_state *cpu, uint16_t lo
     {
         cpu->reg.pir |= INTR_MACHERR;
         cpu->reg.ft |= FT_ILL_ADDR;
+        cpu->halt = true;
+        fprintf(stderr, "Accessing non existing page!\n");
         return 0xFFFFFFFF;
     }
     if (cpu->mem[phys_page] == NULL)
     {
-        /* try to allocate*/
+                /* try to allocate*/
         if ((cpu->mem[phys_page] = (mem_t *) calloc (1, sizeof (mem_t))) == MNULL)
         {
             fprintf(stderr, "get_page_address_read_code: dynamic memory exhausted\n");
             exit(EXIT_FAILURE);
         }
+        #ifndef RUNNING_TESTS
+        fprintf(stderr, "get_page_address_read_code: cannot execute unallocated page!\n");
+
+        cpu->halt = true;
+        #endif
+
+        
     }
     cpu->code_read_cache.valid |= 0x8000U >> (logical_page);
     cpu->code_read_cache.page[logical_page] = phys_page;
@@ -561,12 +576,40 @@ static inline void pack_float48(struct cpu_context *cpu_ctx, uint16_t RA, int64_
     }
     calculate_flags_48bit_reg(cpu_ctx, RA);
 }
+/* expects normalized mantissa */
+static inline void negate_float32(int32_t *m, int16_t *e) {
+    if (*m == -8388608) {
+            *e = *e + 1;
+            *m = 4194304;
+    } else if (*m == 4194304) {
+        *e = *e - 1;
+        *m = -8388608;
+    } else {
+        *m = -*m;
+    }
+
+}
+/* expects normalized mantissa */
+static inline void negate_float48(int64_t *m, int16_t *e) {
+    if (*m == -549755813888LL) {
+            *e = *e + 1;
+            *m = 274877906944LL;
+    } else if (*m == 274877906944LL) {
+        *e = *e - 1;
+        *m = -549755813888LL;
+    } else {
+        *m = -*m;
+    }
+
+}
 /* mult and shift right */
 static inline int64_t mult128_shift_0_63(int64_t a, int64_t b, int shift) {
     /* shift is guaranteed to be in range [0,63] */
     /* use __int128 if supported*/
     #ifdef __SIZEOF_INT128__
-    return (int64_t)(((__int128)a * (__int128)b) >> shift);
+    int64_t res = (int64_t)(((__int128)a * (__int128)b) >> shift);
+    //printf("mult128_shift_0_63: A= %ld (%012lX), B= %ld (%012lX), res = %ld (%012lX), shift= %d\n", a, a, b, b, res, res, shift);
+    return res;
     #else
     uint32_t a_lo = (uint32_t)a, a_hi = (uint32_t)((uint64_t)a >> 32);
     uint32_t b_lo = (uint32_t)b, b_hi = (uint32_t)((uint64_t)b >> 32);
@@ -1299,7 +1342,29 @@ static inline void apply_updates(struct cpu_state * cpu)
     cpu->reg.sys |= cpu->reg.sys_update;
     cpu->reg.sys_update = 0;
 }
-
+void print_cpu_state(struct cpu_context *cpu_ctx)
+{
+    printf("-------------------\n");
+    uint phys_page = get_page_address_read_code(&cpu_ctx->state, cpu_ctx->state.reg.ic >> 12);
+    if (phys_page != 0xFFFFFFFF)
+    {
+        ushort opcode = access_memory(&cpu_ctx->state, phys_page)[cpu_ctx->state.reg.ic  & 0xFFF];
+        printf("opcode = %04X\n", opcode);
+    }
+    
+    printf("ic = %04X\n", cpu_ctx->state.reg.ic);
+    printf("sw = %04X\n", cpu_ctx->state.reg.sw);
+    printf("mk = %04X\n", cpu_ctx->state.reg.mk);
+    printf("pir = %04X\n", cpu_ctx->state.reg.pir);
+    printf("sys = %04X\n", cpu_ctx->state.reg.sys);
+    printf("ft = %04X\n", cpu_ctx->state.reg.ft);
+    // general registers loop
+    for(int i = 0; i < 16; i++)
+    {
+        printf("r[%d] = %04X\n", i, (ushort)cpu_ctx->state.reg.r[i]);
+    }
+    //printf("total cycles = %ld\n", cpu_ctx->state.total_cycles);
+}
 int cpu_mainloop(struct cpu_context *cpu_ctx, uint64_t up_to_cycles)
 {
     uint64_t nearest_cycles_stop = up_to_cycles > cpu_ctx->state.next_scheduled_timer_calc_cycles ? cpu_ctx->state.next_scheduled_timer_calc_cycles: up_to_cycles;
@@ -1324,7 +1389,7 @@ int cpu_mainloop(struct cpu_context *cpu_ctx, uint64_t up_to_cycles)
             }
         }
         immediate = access_memory(&cpu_ctx->state, phys_page)[(cpu_ctx->state.reg.ic + 1) & 0xFFF];
-
+        //print_cpu_state(cpu_ctx);
         process_instruction(cpu_ctx, opcode, immediate);
 
         if (cpu_ctx->state.total_cycles >= nearest_cycles_stop)
@@ -1352,6 +1417,8 @@ int cpu_mainloop(struct cpu_context *cpu_ctx, uint64_t up_to_cycles)
 void interpret_ILLEGAL(struct cpu_context *cpu_ctx, uint16_t opcode, uint16_t /*imm_value*/) {
     cpu_ctx->state.reg.pir |= INTR_MACHERR;
     cpu_ctx->state.reg.ft |= FT_ILL_INSTR;
+    cpu_ctx->state.halt = true;
+    fprintf(stderr,"encountered illegal instruction\n");
 }
 extern void process_xio(struct cpu_context *cpu_ctx, ushort io_addr, ushort *transfer);
 

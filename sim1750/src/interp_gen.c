@@ -255,10 +255,13 @@ void emit_instruction (OpcodeDef *def)
     if (def->format == IF_REG_REG) {
         printf("    uint16_t RA = (opcode & 0x00F0) >> 4;\n");
         printf("    uint16_t RB = opcode & 0x000F;\n");
-        printf("    int16_t DO[%d];\n", DO_SIZE);
-        for (int i = 0 ; i < DO_SIZE; ++i)
+        if (def->op_type != OP_INT32_TO_EFLT)
         {
-            printf ("    DO[%d] = cpu_ctx->state.reg.r[(RB+%d)&0xF];\n", i, i);
+            printf("    int16_t DO[%d];\n", DO_SIZE);
+            for (int i = 0 ; i < DO_SIZE; ++i)
+            {
+                printf ("    DO[%d] = cpu_ctx->state.reg.r[(RB+%d)&0xF];\n", i, i);
+            }
         }
     }
     if (def->format == IF_REG_CONST) {
@@ -320,21 +323,19 @@ void emit_instruction (OpcodeDef *def)
     }
     if (has_DO_ADDR)
     {
-        if (def->op_type != OP_STORE && def->op_type != OP_STORE_EFFECTIVE && def->op_type != OP_LOAD_EFFECTIVE && def->op_type != OP_JUMP_COND && def->op_type != OP_JUMP_SUBRTN && def->op_type != OP_RET_SUBRTN && def->op_type != OP_XIO)
+        if (def->op_type != OP_STORE && def->op_type != OP_STORE_EFFECTIVE && def->op_type != OP_LOAD_EFFECTIVE && def->op_type != OP_JUMP_COND && def->op_type != OP_JUMP_SUBRTN
+             && def->op_type != OP_SUBTR_JUMP && def->op_type != OP_RET_SUBRTN && def->op_type != OP_XIO)
         {
             //if not store operation, we need to fetch derived operand (DO) from memory
             
             printf ("    int16_t DO[%d];\n", DO_SIZE);
             if (DO_SIZE == 1)
             {
-                printf ("    ok =  fetch_data_word(cpu_ctx, DO_ADDR, DO);\n");
+                printf ("    ok =  fetch_data_word(cpu_ctx, DO_ADDR, (uint16_t *)DO);\n");
             }
             else
             {
-                for (int i = 0 ; i < DO_SIZE; ++i)
-                {
-                    printf ("    ok = 0 == fetch_data_words(cpu_ctx, DO_ADDR, %d, DO);\n", DO_SIZE);
-                }
+                printf ("    ok = 0 == fetch_data_words(cpu_ctx, DO_ADDR, %d, (uint16_t *)DO);\n", DO_SIZE);
             }
         }
     }
@@ -434,6 +435,9 @@ void emit_instruction (OpcodeDef *def)
             printf("    int8_t displacement = (int8_t)(opcode & 0x00FF);\n");
             if (def->code == OPC_BR)
             {
+                printf("    if (displacement == 0) {\n"); // infinite loop
+                printf("        cpu_ctx->state.halt = true;\n");
+                printf("    }\n");
                 printf("    cpu_ctx->state.reg.ic += displacement;\n");
                 printf("    cpu_ctx->state.total_cycles += CLK_CYC_BR;\n");
             }
@@ -798,10 +802,10 @@ void emit_instruction (OpcodeDef *def)
             printf("    unpack_float32(DO[0], DO[1], &M_B, &E_B);\n");
             if (def->op_type == OP_SUB_FLOAT)
             {
-                printf("    M_B = -M_B;\n");
+                printf("    negate_float32(&M_B,&E_B);\n");
             }
             printf("    int32_t E_res;\n");
-            printf("    if (M_A == 0) { M_A = M_B; E_res = E_B; }\n");
+            printf("    if (M_A == 0) { E_res = E_B; }\n");
             printf("    else if (M_B == 0) { E_res = E_A; }\n");
             printf("    else {\n");
             printf("        int diff = E_A - E_B;\n");
@@ -840,10 +844,10 @@ void emit_instruction (OpcodeDef *def)
             printf("    unpack_float48(DO[0], DO[1], DO[2], &M_B, &E_B);\n");
             if (def->op_type == OP_SUB_EXFLOAT)
             {
-                printf("    M_B = -M_B;\n");
+                printf("    negate_float48(&M_B,&E_B);\n");
             }
             printf("    int32_t E_res;\n");
-            printf("    if (M_A == 0) { M_A = M_B; E_res = E_B; }\n");
+            printf("    if (M_A == 0) { E_res = E_B; }\n");
             printf("    else if (M_B == 0) { E_res = E_A; }\n");
             printf("    else {\n");
             printf("        int diff = E_A - E_B;\n");
@@ -858,8 +862,8 @@ void emit_instruction (OpcodeDef *def)
             printf("    int64_t M_A, M_B; int16_t E_A, E_B;\n");
             printf("    unpack_float48(cpu_ctx->state.reg.r[(RA+0)&0xF], cpu_ctx->state.reg.r[(RA+1)&0xF], cpu_ctx->state.reg.r[(RA+2)&0xF], &M_A, &E_A);\n");
             printf("    unpack_float48(DO[0], DO[1], DO[2], &M_B, &E_B);\n");
-            printf("    int64_t P = mult128_shift_0_63(M_A, M_B, 39);\n");
-            printf("    pack_float48(cpu_ctx, RA, P, E_A + E_B);\n");
+            printf("    int64_t P = mult128_shift_0_63(M_A, M_B, 38);\n");
+            printf("    pack_float48(cpu_ctx, RA, P, E_A + E_B - 1);\n");
             break;
 
         case OP_DIV_EXFLOAT:
@@ -878,12 +882,12 @@ void emit_instruction (OpcodeDef *def)
             printf("    pack_float48(cpu_ctx, RA, Q, E_A - E_B);\n");
             break;
         case OP_INT16_TO_FLT:
-            printf("    pack_float32(cpu_ctx, RA, (int16_t)cpu_ctx->state.reg.r[(RB+0)&0xF], 23);\n");
+            printf("    pack_float32(cpu_ctx, RA, (uint32_t)((int32_t)cpu_ctx->state.reg.r[(RB+0)&0xF]) << 8 , 15);\n");
             break;
 
         case OP_INT32_TO_EFLT:
-            printf("    int64_t val = ((int64_t)cpu_ctx->state.reg.r[(RB+0)&0xF] << 16) | (uint16_t)cpu_ctx->state.reg.r[(RB+1)&0xF];\n");
-            printf("    pack_float48(cpu_ctx, RA, (val << 32) >> 32, 39);\n");
+            printf("    int64_t val = (int32_t)(((uint32_t)cpu_ctx->state.reg.r[(RB+0)&0xF] << 16) | (uint16_t)cpu_ctx->state.reg.r[(RB+1)&0xF]);\n");
+            printf("    pack_float48(cpu_ctx, RA, val << 8, 31);\n");
             break;
 
         case OP_FLT_TO_INT16:
@@ -1058,6 +1062,9 @@ void emit_instruction (OpcodeDef *def)
             printf("    cpu_ctx->state.reg.ic = DO_ADDR;\n");
             break;
         case OP_RET_SUBRTN:
+            printf("    if (cpu_ctx->state.reg.r[RA] == 0) {\n"); // we should halt
+            printf("        cpu_ctx->state.halt = true;\n");
+            printf("    }\n");
             printf("    ok = fetch_data_word(cpu_ctx, cpu_ctx->state.reg.r[RA], &cpu_ctx->state.reg.ic);\n");
             printf("    cpu_ctx->state.reg.r[RA] += 1;\n");
             break;
@@ -1153,20 +1160,7 @@ void emit_instruction (OpcodeDef *def)
         case OP_NEG_FLOAT:
             printf("    int32_t M; int16_t E;\n");
             printf("    unpack_float32(cpu_ctx->state.reg.r[(RB+0)&0xF], cpu_ctx->state.reg.r[(RB+1)&0xF], &M, &E);\n");
-            
-            printf("    if (M == -8388608 && E == 127) {\n");
-            printf("        cpu_ctx->state.reg.pir |= INTR_FLTOFL;\n");
-            printf("        E = 127; M = 0x7FFFFF;\n");
-            printf("    } else if (M == 4194304 && E == -128) {\n");
-            printf("        cpu_ctx->state.reg.pir |= INTR_FLTUFL;\n");
-            printf("        E = 0; M = 0;\n");
-            printf("    } else if (M == -8388608) {\n");
-            printf("        E = E + 1; M = 4194304;\n");
-            printf("    } else if (M == 4194304) {\n");
-            printf("        E = E - 1; M = -8388608;\n");
-            printf("    } else {\n");
-            printf("        M = -M;\n");
-            printf("    }\n");
+            printf("    negate_float32(&M, &E);\n");
 
             /* Let the pack function handle the CS flags! */
             printf("    pack_float32(cpu_ctx, RA, M, E);\n");
@@ -1175,14 +1169,9 @@ void emit_instruction (OpcodeDef *def)
             printf("    int32_t M; int16_t E;\n");
             printf("    unpack_float32(cpu_ctx->state.reg.r[(RB+0)&0xF], cpu_ctx->state.reg.r[(RB+1)&0xF], &M, &E);\n");
             printf("    cpu_ctx->state.total_cycles += CLK_CYC_FABS(M < 0);\n");
-            printf("    if (M == -8388608) {\n");
-            printf("        E = E + 1; M = 4194304;\n");
-            printf("        if (E > 127) {\n");
-            printf("            cpu_ctx->state.reg.pir |= INTR_FLTOFL;\n");
-            printf("            E = 127; M = 0x7FFFFF;\n");
-            printf("        }\n");
-            printf("    } else if (M < 0) {\n");
-            printf("        M = -M;\n");
+
+            printf("    if (M < 0) {\n");
+            printf("        negate_float32(&M, &E);\n");
             printf("    }\n");
 
             /* Let the pack function handle the CS flags! */
@@ -1227,7 +1216,7 @@ void emit_instruction (OpcodeDef *def)
             printf("    cpu_ctx->state.total_cycles += CLK_CYC_MOV_INIT;\n");
             printf("    while(count > 0){\n");
             printf("        uint16_t partial_count = (count > move_steps)? move_steps: count;\n");
-            printf("        uint16_t remaining = move_words(cpu_ctx, cpu_ctx->state.reg.r[RB], cpu_ctx->state.reg.r[RA], partial_count);\n");
+            printf("        uint16_t remaining = move_words(cpu_ctx, cpu_ctx->state.reg.r[RB]+total_written, cpu_ctx->state.reg.r[RA]+total_written, partial_count);\n");
             printf("        total_written += partial_count - remaining;\n");
             printf("        count -= partial_count - remaining;\n");
             printf("        cpu_ctx->state.total_cycles += CLK_CYC_MOV_STEP(partial_count - remaining);\n");
@@ -1353,7 +1342,7 @@ void emit_instruction (OpcodeDef *def)
       
     if (def->op_type != OP_BRANCH && def->op_type != OP_JUMP_SUBRTN && def->op_type != OP_RET_SUBRTN && def->op_type != OP_LOAD_STATUS 
         && def->op_type != OP_EXTENSION && def->op_type != OP_SPECIAL && def->op_type != OP_LOAD_STATUS &&
-        def->op_type != OP_MOVE)
+        def->op_type != OP_MOVE  && def->op_type != OP_SUBTR_JUMP && def->op_type != OP_JUMP_COND)
     {
         if (def->is_imm)
         {
@@ -1411,9 +1400,11 @@ void generate_interpreter_code()
             printf("        interpret_ILLEGAL(cpu_ctx, opcode, imm_value);\n");
         else
             printf("        interpret_%s(cpu_ctx, opcode, imm_value);\n", def->name);
+        printf("    break;\n");
     }
     printf("      default:\n");
     printf("        interpret_ILLEGAL(cpu_ctx, opcode, imm_value);\n");
+    printf("        break;\n");
     printf("    }\n");
     printf("}\n");
     }
@@ -1428,9 +1419,11 @@ void generate_interpreter_code()
             printf("        interpret_ILLEGAL(cpu_ctx, opcode, imm_value);\n");
         else
             printf("        interpret_%s(cpu_ctx, opcode, imm_value);\n", def->name);
+        printf("    break;\n");
     }
     printf("      default:\n");
     printf("        interpret_ILLEGAL(cpu_ctx, opcode, imm_value);\n");
+    printf("        break;\n");
     printf("    }\n");
     printf("}\n");
     }

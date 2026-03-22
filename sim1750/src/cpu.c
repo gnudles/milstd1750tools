@@ -1926,10 +1926,11 @@ ex_soj (struct cpu_context *cpu_ctx, ushort opcode) /* 73xy */
   short help;
   int jump_taken = 0;
 
-  help = 1;
-  update_pir = FALSE;
-  arith (&cpu_ctx->state, ARI_SUB, VAR_INT, &cpu_ctx->state.reg.r[upper], &help);
-  update_pir = TRUE;
+  
+  
+  cpu_ctx->state.reg.r[upper]--;
+  update_cs (&cpu_ctx->state, &cpu_ctx->state.reg.r[upper], VAR_INT);
+
 
   if (CS_ZERO & cpu_ctx->state.reg.sw)
     cpu_ctx->state.reg.ic += 2;                     /* end of loop */
@@ -2587,6 +2588,7 @@ ex_mov (struct cpu_context *cpu_ctx, ushort opcode) /* 93xy */
       cpu_ctx->state.reg.r[upper] = ++destin;	/* unsigned op */
       cpu_ctx->state.reg.r[lower] = ++source;	/* unsigned op */
       cpu_ctx->state.reg.r[upper + 1] = --n_moves;	/* unsigned op */
+      cpu_ctx->state.total_cycles += single_cycle;
       workout_timing (&cpu_ctx->state, single_cycle);
       if (workout_interrupts (&cpu_ctx->state))
         return (nc_MOV);

@@ -49,8 +49,7 @@ void
 update_cs (struct cpu_state *cpu, short *operand, datatype data_type)
 {
   bool is_zero;
-  ushort sw_save = cpu->reg.sw & 0x8FFF;
-  cpu->reg.sw &= ~CS_CARRY; // reset carry bit, it will be set by arith() if needed
+  ushort sw_save = cpu->reg.sw & 0x0FFF; // reset carry bit, it will be set by arith() if needed
 
   switch (data_type)
     {
