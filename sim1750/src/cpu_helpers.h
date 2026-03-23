@@ -524,7 +524,7 @@ static inline void pack_float32(struct cpu_context *cpu_ctx, uint16_t RA, int32_
         else {
             int clz = __builtin_clz(x);
             int shift = clz - 9;
-            if (shift > 0) { M_res <<= shift; E_res -= shift; }
+            if (shift > 0) { M_res = (int32_t)((uint32_t)M_res << shift); E_res -= shift; }
             else if (shift < 0) { M_res >>= -shift; E_res += -shift; }
         }
         if (E_res > 127) {
@@ -558,7 +558,7 @@ static inline void pack_float48(struct cpu_context *cpu_ctx, uint16_t RA, int64_
         else {
             int clz = __builtin_clzll(x);
             int shift = clz - 25;
-            if (shift > 0) { M_res <<= shift; E_res -= shift; }
+            if (shift > 0) { M_res = (int64_t)((uint64_t)M_res << shift); E_res -= shift; }
             else if (shift < 0) { M_res >>= -shift; E_res += -shift; }
         }
         if (E_res > 127) {
@@ -575,32 +575,6 @@ static inline void pack_float48(struct cpu_context *cpu_ctx, uint16_t RA, int64_
         }
     }
     calculate_flags_48bit_reg(cpu_ctx, RA);
-}
-/* expects normalized mantissa */
-static inline void negate_float32(int32_t *m, int16_t *e) {
-    if (*m == -8388608) {
-            *e = *e + 1;
-            *m = 4194304;
-    } else if (*m == 4194304) {
-        *e = *e - 1;
-        *m = -8388608;
-    } else {
-        *m = -*m;
-    }
-
-}
-/* expects normalized mantissa */
-static inline void negate_float48(int64_t *m, int16_t *e) {
-    if (*m == -549755813888LL) {
-            *e = *e + 1;
-            *m = 274877906944LL;
-    } else if (*m == 274877906944LL) {
-        *e = *e - 1;
-        *m = -549755813888LL;
-    } else {
-        *m = -*m;
-    }
-
 }
 /* mult and shift right */
 static inline int64_t mult128_shift_0_63(int64_t a, int64_t b, int shift) {

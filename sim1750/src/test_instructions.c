@@ -178,6 +178,9 @@ void test_SQRT();
 void test_ESQR();
 void test_Single_Shifts();
 void test_Double_Shifts();
+void test_FNEG_FABS();
+void test_EFA_EFS();
+void test_FA_FS();
 
 void test_STUB_Upper_Byte() {
     reset_cpu();
@@ -593,6 +596,9 @@ int main() {
     test_FD_Divide_By_Zero();
     test_SQRT();
     test_ESQR();
+    test_FNEG_FABS();
+    test_EFA_EFS();
+    test_FA_FS();
     printf("All floating point tests passed.\n");
 
     test_BEX();
@@ -710,6 +716,184 @@ void test_SQRT() {
     interpret_SQRT(&ctx, opcode, 0);
 
     assert(ctx.state.reg.pir & INTR_FIXOFL);
+    printf("PASSED\n");
+}
+
+void test_FNEG_FABS() {
+    reset_cpu();
+    printf("Testing FNEG and FABS... ");
+
+    double test_vals[] = { 0.5, -0.5, -1.0, 1.0, 0.0, 3.14159, -2.71828, 42.0, -42.0 };
+    int num_tests = sizeof(test_vals) / sizeof(test_vals[0]);
+
+    for (int i = 0; i < num_tests; i++) {
+        double val = test_vals[i];
+
+        // --- TEST FNEG ---
+        ctx.state.reg.r[2] = 0x0000;
+        ctx.state.reg.r[3] = 0x0000;
+        double_to_1750a_float(val, &ctx.state.reg.r[2], &ctx.state.reg.r[3]);
+
+        // FNEG R2 -> Opcode 0xDB. RA=2, RB=2.
+        uint16_t opcode = 0xDB22;
+        interpret_FNEG(&ctx, opcode, 0);
+
+        double result = float_1750a_to_double(ctx.state.reg.r[2], ctx.state.reg.r[3]);
+
+        if (fabs(result - (-val)) > 0.000001) {
+            fprintf(stderr, "\nFAIL! FNEG(%f) = %f, expected %f\n", val, result, -val);
+            fprintf(stderr, "R2: %04x, R3: %04x\n", ctx.state.reg.r[2], ctx.state.reg.r[3]);
+            assert(0);
+        }
+
+        // --- TEST FABS ---
+        ctx.state.reg.r[2] = 0x0000;
+        ctx.state.reg.r[3] = 0x0000;
+        double_to_1750a_float(val, &ctx.state.reg.r[2], &ctx.state.reg.r[3]);
+
+        // FABS R2 -> Opcode 0xEA. RA=2, RB=2.
+        opcode = 0xEA22;
+        interpret_FABS(&ctx, opcode, 0);
+
+        result = float_1750a_to_double(ctx.state.reg.r[2], ctx.state.reg.r[3]);
+
+        if (fabs(result - fabs(val)) > 0.000001) {
+            fprintf(stderr, "\nFAIL! FABS(%f) = %f, expected %f\n", val, result, fabs(val));
+            fprintf(stderr, "R2: %04x, R3: %04x\n", ctx.state.reg.r[2], ctx.state.reg.r[3]);
+            assert(0);
+        }
+    }
+    printf("PASSED\n");
+}
+
+void test_EFA_EFS() {
+    reset_cpu();
+    printf("Testing EFA and EFS... ");
+
+    double test_cases[][2] = {
+        {5.0, 0.0},
+        {0.0, 5.0},
+        {0.0, 0.0},
+        {5.0, 3.0},
+        {-5.0, 0.0},
+        {0.0, -5.0},
+        {-5.0, 3.0},
+        {5.0, -3.0},
+        {-5.0, -3.0},
+        {0.5, 0.5},
+        {-0.5, -0.5},
+        {1.0, -1.0},
+        {-1.0, 1.0}
+    };
+    int num_tests = sizeof(test_cases) / sizeof(test_cases[0]);
+
+    for (int i = 0; i < num_tests; i++) {
+        double a = test_cases[i][0];
+        double b = test_cases[i][1];
+
+        // --- TEST EFA (Addition) ---
+        ctx.state.reg.r[2] = 0x0000; ctx.state.reg.r[3] = 0x0000; ctx.state.reg.r[4] = 0x0000;
+        double_to_1750a_efloat(a, &ctx.state.reg.r[2], &ctx.state.reg.r[3], &ctx.state.reg.r[4]);
+
+        mock_memory[0x1000] = 0x0000; mock_memory[0x1001] = 0x0000; mock_memory[0x1002] = 0x0000;
+        double_to_1750a_efloat(b, &mock_memory[0x1000], &mock_memory[0x1001], &mock_memory[0x1002]);
+        mock_memory[0x0001] = 0x1000;
+
+        // EFA R2, 0x1000 -> Opcode 0xCC, RA=2
+        interpret_EFA(&ctx, 0xCC20, mock_memory[0x0001]);
+
+        double res_add = efloat_1750a_to_double(ctx.state.reg.r[2], ctx.state.reg.r[3], ctx.state.reg.r[4]);
+        double exp_add = a + b;
+        if (fabs(res_add - exp_add) > 0.00001) {
+            fprintf(stderr, "\nFAIL! EFA(%f + %f) = %f, expected %f\n", a, b, res_add, exp_add);
+            assert(0);
+        }
+
+        // --- TEST EFS (Subtraction) ---
+        ctx.state.reg.r[2] = 0x0000; ctx.state.reg.r[3] = 0x0000; ctx.state.reg.r[4] = 0x0000;
+        double_to_1750a_efloat(a, &ctx.state.reg.r[2], &ctx.state.reg.r[3], &ctx.state.reg.r[4]);
+
+        mock_memory[0x1000] = 0x0000; mock_memory[0x1001] = 0x0000; mock_memory[0x1002] = 0x0000;
+        double_to_1750a_efloat(b, &mock_memory[0x1000], &mock_memory[0x1001], &mock_memory[0x1002]);
+        mock_memory[0x0001] = 0x1000;
+
+        // EFS R2, 0x1000 -> Opcode 0xCD, RA=2
+        interpret_EFS(&ctx, 0xCD20, mock_memory[0x0001]);
+
+        double res_sub = efloat_1750a_to_double(ctx.state.reg.r[2], ctx.state.reg.r[3], ctx.state.reg.r[4]);
+        double exp_sub = a - b;
+        if (fabs(res_sub - exp_sub) > 0.00001) {
+            fprintf(stderr, "\nFAIL! EFS(%f - %f) = %f, expected %f\n", a, b, res_sub, exp_sub);
+            assert(0);
+        }
+    }
+
+    printf("PASSED\n");
+}
+
+
+void test_FA_FS() {
+    reset_cpu();
+    printf("Testing FA and FS... ");
+
+    double test_cases[][2] = {
+        {5.0, 0.0},
+        {0.0, 5.0},
+        {0.0, 0.0},
+        {5.0, 3.0},
+        {-5.0, 0.0},
+        {0.0, -5.0},
+        {-5.0, 3.0},
+        {5.0, -3.0},
+        {-5.0, -3.0},
+        {0.5, 0.5},
+        {-0.5, -0.5},
+        {1.0, -1.0},
+        {-1.0, 1.0}
+    };
+    int num_tests = sizeof(test_cases) / sizeof(test_cases[0]);
+
+    for (int i = 0; i < num_tests; i++) {
+        double a = test_cases[i][0];
+        double b = test_cases[i][1];
+
+        // --- TEST FA (Addition) ---
+        ctx.state.reg.r[2] = 0x0000; ctx.state.reg.r[3] = 0x0000;
+        double_to_1750a_float(a, &ctx.state.reg.r[2], &ctx.state.reg.r[3]);
+
+        mock_memory[0x1000] = 0x0000; mock_memory[0x1001] = 0x0000;
+        double_to_1750a_float(b, &mock_memory[0x1000], &mock_memory[0x1001]);
+        mock_memory[0x0001] = 0x1000;
+
+        // FA R2, 0x1000 -> Opcode 0xC8, RA=2
+        interpret_FA(&ctx, 0xC820, mock_memory[0x0001]);
+
+        double res_add = float_1750a_to_double(ctx.state.reg.r[2], ctx.state.reg.r[3]);
+        double exp_add = a + b;
+        if (fabs(res_add - exp_add) > 0.00001) {
+            fprintf(stderr, "\nFAIL! FA(%f + %f) = %f, expected %f\n", a, b, res_add, exp_add);
+            assert(0);
+        }
+
+        // --- TEST FS (Subtraction) ---
+        ctx.state.reg.r[2] = 0x0000; ctx.state.reg.r[3] = 0x0000;
+        double_to_1750a_float(a, &ctx.state.reg.r[2], &ctx.state.reg.r[3]);
+
+        mock_memory[0x1000] = 0x0000; mock_memory[0x1001] = 0x0000;
+        double_to_1750a_float(b, &mock_memory[0x1000], &mock_memory[0x1001]);
+        mock_memory[0x0001] = 0x1000;
+
+        // FS R2, 0x1000 -> Opcode 0xC9, RA=2
+        interpret_FS(&ctx, 0xC920, mock_memory[0x0001]);
+
+        double res_sub = float_1750a_to_double(ctx.state.reg.r[2], ctx.state.reg.r[3]);
+        double exp_sub = a - b;
+        if (fabs(res_sub - exp_sub) > 0.00001) {
+            fprintf(stderr, "\nFAIL! FS(%f - %f) = %f, expected %f\n", a, b, res_sub, exp_sub);
+            assert(0);
+        }
+    }
+
     printf("PASSED\n");
 }
 
