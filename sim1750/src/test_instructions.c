@@ -178,7 +178,7 @@ void test_SQRT();
 void test_ESQR();
 void test_Single_Shifts();
 void test_Double_Shifts();
-void test_FNEG();
+void test_FNEG_FABS();
 void test_EFA_EFS();
 void test_FA_FS();
 
@@ -596,7 +596,7 @@ int main() {
     test_FD_Divide_By_Zero();
     test_SQRT();
     test_ESQR();
-    test_FNEG();
+    test_FNEG_FABS();
     test_EFA_EFS();
     test_FA_FS();
     printf("All floating point tests passed.\n");
@@ -719,9 +719,9 @@ void test_SQRT() {
     printf("PASSED\n");
 }
 
-void test_FNEG() {
+void test_FNEG_FABS() {
     reset_cpu();
-    printf("Testing FNEG... ");
+    printf("Testing FNEG and FABS... ");
 
     double test_vals[] = { 0.5, -0.5, -1.0, 1.0, 0.0, 3.14159, -2.71828, 42.0, -42.0 };
     int num_tests = sizeof(test_vals) / sizeof(test_vals[0]);
@@ -729,6 +729,7 @@ void test_FNEG() {
     for (int i = 0; i < num_tests; i++) {
         double val = test_vals[i];
 
+        // --- TEST FNEG ---
         ctx.state.reg.r[2] = 0x0000;
         ctx.state.reg.r[3] = 0x0000;
         double_to_1750a_float(val, &ctx.state.reg.r[2], &ctx.state.reg.r[3]);
@@ -741,6 +742,23 @@ void test_FNEG() {
 
         if (fabs(result - (-val)) > 0.000001) {
             fprintf(stderr, "\nFAIL! FNEG(%f) = %f, expected %f\n", val, result, -val);
+            fprintf(stderr, "R2: %04x, R3: %04x\n", ctx.state.reg.r[2], ctx.state.reg.r[3]);
+            assert(0);
+        }
+
+        // --- TEST FABS ---
+        ctx.state.reg.r[2] = 0x0000;
+        ctx.state.reg.r[3] = 0x0000;
+        double_to_1750a_float(val, &ctx.state.reg.r[2], &ctx.state.reg.r[3]);
+
+        // FABS R2 -> Opcode 0xEA. RA=2, RB=2.
+        opcode = 0xEA22;
+        interpret_FABS(&ctx, opcode, 0);
+
+        result = float_1750a_to_double(ctx.state.reg.r[2], ctx.state.reg.r[3]);
+
+        if (fabs(result - fabs(val)) > 0.000001) {
+            fprintf(stderr, "\nFAIL! FABS(%f) = %f, expected %f\n", val, result, fabs(val));
             fprintf(stderr, "R2: %04x, R3: %04x\n", ctx.state.reg.r[2], ctx.state.reg.r[3]);
             assert(0);
         }
