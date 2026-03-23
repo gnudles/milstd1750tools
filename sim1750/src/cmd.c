@@ -1423,30 +1423,36 @@ si_changemem (int argc, char *argv[])
 }
 
 
-#define REGS  25
-char *reg_names[] =
-{
-  "r0",  "r1",  "r2",  "r3",  "r4",  "r5",  "r6",  "r7",
-  "r8",  "r9",  "r10", "r11", "r12", "r13", "r14", "r15",
-  "pir", "mk",  "ft",  "ic",  "sw",  "ta",  "tb",  "go",  "sys"
-};
-
-
 static int
 si_changereg (int argc, char *argv[])
 {
-  register int i;
   unsigned readreg;
 
   if (argc <= 2)
     return error ("argument missing");
-  for (i = 0; i < REGS; i++)
-    if (eq (argv[1], reg_names[i]))
-      break;
-  if (i == REGS)
-    return error ("illegal name");
+
   sscanf (argv[2], "%x", &readreg);
-  *((ushort *) (&sim_cpu_ctx->state.reg) + i) = (ushort) (readreg & 0xffff);
+  ushort val = (ushort) (readreg & 0xffff);
+
+  if (argv[1][0] == 'r' || argv[1][0] == 'R') {
+    int rnum;
+    char extra;
+    if (sscanf(argv[1] + 1, "%d%c", &rnum, &extra) == 1 && rnum >= 0 && rnum <= 15) {
+      sim_cpu_ctx->state.reg.r[rnum] = val;
+      return (OKAY);
+    }
+  }
+
+  if (eq (argv[1], "pir")) sim_cpu_ctx->state.reg.pir = val;
+  else if (eq (argv[1], "mk")) sim_cpu_ctx->state.reg.mk = val;
+  else if (eq (argv[1], "ft")) sim_cpu_ctx->state.reg.ft = val;
+  else if (eq (argv[1], "ic")) sim_cpu_ctx->state.reg.ic = val;
+  else if (eq (argv[1], "sw")) sim_cpu_ctx->state.reg.sw = val;
+  else if (eq (argv[1], "ta")) sim_cpu_ctx->state.reg.timer[TIM_A] = val;
+  else if (eq (argv[1], "tb")) sim_cpu_ctx->state.reg.timer[TIM_B] = val;
+  else if (eq (argv[1], "go")) sim_cpu_ctx->state.reg.go = val;
+  else if (eq (argv[1], "sys")) sim_cpu_ctx->state.reg.sys = val;
+  else return error ("illegal name");
 
   return (OKAY);
 }
