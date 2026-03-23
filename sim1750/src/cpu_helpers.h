@@ -576,14 +576,6 @@ static inline void pack_float48(struct cpu_context *cpu_ctx, uint16_t RA, int64_
     }
     calculate_flags_48bit_reg(cpu_ctx, RA);
 }
-/* expects normalized mantissa */
-static inline void negate_float32(int32_t *m, int16_t *e) {
-    *m = -*m;
-}
-/* expects normalized mantissa */
-static inline void negate_float48(int64_t *m, int16_t *e) {
-    *m = -*m;
-}
 /* mult and shift right */
 static inline int64_t mult128_shift_0_63(int64_t a, int64_t b, int shift) {
     /* shift is guaranteed to be in range [0,63] */

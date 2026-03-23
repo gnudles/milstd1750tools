@@ -802,7 +802,12 @@ void emit_instruction (OpcodeDef *def)
             printf("    unpack_float32(DO[0], DO[1], &M_B, &E_B);\n");
             if (def->op_type == OP_SUB_FLOAT)
             {
-                printf("    negate_float32(&M_B,&E_B);\n");
+                /*
+                 * Negating the mantissa via 2's complement handles all cases natively.
+                 * The specific edge cases (such as exactly -1 or -0.5) are inherently
+                 * managed by the normalization and bitwise shifts applied within pack_float32.
+                 */
+                printf("    M_B = -M_B;\n");
             }
             printf("    int32_t E_res;\n");
             printf("    if (M_A == 0) { E_res = E_B; }\n");
@@ -844,7 +849,12 @@ void emit_instruction (OpcodeDef *def)
             printf("    unpack_float48(DO[0], DO[1], DO[2], &M_B, &E_B);\n");
             if (def->op_type == OP_SUB_EXFLOAT)
             {
-                printf("    negate_float48(&M_B,&E_B);\n");
+                /*
+                 * Negating the mantissa via 2's complement handles all cases natively.
+                 * The specific edge cases (such as exactly -1 or -0.5) are inherently
+                 * managed by the normalization and bitwise shifts applied within pack_float48.
+                 */
+                printf("    M_B = -M_B;\n");
             }
             printf("    int32_t E_res;\n");
             printf("    if (M_A == 0) { E_res = E_B; }\n");
@@ -1160,7 +1170,12 @@ void emit_instruction (OpcodeDef *def)
         case OP_NEG_FLOAT:
             printf("    int32_t M; int16_t E;\n");
             printf("    unpack_float32(cpu_ctx->state.reg.r[(RB+0)&0xF], cpu_ctx->state.reg.r[(RB+1)&0xF], &M, &E);\n");
-            printf("    negate_float32(&M, &E);\n");
+            /*
+             * Negating the mantissa via 2's complement handles all cases natively.
+             * The specific edge cases (such as exactly -1 or -0.5) are inherently
+             * managed by the normalization and bitwise shifts applied within pack_float32.
+             */
+            printf("    M = -M;\n");
 
             /* Let the pack function handle the CS flags! */
             printf("    pack_float32(cpu_ctx, RA, M, E);\n");
@@ -1171,7 +1186,12 @@ void emit_instruction (OpcodeDef *def)
             printf("    cpu_ctx->state.total_cycles += CLK_CYC_FABS(M < 0);\n");
 
             printf("    if (M < 0) {\n");
-            printf("        negate_float32(&M, &E);\n");
+            /*
+             * Negating the mantissa via 2's complement handles all cases natively.
+             * The specific edge cases (such as exactly -1 or -0.5) are inherently
+             * managed by the normalization and bitwise shifts applied within pack_float32.
+             */
+            printf("        M = -M;\n");
             printf("    }\n");
 
             /* Let the pack function handle the CS flags! */
