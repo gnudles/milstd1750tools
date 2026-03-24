@@ -436,7 +436,7 @@ void emit_instruction (OpcodeDef *def)
             if (def->code == OPC_BR)
             {
                 printf("    if (displacement == 0) {\n"); // infinite loop
-                printf("        cpu_ctx->state.halt = true;\n");
+                printf("        cpu_ctx->state.halt = HALT_INF_LOOP;\n");
                 printf("    }\n");
                 printf("    cpu_ctx->state.reg.ic += displacement;\n");
                 printf("    cpu_ctx->state.total_cycles += CLK_CYC_BR;\n");
@@ -1059,7 +1059,7 @@ void emit_instruction (OpcodeDef *def)
             break;
         case OP_RET_SUBRTN:
             printf("    if (cpu_ctx->state.reg.r[RA] == 0) {\n"); // we should halt
-            printf("        cpu_ctx->state.halt = true;\n");
+            printf("        cpu_ctx->state.halt = HALT_URS_EMPTY_STACK;\n");
             printf("    }\n");
             printf("    ok = fetch_data_word(cpu_ctx, cpu_ctx->state.reg.r[RA], &cpu_ctx->state.reg.ic);\n");
             printf("    cpu_ctx->state.reg.r[RA] += 1;\n");
@@ -1324,7 +1324,7 @@ void emit_instruction (OpcodeDef *def)
             printf("        cpu_ctx->state.total_cycles += CLK_CYC_NOP;\n");
             printf("        break;\n");
             printf("      case 0xFF:  /* BPT */\n");
-            printf("        cpu_ctx->state.halt = true;\n");
+            printf("        cpu_ctx->state.halt = INST_BPT;\n");
             printf("        cpu_ctx->state.reg.ic += 1;\n");
             printf("        cpu_ctx->state.total_cycles += CLK_CYC_BPT;\n");
             printf("        break;\n");

@@ -78,7 +78,7 @@ static inline uint get_quarter_page_address_write_data(struct cpu_state *cpu, ui
     {
         cpu->reg.pir |= INTR_MACHERR;
         cpu->reg.ft |= FT_ILL_ADDR;
-        cpu->halt = true;
+        cpu->halt = HALT_ILL_MEM;
         return 0xFFFFFFFF;
     }
     uint phys_qpage = (phys_page << 2) | (logical_qpage & 0x3);
@@ -171,7 +171,7 @@ static inline uint get_page_address_read_data(struct cpu_state *cpu, uint16_t lo
     {
         cpu->reg.pir |= INTR_MACHERR;
         cpu->reg.ft |= FT_ILL_ADDR;
-        cpu->halt = true;
+        cpu->halt = HALT_ILL_MEM;
         fprintf(stderr, "Accessing non existing page!\n");
         return 0xFFFFFFFF;
     }
@@ -204,7 +204,7 @@ static inline uint get_page_address_read_data_intr(struct cpu_state *cpu, uint16
     {
         cpu->reg.pir |= INTR_MACHERR;
         cpu->reg.ft |= FT_ILL_ADDR;
-        cpu->halt = true;
+        cpu->halt = HALT_ILL_MEM;
         fprintf(stderr, "Accessing non existing page!\n");
         return 0xFFFFFFFF;
     }
@@ -235,7 +235,7 @@ static inline uint get_page_address_read_code(struct cpu_state *cpu, uint16_t lo
     {
         cpu->reg.pir |= INTR_MACHERR;
         cpu->reg.ft |= FT_MEMPROT;
-        cpu->halt = true;
+        cpu->halt = HALT_NON_EXEC;
         return 0xFFFFFFFF;
     }
 
@@ -255,7 +255,7 @@ static inline uint get_page_address_read_code(struct cpu_state *cpu, uint16_t lo
     {
         cpu->reg.pir |= INTR_MACHERR;
         cpu->reg.ft |= FT_ILL_ADDR;
-        cpu->halt = true;
+        cpu->halt = HALT_ILL_MEM;
         fprintf(stderr, "Accessing non existing page!\n");
         return 0xFFFFFFFF;
     }
@@ -270,9 +270,8 @@ static inline uint get_page_address_read_code(struct cpu_state *cpu, uint16_t lo
         #ifndef RUNNING_TESTS
         fprintf(stderr, "get_page_address_read_code: cannot execute unallocated page!\n");
 
-        cpu->halt = true;
+        cpu->halt = HALT_NON_EXEC;
         #endif
-
         
     }
     cpu->code_read_cache.valid |= 0x8000U >> (logical_page);
@@ -1370,7 +1369,7 @@ int cpu_mainloop(struct cpu_context *cpu_ctx, uint64_t up_to_cycles)
     uint phys_page;
     ushort opcode;
     ushort immediate;
-    while (continue_loop && cpu_ctx->state.halt == false)
+    while (continue_loop && cpu_ctx->state.halt == NO_HALT)
     {   
         uint phys_page = get_page_address_read_code(&cpu_ctx->state, cpu_ctx->state.reg.ic >> 12);
         if (phys_page == 0xFFFFFFFF)
@@ -1415,7 +1414,7 @@ int cpu_mainloop(struct cpu_context *cpu_ctx, uint64_t up_to_cycles)
 void interpret_ILLEGAL(struct cpu_context *cpu_ctx, uint16_t opcode, uint16_t /*imm_value*/) {
     cpu_ctx->state.reg.pir |= INTR_MACHERR;
     cpu_ctx->state.reg.ft |= FT_ILL_INSTR;
-    cpu_ctx->state.halt = true;
+    cpu_ctx->state.halt = HALT_ILL_INST;
     fprintf(stderr,"encountered illegal instruction\n");
 }
 extern void process_xio(struct cpu_context *cpu_ctx, ushort io_addr, ushort *transfer);

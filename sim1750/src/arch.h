@@ -157,8 +157,21 @@ static inline int count_leading_zeros(uint16_t x) {
     return n;
 #endif
 }
-#define TIM_A 0
-#define TIM_B 1
+enum
+{TIM_A = 0, TIM_B = 1};
+
+enum halt_t
+{
+  NO_HALT,
+  HALT_ILL_INST,
+  DBG_BREAKPOINT,
+  INST_BPT,
+  HALT_ILL_MEM,
+  HALT_NON_EXEC,
+  HALT_URS_EMPTY_STACK, /* happens when running functions as programs. the function is calling URS, but the stack is empty*/
+  HALT_INF_LOOP /* some programs choose to terminate by inf loop */
+};
+
 
 
 /* Simulator register file */
@@ -243,8 +256,9 @@ struct cpu_state {
   uint32_t timer_go_global_snap;
 
 
+  enum halt_t halt;
   ushort bex_index;
-  bool halt;
+  
   bool disable_timers;
   /*old timing mechanism */
   struct {
