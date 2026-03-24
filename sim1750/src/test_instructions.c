@@ -49,7 +49,7 @@ void reset_cpu() {
     memset(mock_memory, 0, sizeof(mock_memory));
     ctx.state.reg.sys |= SYS_TA | SYS_TB;
     ctx.state.num_phys_mem_pages = 16;
-    ctx.state.halt = false;
+    ctx.state.halt = NO_HALT;
     ctx.state.next_scheduled_timer_calc_cycles = 0;
 }
 
@@ -108,7 +108,7 @@ void run_ldm_test(const char *fname) {
 
     // Let the main loop handle interrupts via process_interrupt().
     // We just need to give it enough cycles.
-    while (ctx.state.halt == 0)
+    while (ctx.state.halt == NO_HALT)
     {
         cpu_mainloop(&ctx, ctx.state.total_cycles + 1000);
     }
@@ -741,6 +741,7 @@ int main() {
     run_ldm_test("automated_tests/simple_logic.ldm");
     run_ldm_test("automated_tests/cmp_test.ldm");
     run_ldm_test("automated_tests/e_calc.ldm");
+    run_ldm_test("automated_tests/pi_calc.ldm");
 
     return 0;
 }

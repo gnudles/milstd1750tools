@@ -7,11 +7,11 @@
 
 	normal
 start
-	 ; (2^24, r1-r2 counted together)
-	lim	r1, 0x0100
+	 ; (2^19, r1-r2 counted together)
+	lim	r1, 0x0008
 	 ; r11 countdown of big loop, loop 1 256, loop 2 65536
 	lr      r11, r1
-	 ; r3 becomes 2^24
+	 ; r3 becomes 2^19
 	eflt	r3, r1
 	 ; zero r1
 	xorr	r1, r1 
@@ -22,7 +22,7 @@ start
 	efdr    r6, r3 
 	; r3 is 1
 	eflt	r3, r1 
-	; r6 = 1 + 1/(2^24)
+	; r6 = 1 + 1/(2^19)
 	efar    r6, r3 
 e_loop1
 	xorr	r1, r1
@@ -55,5 +55,5 @@ fail
 E_VAL
 	dataef	2.718281828
 EPS_VAL
-	dataef	0.0001
+	dataef	0.00001
 	end start
