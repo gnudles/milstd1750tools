@@ -834,12 +834,7 @@ void emit_instruction (OpcodeDef *def)
             printf("    unpack_float32(cpu_ctx->state.reg.r[(RA+0)&0xF], cpu_ctx->state.reg.r[(RA+1)&0xF], &M_A, &E_A);\n");
             printf("    unpack_float32(DO[0], DO[1], &M_B, &E_B);\n");
             printf("    if (M_B == 0) { cpu_ctx->state.reg.pir |= INTR_FLTOFL; return; }\n");
-            printf("    uint64_t M_A_abs = (M_A < 0) ? -M_A : M_A;\n");
-            printf("    uint64_t M_B_abs = (M_B < 0) ? -M_B : M_B;\n");
-            printf("    uint64_t M_A_abs_shift = (M_A_abs << 23);\n");
-            printf("    uint64_t Q_abs = M_A_abs_shift / M_B_abs;\n");
-            printf("    int32_t Q = ((M_A ^ M_B) < 0) ? -(int32_t)(Q_abs) : (int32_t)Q_abs;\n");
-            printf("    pack_float32(cpu_ctx, RA, Q, E_A - E_B);\n");
+            printf("    pack_float32(cpu_ctx, RA, div_mantissa24( M_A,  M_B), E_A - E_B);\n");
             break;
         case OP_ADD_EXFLOAT:
         case OP_SUB_EXFLOAT:
@@ -880,14 +875,7 @@ void emit_instruction (OpcodeDef *def)
             printf("    unpack_float48(cpu_ctx->state.reg.r[(RA+0)&0xF], cpu_ctx->state.reg.r[(RA+1)&0xF], cpu_ctx->state.reg.r[(RA+2)&0xF], &M_A, &E_A);\n");
             printf("    unpack_float48(DO[0], DO[1], DO[2], &M_B, &E_B);\n");
             printf("    if (M_B == 0) { cpu_ctx->state.reg.pir |= INTR_FLTOFL; return; }\n");
-            printf("    uint64_t M_A_abs = (M_A < 0) ? -M_A : M_A;\n");
-            printf("    uint64_t M_B_abs = (M_B < 0) ? -M_B : M_B;\n");
-            printf("    uint64_t div_hi = M_A_abs << 17;\n");
-            printf("    uint64_t Q_hi = (div_hi / M_B_abs << 22);\n");
-            printf("    uint64_t div_lo = (div_hi %% M_B_abs << 22);\n");
-            printf("    uint64_t Q_abs = Q_hi + (div_lo / M_B_abs);\n");
-            printf("    int64_t Q = ((M_A ^ M_B) < 0) ? -(int64_t)(Q_abs) : (int64_t)Q_abs;\n");
-            printf("    pack_float48(cpu_ctx, RA, Q, E_A - E_B);\n");
+            printf("    pack_float48(cpu_ctx, RA, div_mantissa40(M_A, M_B), E_A - E_B);\n");
             break;
         case OP_INT16_TO_FLT:
             printf("    pack_float32(cpu_ctx, RA, (uint32_t)((int32_t)cpu_ctx->state.reg.r[(RB+0)&0xF]) << 8 , 15);\n");

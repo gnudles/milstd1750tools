@@ -444,6 +444,130 @@ double float_1750a_to_double(uint16_t w1, uint16_t w2) {
     return ldexp((double)mantissa, exp - 23);
 }
 
+void test_FDR() {
+    reset_cpu();
+    printf("Testing FDR ... ");
+    
+
+    double epsilon = 0.0000005;
+    double a;
+    double b;
+    for (int i = 0 ; i < 0x4000 ; i+=64)
+    {
+
+        for (int j = 0 ; j < 0x4000 ; j+=64)
+        {
+            ctx.state.reg.r[2] = 0x4000 + i; /* 0.5 */
+            ctx.state.reg.r[3] = 0x0000;
+            
+            
+            ctx.state.reg.r[4] = 0x8000 + j; /* -1 */
+            ctx.state.reg.r[5] = 0x0000;
+            a = (int)ctx.state.reg.r[2] / 32768.0;
+            b = (int)ctx.state.reg.r[4] / 32768.0;
+            uint16_t opcode = 0xD924;
+            interpret_FDR(&ctx, opcode, 0);
+            //printf ( " a/b = %lf/%lf = %lf  ?= %lf \n",a,b, a/b, float_1750a_to_double(ctx.state.reg.r[2],ctx.state.reg.r[3]));
+            assert(fabs(float_1750a_to_double(ctx.state.reg.r[2],ctx.state.reg.r[3]) - a/b) < epsilon);
+            ctx.state.reg.r[2] = 0x4000 + i; /* 0.5 */
+            ctx.state.reg.r[3] = 0x0000;
+            opcode = 0xD942;
+            interpret_FDR(&ctx, opcode, 0);
+            assert(fabs(float_1750a_to_double(ctx.state.reg.r[4],ctx.state.reg.r[5]) - b/a) < epsilon);
+
+
+        }
+    }
+
+    for (int i = 0 ; i < 0x4000 ; i+=64)
+    {
+        
+
+        for (int j = 0 ; j < 0x4000 ; j+=64)
+        {
+            ctx.state.reg.r[2] = 0x4000 + i; /* 0.5 */
+            ctx.state.reg.r[3] = 0x0000;
+            
+            ctx.state.reg.r[4] = 0x4000 + j; /* 0.5 */
+            ctx.state.reg.r[5] = 0x0000;
+            a = (int)ctx.state.reg.r[2] / 32768.0;
+            b = (int)ctx.state.reg.r[4] / 32768.0;
+            uint16_t opcode = 0xD924;
+            interpret_FDR(&ctx, opcode, 0);
+            //printf ( " a/b = %lf/%lf = %lf  ?= %lf \n",a,b, a/b, float_1750a_to_double(ctx.state.reg.r[2],ctx.state.reg.r[3]));
+            assert(fabs(float_1750a_to_double(ctx.state.reg.r[2],ctx.state.reg.r[3]) - a/b) < epsilon);
+            b += 0.5/0x4000;
+
+        }
+        a+= 0.5/0x4000;
+    }
+    a = -1.0;
+    for (int i = 0 ; i < 0x4000 ; i+=64)
+    {
+        
+        b = -1.0;
+        for (int j = 0 ; j < 0x4000 ; j+=64)
+        {
+            ctx.state.reg.r[2] = 0x8000 + i; /* -1.0 */
+            ctx.state.reg.r[3] = 0x0000;
+            
+            ctx.state.reg.r[4] = 0x8000 + j; /* -1.0 */
+            ctx.state.reg.r[5] = 0x0000;
+            a = (int)ctx.state.reg.r[2] / 32768.0;
+            b = (int)ctx.state.reg.r[4] / 32768.0;
+            uint16_t opcode = 0xD924;
+            interpret_FDR(&ctx, opcode, 0);
+            //printf ( " a/b = %lf/%lf = %lf  ?= %lf \n",a,b, a/b, float_1750a_to_double(ctx.state.reg.r[2],ctx.state.reg.r[3]));
+            assert(fabs(float_1750a_to_double(ctx.state.reg.r[2],ctx.state.reg.r[3]) - a/b) < epsilon);
+            b += 0.5/0x4000;
+
+        }
+        a+= 0.5/0x4000;
+    }
+    printf("PASSED\n");
+}
+
+void test_EFDR() {
+    reset_cpu();
+    printf("Testing EFDR ... ");
+    
+
+    double epsilon = 0.000000000005;
+    double a;
+    double b;
+    for (int i = 0 ; i < 0x4000 ; i+=64)
+    {
+
+        for (int j = 0 ; j < 0x4000 ; j+=64)
+        {
+            ctx.state.reg.r[2] = 0x4000 + i; /* 0.5 */
+            ctx.state.reg.r[3] = 0x0000;
+            ctx.state.reg.r[4] = 0x0000;
+            
+            
+            ctx.state.reg.r[5] = 0x8000 + j; /* -1 */
+            ctx.state.reg.r[6] = 0x0000;
+            ctx.state.reg.r[7] = 0x0000;
+            a = (int)ctx.state.reg.r[2] / 32768.0;
+            b = (int)ctx.state.reg.r[5] / 32768.0;
+            uint16_t opcode = 0xDB25;
+            interpret_EFDR(&ctx, opcode, 0);
+            //printf ( " a/b = %lf/%lf = %lf  ?= %lf \n",a,b, a/b, float_1750a_to_double(ctx.state.reg.r[2],ctx.state.reg.r[3]));
+            assert(fabs(efloat_1750a_to_double(ctx.state.reg.r[2],ctx.state.reg.r[3],ctx.state.reg.r[4]) - a/b) < epsilon);
+            ctx.state.reg.r[2] = 0x4000 + i; /* 0.5 */
+            ctx.state.reg.r[3] = 0x0000;
+            ctx.state.reg.r[4] = 0x0000;
+            opcode = 0xDB52;
+            interpret_EFDR(&ctx, opcode, 0);
+            assert(fabs(efloat_1750a_to_double(ctx.state.reg.r[5],ctx.state.reg.r[6],ctx.state.reg.r[7]) - b/a) < epsilon);
+
+
+        }
+    }
+
+    printf("PASSED\n");
+}
+
 void test_Extended_Float_Pi_Pipeline() {
     reset_cpu();
     printf("Testing Extended Float Pipeline (Pi Approx)...\n");
@@ -593,7 +717,10 @@ int main() {
     test_Double_Shifts();
     test_STUB_Upper_Byte();
     printf("All instruction tests passed.\n");
+    test_FDR();
+    test_EFDR();
     test_FD_Basic_Division();
+    
     test_FD_Negative_Normalization();
     test_EFD_48bit_Math();
     test_FD_Divide_By_Zero();

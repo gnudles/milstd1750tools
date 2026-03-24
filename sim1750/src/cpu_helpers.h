@@ -642,6 +642,25 @@ static inline int64_t mult128_shift_64_127(int64_t a, int64_t b, int shift) {
     #endif
 }
 
+static inline int32_t div_mantissa24(int32_t dividend, int32_t divisor)
+{
+    uint64_t M_A_abs = (dividend < 0) ? -dividend : dividend;
+    uint64_t M_B_abs = (divisor < 0) ? -divisor : divisor;
+    uint64_t Q_abs = (M_A_abs << 23) / M_B_abs;
+    return  ((dividend ^ divisor) < 0) ? -(int32_t)(Q_abs) : (int32_t)Q_abs;
+}
+
+static inline int64_t div_mantissa40(int64_t dividend, int64_t divisor)
+{
+    uint64_t dividend_abs = (dividend < 0) ? -dividend : dividend;
+    uint64_t divisor_abs = (divisor < 0) ? -divisor : divisor;
+    uint64_t div_hi = dividend_abs << 17;
+    uint64_t Q_hi = (div_hi / divisor_abs << 22);
+    uint64_t div_lo = (div_hi % divisor_abs << 22);
+    uint64_t Q_abs = Q_hi + (div_lo / divisor_abs);
+    return ((dividend ^ divisor) < 0) ? -(int64_t)(Q_abs) : (int64_t)Q_abs;
+}
+
 /*
  * sqrt_n_bits:
  * Takes a 64-bit left-aligned radicand and computes 'iters' bits of the square root.
