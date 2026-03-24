@@ -1,5 +1,5 @@
 /* derived from stime.h */
-
+#include "targsys.h"
 /* Manufacturers' processor-timing info */
 
 #if defined (PACE)
@@ -1294,8 +1294,16 @@
 
 /* The ERA MAS281 board has a 10MHz clock */
 #define CYCLE_DURATION_IN_NS 100
+#ifdef MAS281
+#define TIMER_A_RES_IN_10uSEC 2
+#define TIMER_B_RES_IN_10uSEC 20
+/* Watchdog (GO Timer) period as measured in 10 microsecond units: */
+#define GOTIMER_PERIOD_IN_10uSEC  50
+  /* CCFN: Timer A limit modified to allow for 50KHz clock on ERA board */
+#else
 #define TIMER_A_RES_IN_10uSEC 1
 #define TIMER_B_RES_IN_10uSEC 10
-
 /* Watchdog (GO Timer) period as measured in 10 microsecond units: */
 #define GOTIMER_PERIOD_IN_10uSEC  25
+#endif
+

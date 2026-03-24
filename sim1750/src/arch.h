@@ -238,6 +238,7 @@ struct cpu_state {
   uint64_t total_cycles_timers_snap;
   uint64_t timer_ns_remainder;
   uint32_t global_10usec_timer_clock;
+  uint32_t timer_a_global_snap;
   uint32_t timer_b_global_snap;
   uint32_t timer_go_global_snap;
 

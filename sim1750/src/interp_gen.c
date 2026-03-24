@@ -838,8 +838,7 @@ void emit_instruction (OpcodeDef *def)
             printf("    uint64_t M_B_abs = (M_B < 0) ? -M_B : M_B;\n");
             printf("    uint64_t M_A_abs_shift = (M_A_abs << 23);\n");
             printf("    uint64_t Q_abs = M_A_abs_shift / M_B_abs;\n");
-            printf("    int32_t RemNotZero = (M_A_abs_shift %% M_B_abs != 0)?1:0;\n"); // used to truncate toward negative infinity
-            printf("    int32_t Q = ((M_A ^ M_B) < 0) ? -(int32_t)(Q_abs + RemNotZero) : (int32_t)Q_abs;\n");
+            printf("    int32_t Q = ((M_A ^ M_B) < 0) ? -(int32_t)(Q_abs) : (int32_t)Q_abs;\n");
             printf("    pack_float32(cpu_ctx, RA, Q, E_A - E_B);\n");
             break;
         case OP_ADD_EXFLOAT:
@@ -887,8 +886,7 @@ void emit_instruction (OpcodeDef *def)
             printf("    uint64_t Q_hi = (div_hi / M_B_abs << 22);\n");
             printf("    uint64_t div_lo = (div_hi %% M_B_abs << 22);\n");
             printf("    uint64_t Q_abs = Q_hi + (div_lo / M_B_abs);\n");
-            printf("    int64_t RemNotZero = (div_lo %% M_B_abs != 0)?1:0;\n");
-            printf("    int64_t Q = ((M_A ^ M_B) < 0) ? -(int64_t)(Q_abs + RemNotZero) : (int64_t)Q_abs;\n");
+            printf("    int64_t Q = ((M_A ^ M_B) < 0) ? -(int64_t)(Q_abs) : (int64_t)Q_abs;\n");
             printf("    pack_float48(cpu_ctx, RA, Q, E_A - E_B);\n");
             break;
         case OP_INT16_TO_FLT:
@@ -1382,7 +1380,6 @@ void emit_instruction (OpcodeDef *def)
 void generate_interpreter_code()
 {
     printf("#include \"cpu_helpers.h\"\n");
-    printf("#include \"clock_cycles.h\"\n");
     
     for (int i = 0; i < 16; i++) {
         OpcodeDef *def = &opcode_defs_6bit[i];

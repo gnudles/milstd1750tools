@@ -43,6 +43,7 @@ OBJECTS= $(OBJ)/arith.o		\
 	 $(OBJ)/xiodef.o \
 	 $(OBJ)/jit.o \
 	 $(OBJ)/jit_defs.o \
+     $(OBJ)/new_cpu.o \
 	 $(OBJ)/sljitLir.o
 
 
@@ -157,5 +158,7 @@ $(OBJ)/jit_defs.o: $(SRC)/jit.h $(SRC)/jit_defs.c
 	$(CC) -c $(CFLAGS) $(SRC)/jit_defs.c	-o $(OBJ)/jit_defs.o
 $(OBJ)/interp_gen.o: $(SRC)/jit.h $(SRC)/interp_gen.c
 	$(CC) -c $(CFLAGS) $(SRC)/interp_gen.c	-o $(OBJ)/interp_gen.o
+$(OBJ)/new_cpu.o: $(SRC)/generated_cpu.h $(SRC)/cpu_helpers.h $(SRC)/new_cpu.c
+	$(CC) -c $(CFLAGS) $(SRC)/new_cpu.c	-o $(OBJ)/new_cpu.o
 $(OBJ)/sljitLir.o: $(SRC)/sljit/sljit_src/sljitLir.c $(SRC)/sljit/sljit_src/sljitLir.h
 	$(CC) -c $(CFLAGS) $(SRC)/sljit/sljit_src/sljitLir.c	-o $(OBJ)/sljitLir.o

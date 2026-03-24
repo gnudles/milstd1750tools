@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <assert.h>
 #include <string.h>
-
+#include "targsys.h"
 /* --- Stubs to link against the generated code --- */
 #include "cpu_ctx.h"
 #define RUNNING_TESTS
@@ -108,7 +108,10 @@ void run_ldm_test(const char *fname) {
 
     // Let the main loop handle interrupts via process_interrupt().
     // We just need to give it enough cycles.
-    cpu_mainloop(&ctx, 1000);
+    while (ctx.state.halt == 0)
+    {
+        cpu_mainloop(&ctx, ctx.state.total_cycles + 1000);
+    }
 
     if (mock_memory[0x2000] == 0xAAAA) {
         printf("PASSED\n");
@@ -458,7 +461,7 @@ void test_Extended_Float_Pi_Pipeline() {
     ctx.state.reg.r[5] = 113;
     /* OP_INT32_TO_EFLT RA=4, RB=4 */
     ctx.state.reg.ic = 0;
-    interpret_EFLT(&ctx, 0x0044, mock_memory[0x0001]); 
+    interpret_EFLT(&ctx, 0x0044, mock_memory[0x0001]);
     /* R4, R5, R6 now hold exactly 113.0 */
 
     /* --- 3. DIVIDE (Pi Approx: 355.0 / 113.0) --- */
@@ -610,6 +613,7 @@ int main() {
     run_ldm_test("automated_tests/simple_math.ldm");
     run_ldm_test("automated_tests/simple_logic.ldm");
     run_ldm_test("automated_tests/cmp_test.ldm");
+    run_ldm_test("automated_tests/e_calc.ldm");
 
     return 0;
 }

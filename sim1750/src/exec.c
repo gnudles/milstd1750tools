@@ -29,12 +29,14 @@
 
 #include <stdio.h>
 #include <ctype.h>
+#include <time.h>
 
 #include "arch.h"
 #include "status.h"
 #include "cpu.h"
 #include "smemacc.h"
 #include "break.h"
+#include "new_cpu.h"
 
 /* Imports */
 
@@ -84,6 +86,30 @@ int si_jit_scan (int argc, char *argv[])
 }
 
 int
+si_go_new (int argc, char *argv[])
+{
+  unsigned next;
+  clock_t start, end;
+  if (argc > 1)
+    {
+      sscanf (argv[1], "%x", &next);
+      sim_cpu_ctx->state.reg.ic = (ushort) next;
+    }
+  start = clock();  
+  while (1)
+    {
+      if (sys_int (1))
+	return INTERRUPT;
+      cpu_mainloop (sim_cpu_ctx, sim_cpu_ctx->state.total_cycles + 1000);
+      if (sim_cpu_ctx->state.halt)
+        break;
+    }
+  end = clock();
+  printf("\nkick took:  %f seconds\n", ((double) (end - start)) / CLOCKS_PER_SEC);
+  return OKAY;
+}
+
+int
 si_go (int argc, char *argv[])
 {
   unsigned next;
@@ -98,6 +124,8 @@ si_go (int argc, char *argv[])
     sim_cpu_ctx->state.reg.ic++;
   else if (sim_cpu_ctx->bpindex >= 0)
     execute_without_breakpt (sim_cpu_ctx);
+  clock_t start, end;
+  start = clock();
   while (1)
     {
       if (sys_int (1))
@@ -116,6 +144,8 @@ si_go (int argc, char *argv[])
 	  break;
 	}
     }
+    end = clock();
+  printf("\ngo took:  %f seconds\n", ((double) (end - start)) / CLOCKS_PER_SEC);
   return OKAY;
 }
 

@@ -59,7 +59,7 @@
 #include "status.h"
 #include "tekops.h"
 #include "utils.h"
-#include "targsys.h"
+#include "stime.h"
 
 /* imports not mentioned in includefiles */
 
@@ -123,6 +123,10 @@ static const struct {
   /* jit scan*/
    { "jit_scan [address]",     si_jit_scan, "scan instructions",
        "Scan instructions starting from the given address." },
+  { "kick [address]",            si_go_new,       "start or continue execution using new backend",
+       "If the optional address argument is not supplied, then execution\n"
+       "starts at the current Instruction Counter location and in the\n"
+       "current Address State." },
    { "go [address]",            si_go,       "start or continue execution",
        "If the optional address argument is not supplied, then execution\n"
        "starts at the current Instruction Counter location and in the\n"
@@ -1275,10 +1279,12 @@ si_dispeflt (int argc, char *argv[])
       word1_was_written = peek (&sim_cpu_ctx->state, address + 1, (ushort *) &fltwords[1]);
       word2_was_written = peek (&sim_cpu_ctx->state, address + 2, (ushort *) &fltwords[2]);
       if (word0_was_written && word1_was_written && word2_was_written)
-	lprintf ("%.7g\n", from_1750eflt (fltwords));
+	      lprintf ("%04hX  %04hX  %04hX\n",
+		    fltwords[0], fltwords[1], fltwords[2]);
       else
-	lprintf ("%04hX!  %04hX!  %04hX!\n",
-		 fltwords[0], fltwords[1], fltwords[2]);
+	      lprintf ("%04hX!  %04hX!  %04hX!\n",
+		    fltwords[0], fltwords[1], fltwords[2]);
+      lprintf ("%.11g\n", from_1750eflt (fltwords));
     }
   lprintf ("\n");
   verbose = verbose_save;

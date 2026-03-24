@@ -690,7 +690,7 @@ static void calculate_next_scheduled_timers_check(struct cpu_context *cpu_ctx) {
     if (cpu_ctx->state.reg.sys & SYS_TA)
     {
         uint64_t time_to_timer_a_expiration_ns;
-        time_to_timer_a_expiration_ns  = (0x10000 - cpu_ctx->state.reg.timer[TIM_A]) * 10000LL;
+        time_to_timer_a_expiration_ns  = (0x10000 - cpu_ctx->state.reg.timer[TIM_A]) * 10000LL * TIMER_A_RES_IN_10uSEC;
         time_to_timer_a_expiration_ns -= cpu_ctx->state.timer_ns_remainder;
         time_to_timer_a_expiration_ns = (time_to_timer_a_expiration_ns + CYCLE_DURATION_IN_NS-1) / CYCLE_DURATION_IN_NS;
         if (time_to_timer_a_expiration_ns < nearest_time)
@@ -701,7 +701,7 @@ static void calculate_next_scheduled_timers_check(struct cpu_context *cpu_ctx) {
     if (cpu_ctx->state.reg.sys & SYS_TB)
     {
         uint64_t time_to_timer_b_expiration_ns;
-        time_to_timer_b_expiration_ns  = (0x10000 - cpu_ctx->state.reg.timer[TIM_B]) * 100000LL;
+        time_to_timer_b_expiration_ns  = (0x10000 - cpu_ctx->state.reg.timer[TIM_B]) * 10000LL * TIMER_B_RES_IN_10uSEC;
         time_to_timer_b_expiration_ns -= cpu_ctx->state.timer_ns_remainder;
         time_to_timer_b_expiration_ns = (time_to_timer_b_expiration_ns + CYCLE_DURATION_IN_NS-1) / CYCLE_DURATION_IN_NS;
         if (time_to_timer_b_expiration_ns < nearest_time)
@@ -715,31 +715,35 @@ static void calculate_next_scheduled_timers_check(struct cpu_context *cpu_ctx) {
 static void calculate_timers(struct cpu_context *cpu_ctx) {
   cpu_ctx->state.timer_ns_remainder += (cpu_ctx->state.total_cycles - cpu_ctx->state.total_cycles_timers_snap)*CYCLE_DURATION_IN_NS;
   cpu_ctx->state.total_cycles_timers_snap = cpu_ctx->state.total_cycles;
-  uint32_t timer_a_inc = cpu_ctx->state.timer_ns_remainder / 10000;
-  cpu_ctx->state.global_10usec_timer_clock += timer_a_inc;
+  uint32_t timer_100Khz_inc = cpu_ctx->state.timer_ns_remainder / 10000;
+  cpu_ctx->state.global_10usec_timer_clock += timer_100Khz_inc;
   cpu_ctx->state.timer_ns_remainder = cpu_ctx->state.timer_ns_remainder % 10000;
 
-  if (!timer_a_inc)
+  if (!timer_100Khz_inc)
   {
     return;
   }
-
-  if (cpu_ctx->state.reg.sys & SYS_TA)
+  uint32_t timer_a_inc = (cpu_ctx->state.global_10usec_timer_clock - cpu_ctx->state.timer_a_global_snap) / TIMER_A_RES_IN_10uSEC;
+  if (timer_a_inc)
   {
-    if (cpu_ctx->state.reg.timer[TIM_A] <= 0xFFFF && (uint32_t)cpu_ctx->state.reg.timer[TIM_A] + timer_a_inc >= 0x10000)
+    cpu_ctx->state.timer_a_global_snap += timer_a_inc * TIMER_A_RES_IN_10uSEC;
+    if (cpu_ctx->state.reg.sys & SYS_TA)
     {
-        cpu_ctx->state.reg.pir |= INTR_TA;
-        cpu_ctx->state.reg.timer[TIM_A] += cpu_ctx->state.reg.timer_reset_val[TIM_A];
+        if ((uint32_t)cpu_ctx->state.reg.timer[TIM_A] + timer_a_inc >= 0x10000)
+        {
+            cpu_ctx->state.reg.pir |= INTR_TA;
+            cpu_ctx->state.reg.timer[TIM_A] += cpu_ctx->state.reg.timer_reset_val[TIM_A];
+        }
+        cpu_ctx->state.reg.timer[TIM_A] += timer_a_inc;
     }
-    cpu_ctx->state.reg.timer[TIM_A] += timer_a_inc;
   }
-  int timer_b_inc = (cpu_ctx->state.global_10usec_timer_clock - cpu_ctx->state.timer_b_global_snap) / 10;
+  int timer_b_inc = (cpu_ctx->state.global_10usec_timer_clock - cpu_ctx->state.timer_b_global_snap) / TIMER_B_RES_IN_10uSEC;
   if (timer_b_inc)
   {
-    cpu_ctx->state.timer_b_global_snap += timer_b_inc * 10;
+    cpu_ctx->state.timer_b_global_snap += timer_b_inc * TIMER_B_RES_IN_10uSEC;
     if (cpu_ctx->state.reg.sys & SYS_TB)
     {
-        if (cpu_ctx->state.reg.timer[TIM_B] <= 0xFFFF && (uint32_t)cpu_ctx->state.reg.timer[TIM_B] + timer_b_inc >= 0x10000)
+        if ((uint32_t)cpu_ctx->state.reg.timer[TIM_B] + timer_b_inc >= 0x10000)
         {
             cpu_ctx->state.reg.pir |= INTR_TB;
             cpu_ctx->state.reg.timer[TIM_B] += cpu_ctx->state.reg.timer_reset_val[TIM_B];
@@ -752,10 +756,11 @@ static void calculate_timers(struct cpu_context *cpu_ctx) {
   {
     cpu_ctx->state.timer_go_global_snap += timer_go_inc * GOTIMER_PERIOD_IN_10uSEC;
 
-    if (cpu_ctx->state.reg.go <= 0xFFFF && (uint32_t)cpu_ctx->state.reg.go + timer_go_inc >= 0x10000)
+    if ((uint32_t)cpu_ctx->state.reg.go + timer_go_inc >= 0x10000)
     {
         cpu_ctx->state.reg.pir |= INTR_MACHERR;   /* machine error         */
 	    cpu_ctx->state.reg.ft |= FT_SYSFAULT0;    /* sysfault 0 : watchdog */
+        fprintf (stderr, "BARK! goes the watchdog (total cycles = %ld, timer_inc = %d , %d )\n", cpu_ctx->state.total_cycles, timer_go_inc, CLK_CYC_EFMR);
     }
     cpu_ctx->state.reg.go += timer_go_inc;
   }
