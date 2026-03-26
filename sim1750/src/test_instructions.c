@@ -28,6 +28,8 @@ uint get_phys_address(struct cpu_state *state, int space, int as, uint16_t addr)
 
 void test_BEX();
 void test_BPT();
+void test_XIO();
+void test_VIO();
 
 /* --- The Test Harness --- */
 struct cpu_context ctx;
@@ -733,6 +735,8 @@ int main() {
 
     test_BEX();
     test_BPT();
+    test_XIO();
+    test_VIO();
     printf("All additional instruction tests passed.\n");
 
     // We are inside sim1750 directory
@@ -772,6 +776,77 @@ void test_BPT() {
 
     /* Nothing explicitly verified for BPT here since its interpreter-level exit logic
        will be handled in the main execution loop/test runner later. */
+    printf("PASSED\n");
+}
+
+void test_XIO() {
+    reset_cpu();
+    printf("Testing XIO... ");
+
+    /* Test 1: XIO 0x2000 (SMK - Set Interrupt Mask) */
+    ctx.state.reg.r[0] = 0xAAAA;
+    uint16_t opcode = 0x4800; // XIO R0, 0x2000 -> RA=0, RX=0.
+    interpret_XIO(&ctx, opcode, 0x2000);
+    assert(ctx.state.reg.mk == 0xAAAA);
+
+    /* Test 2: XIO 0xA000 (RMK - Read Interrupt Mask) */
+    ctx.state.reg.mk = 0x5555;
+    ctx.state.reg.r[1] = 0x0000;
+    opcode = 0x4810; // XIO R1, 0xA000 -> RA=1, RX=0.
+    interpret_XIO(&ctx, opcode, 0xA000);
+    assert(ctx.state.reg.r[1] == 0x5555);
+
+    /* Test 3: XIO 0x5000 (Write Memory Protect RAM) */
+    ctx.state.reg.r[2] = 0x1234;
+    opcode = 0x4820; // XIO R2, 0x500A -> RA=2, RX=0.
+    interpret_XIO(&ctx, opcode, 0x500A);
+    assert(ctx.state.mem_protect[0][0x0A] == 0x1234);
+
+    /* Test 4: XIO 0xD000 (Read Memory Protect RAM) */
+    ctx.state.mem_protect[0][0x0B] = 0xABCD;
+    ctx.state.reg.r[3] = 0x0000;
+    opcode = 0x4830; // XIO R3, 0xD00B -> RA=3, RX=0.
+    interpret_XIO(&ctx, opcode, 0xD00B);
+    assert((uint16_t)ctx.state.reg.r[3] == 0xABCD);
+
+    printf("PASSED\n");
+}
+
+void test_VIO() {
+    reset_cpu();
+    printf("Testing VIO... ");
+
+    /* Setup vector IO memory block */
+    /* DO_ADDR points to vio_struct:
+       word 0: io_cmd
+       word 1: vector_select
+       word 2+: data for selected bits
+    */
+    mock_memory[0x2000] = 0x5000; // Base IO cmd (Write Memory Protect)
+    mock_memory[0x2001] = 0xA000; // Vector select: Bits 0 and 2 set (1010...)
+    mock_memory[0x2002] = 0x1111; // Data for Bit 0
+    mock_memory[0x2003] = 0x2222; // Data for Bit 2
+
+    /* RA (cmd_inc) */
+    ctx.state.reg.r[4] = 0x0001; // Increment command address by 1 per checked bit
+
+    uint16_t opcode = 0x4940; // VIO R4, 0x2000 -> RA=4, RX=0
+
+    interpret_VIO(&ctx, opcode, 0x2000);
+
+    /*
+       Bit 0 was set:
+       IO_cmd = 0x5000. Data = 0x1111 -> Write MP RAM at 0
+       Bit 1 was NOT set:
+       IO_cmd would be evaluated as 0x5001. No write.
+       Bit 2 was set:
+       IO_cmd = 0x5002. Data = 0x2222 -> Write MP RAM at 2
+    */
+
+    assert(ctx.state.mem_protect[0][0] == 0x1111);
+    assert(ctx.state.mem_protect[0][1] == 0x0000); // Unchanged
+    assert(ctx.state.mem_protect[0][2] == 0x2222);
+
     printf("PASSED\n");
 }
 

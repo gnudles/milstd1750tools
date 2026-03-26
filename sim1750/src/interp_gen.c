@@ -1206,9 +1206,9 @@ void emit_instruction (OpcodeDef *def)
                 printf("            ushort* ptr = get_address_data(cpu_ctx, DO_ADDR+2+n);\n");
                 printf("            if (ptr == NULL) { break; }\n");
                 printf("            process_xio(cpu_ctx, current_cmd, ptr);\n");
-                printf("            current_cmd += cmd_inc;\n");
                 printf("            n++;\n");
                 printf("        }\n");
+                printf("        current_cmd += cmd_inc;\n");
                 printf("    }\n");
                 printf("    cpu_ctx->state.total_cycles += CLK_CYC_VIO(n);\n");
             }

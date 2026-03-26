@@ -1165,7 +1165,7 @@ D1XY RIPR	Read Instruction Page Register:  This command transfers the 16-bit
 D2XY ROPR	Read Operand Page Register:  This command transfers the 16-bit contents
 		of page register Y of the operand set of group X to register RA.
 */
-    switch (xio_address & 0x0F00)
+    switch (xio_address & 0x7F00)
     {
         case 0x5000: // or 0xD000
             {
