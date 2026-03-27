@@ -30,6 +30,15 @@ static inline void write_phys_memory(struct cpu_state *cpu, uint32_t phys_addr, 
     cpu->mem[phys_page]->word[phys_addr & 0xFFF] = value;
 }
 
+static inline uint16_t read_phys_memory(struct cpu_state *cpu, uint32_t phys_addr)
+{
+    uint16_t phys_page = phys_addr >> 12;
+    if (cpu->mem[phys_page] == NULL) {
+        return 0;
+    }
+    return cpu->mem[phys_page]->word[phys_addr & 0xFFF];
+}
+
 static inline ushort* access_effective_address(struct cpu_state *cpu, uint32_t phys_addr)
 {
     return &access_memory(cpu, phys_addr >> 12)[phys_addr & 0xFFF];
