@@ -8,7 +8,7 @@
 
 /* Mock peek/poke to write to the physical mem structure */
 bool peek(struct cpu_state *state, uint phys_addr, ushort *word) {
-    uint16_t page = (phys_addr & 0xFFFF) >> 12;
+    uint16_t page = (phys_addr >> 12) & 0xFF;
     if (state->mem[page] == NULL) {
         *word = 0;
     } else {
@@ -18,7 +18,7 @@ bool peek(struct cpu_state *state, uint phys_addr, ushort *word) {
 }
 bool poke(struct cpu_state *state, uint phys_addr, ushort value) {
     /* write_phys_memory guarantees allocation of the page */
-    write_phys_memory(state, phys_addr & 0xFFFF, value);
+    write_phys_memory(state, phys_addr & 0xFFFFF, value);
     return true;
 }
 
