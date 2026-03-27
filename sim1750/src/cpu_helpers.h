@@ -11,19 +11,24 @@
     1750a supports up to 256 pages (which is equivalent to 1024 qpages)
     quarter pages are relevant only for writing
 */
-#ifdef RUNNING_TESTS
-extern uint16_t mock_memory[0x10000];
-static inline ushort* access_memory(struct cpu_state *cpu, uint16_t phys_page)
-{
-    if (phys_page == 0xFFFFFFFF) return &mock_memory[0];
-    return &mock_memory[((uint)phys_page<<12) & 0xFFFF];
-}
-#else
 static inline ushort* access_memory(struct cpu_state *cpu, uint16_t phys_page)
 {
     return cpu->mem[phys_page]->word;
 }
-#endif
+
+static inline void write_phys_memory(struct cpu_state *cpu, uint32_t phys_addr, uint16_t value)
+{
+    uint16_t phys_page = phys_addr >> 12;
+    if (cpu->mem[phys_page] == NULL)
+    {
+        if ((cpu->mem[phys_page] = (mem_t *) calloc(1, sizeof(mem_t))) == MNULL)
+        {
+            fprintf(stderr, "write_phys_memory: dynamic memory exhausted\n");
+            exit(EXIT_FAILURE);
+        }
+    }
+    cpu->mem[phys_page]->word[phys_addr & 0xFFF] = value;
+}
 
 static inline ushort* access_effective_address(struct cpu_state *cpu, uint32_t phys_addr)
 {
