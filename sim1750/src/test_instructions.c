@@ -34,6 +34,10 @@ void test_VIO();
 void test_Memory_Access();
 void test_Memory_Cache();
 void test_MOV();
+void test_Arithmetic();
+void test_BitLogic();
+void test_Stack();
+void test_ControlFlow();
 
 /* --- The Test Harness --- */
 struct cpu_context ctx;
@@ -750,6 +754,10 @@ int main() {
     test_Memory_Access();
     test_Memory_Cache();
     test_MOV();
+    test_Arithmetic();
+    test_BitLogic();
+    test_Stack();
+    test_ControlFlow();
     printf("All additional instruction tests passed.\n");
 
     // We are inside sim1750 directory
@@ -1058,6 +1066,214 @@ void test_Memory_Cache() {
     interpret_XIO(&ctx, opcode, imm);
 
     assert(ctx.state.code_read_cache.valid == 0);
+
+    printf("PASSED\n");
+}
+
+void test_Arithmetic() {
+    reset_cpu();
+    printf("Testing Arithmetic... ");
+
+    // Test AR (Add Register)
+    // Opcode A1xy -> AR R2, R3 (0xA123)
+    ctx.state.reg.r[2] = 0x1111;
+    ctx.state.reg.r[3] = 0x2222;
+    interpret_AR(&ctx, 0xA123, 0);
+    assert(ctx.state.reg.r[2] == 0x3333);
+    assert(ctx.state.reg.sw & CS_POSITIVE);
+
+    // Test SR (Subtract Register)
+    // Opcode B1xy -> SR R4, R5 (0xB145)
+    ctx.state.reg.r[4] = 0x5555;
+    ctx.state.reg.r[5] = 0x1111;
+    interpret_SR(&ctx, 0xB145, 0);
+    assert(ctx.state.reg.r[4] == 0x4444);
+    assert(ctx.state.reg.sw & CS_POSITIVE);
+
+    // Test MR (Multiply Register)
+    // Opcode C5xy -> MR R6, R7 (0xC567)
+    // R6 gets high word, R7 gets low word (but RA must be even, so R6, R7 are the pair)
+    ctx.state.reg.r[6] = 0x0002;
+    ctx.state.reg.r[7] = 0xFFFF; // -1
+    interpret_MR(&ctx, 0xC567, 0);
+    // 2 * -1 = -2 = 0xFFFFFFFE -> R6=0xFFFF, R7=0xFFFE
+    assert(ctx.state.reg.r[6] == (int16_t)0xFFFF);
+    assert(ctx.state.reg.r[7] == (int16_t)0xFFFE);
+    assert(ctx.state.reg.sw & CS_NEGATIVE);
+
+    // Test DR (Divide Register)
+    // Opcode D5xy -> DR R8, R10 (0xD58A)
+    // A / B -> Quotient in RA, Remainder in RA+1
+    // A is a 32-bit number formed by (R8 << 16) | R9
+    ctx.state.reg.r[8] = 0;
+    ctx.state.reg.r[9] = 10;
+    ctx.state.reg.r[10] = 3;
+    interpret_DR(&ctx, 0xD58A, 0);
+    assert(ctx.state.reg.r[8] == 3);  // Quotient
+    assert(ctx.state.reg.r[9] == 1);  // Remainder
+
+    printf("PASSED\n");
+}
+
+void test_BitLogic() {
+    reset_cpu();
+    printf("Testing Bit and Logic Operations... ");
+
+    // SBR (Set Bit Register) - 0x51xy
+    ctx.state.reg.r[0] = 0x0000;
+    interpret_SBR(&ctx, 0x5130, 0); // Set bit 3 in R0
+    assert(ctx.state.reg.r[0] == 0x1000); // 0001 0000 ...
+
+    // RBR (Reset Bit Register) - 0x54xy
+    interpret_RBR(&ctx, 0x5430, 0);
+    assert(ctx.state.reg.r[0] == 0x0000);
+
+    // TBR (Test Bit Register) - 0x57xy
+    ctx.state.reg.r[1] = 0x1000;
+    ctx.state.reg.sw = 0x0000;
+    interpret_TBR(&ctx, 0x5731, 0); // Test bit 3
+    assert(ctx.state.reg.sw & CS_POSITIVE); // Bit is on -> POSITIVE because bit 3 > 0
+
+    ctx.state.reg.sw = 0x0000;
+    interpret_TBR(&ctx, 0x5741, 0); // Test bit 4
+    assert(ctx.state.reg.sw & CS_ZERO); // Bit is off -> ZERO
+
+    // ANDR (AND Register) - 0xE3xy
+    ctx.state.reg.r[2] = 0xF0F0;
+    ctx.state.reg.r[3] = 0x0FF0;
+    interpret_ANDR(&ctx, 0xE323, 0);
+    assert(ctx.state.reg.r[2] == 0x00F0);
+
+    // ORR (OR Register) - 0xE1xy
+    ctx.state.reg.r[4] = 0x0A00;
+    ctx.state.reg.r[5] = 0x000B;
+    interpret_ORR(&ctx, 0xE145, 0);
+    assert(ctx.state.reg.r[4] == 0x0A0B);
+
+    // XORR (XOR Register) - 0xE5xy
+    ctx.state.reg.r[6] = 0xFFFF;
+    ctx.state.reg.r[7] = 0x00FF;
+    interpret_XORR(&ctx, 0xE567, 0);
+    assert(ctx.state.reg.r[6] == (int16_t)0xFF00);
+
+    // NR (NAND Register) - 0xE7xy
+    ctx.state.reg.r[8] = 0xFFFF;
+    ctx.state.reg.r[9] = 0xFFFF;
+    interpret_NR(&ctx, 0xE789, 0);
+    assert(ctx.state.reg.r[8] == 0x0000);
+
+    printf("PASSED\n");
+}
+
+void test_Stack() {
+    reset_cpu();
+    printf("Testing Stack Operations... ");
+
+    // Setup Stack Pointer
+    ctx.state.reg.r[15] = 0x1000;
+
+    // Fill registers R3 to R5
+    ctx.state.reg.r[3] = 0x3333;
+    ctx.state.reg.r[4] = 0x4444;
+    ctx.state.reg.r[5] = 0x5555;
+
+    // PSHM (Push Multiple) - 0x9Fxy
+    // Push R3 through R5 (RA=3, RB=5)
+    interpret_PSHM(&ctx, 0x9F35, 0);
+
+    // R15 should be decremented by 3
+    assert(ctx.state.reg.r[15] == 0x0FFD);
+
+    // Check memory (R15 grows downwards, so R5 is at 0x0FFD, R4 at 0x0FFE, R3 at 0x0FFF)
+    assert(read_phys_memory(&ctx.state, 0x0FFD) == 0x3333); // R3
+    assert(read_phys_memory(&ctx.state, 0x0FFE) == 0x4444); // R4
+    assert(read_phys_memory(&ctx.state, 0x0FFF) == 0x5555); // R5
+
+    // Clear registers
+    ctx.state.reg.r[3] = 0;
+    ctx.state.reg.r[4] = 0;
+    ctx.state.reg.r[5] = 0;
+
+    // POPM (Pop Multiple) - 0x8Fxy
+    // Pop R3 through R5 (RA=3, RB=5)
+    interpret_POPM(&ctx, 0x8F35, 0);
+
+    // R15 should be back to 0x1000
+    assert(ctx.state.reg.r[15] == 0x1000);
+
+    // Check registers are restored
+    assert(ctx.state.reg.r[3] == 0x3333);
+    assert(ctx.state.reg.r[4] == 0x4444);
+    assert(ctx.state.reg.r[5] == 0x5555);
+
+    // Test Wrap-around push (RA > RB)
+    // Push R14 through R1 (RA=14, RB=1) -> 14, 15, 0, 1 (4 registers)
+    ctx.state.reg.r[14] = 0xEEEE;
+    ctx.state.reg.r[15] = 0x2000; // Reset SP
+    ctx.state.reg.r[0] = 0xAAAA;
+    ctx.state.reg.r[1] = 0xBBBB;
+
+    interpret_PSHM(&ctx, 0x9FE1, 0);
+
+    // SP decremented by 4
+    assert(ctx.state.reg.r[15] == 0x1FFC);
+
+    // Check wrap-around memory structure
+    assert(read_phys_memory(&ctx.state, 0x1FFC) == 0xEEEE); // R14
+    // R15 should be stored as the value it had AT THE MOMENT of its insertion!
+    // At insertion (after R14), R15 would be 0x1FFE (since 2 more registers R0, R1 are pushed after it,
+    // wait: R15 is inserted at offset 1! Initial SP=0x2000, count=4. Final SP=0x1FFC.
+    // 0x1FFC -> R14, 0x1FFD -> R15, 0x1FFE -> R0, 0x1FFF -> R1
+    // The value of R15 inserted should be 0x1FFD.
+    assert(read_phys_memory(&ctx.state, 0x1FFD) == 0x1FFD); // R15
+    assert(read_phys_memory(&ctx.state, 0x1FFE) == 0xAAAA); // R0
+    assert(read_phys_memory(&ctx.state, 0x1FFF) == 0xBBBB); // R1
+
+    printf("PASSED\n");
+}
+
+void test_ControlFlow() {
+    reset_cpu();
+    printf("Testing Control Flow Operations... ");
+
+    // Setup typical environment
+    ctx.state.reg.ic = 0x1000;
+
+    // BR (Branch Unconditional) - 0x74xy
+    // 0x7405 -> Branch +5 (forward)
+    interpret_BR(&ctx, 0x7405, 0);
+    assert(ctx.state.reg.ic == 0x1005);
+
+    // 0x74F0 -> Branch -16 (backward)
+    // 0xF0 signed is -16. From 0x1005, it should go to 0x0FF5
+    interpret_BR(&ctx, 0x74F0, 0);
+    assert(ctx.state.reg.ic == 0x0FF5);
+
+    // JC (Jump Conditional) - 0x70xy
+    // 0x7070 -> Condition 7 is unconditional jump
+    // Needs DO_ADDR -> Memory fetch
+    ctx.state.reg.ic = 0x1000;
+    ctx.state.reg.r[0] = 0x0000; // Base relative RX=0
+    write_phys_memory(&ctx.state, 0x1001, 0x5555); // Immediate address value
+    interpret_JC(&ctx, 0x7070, read_phys_memory(&ctx.state, 0x1001));
+    assert(ctx.state.reg.ic == 0x5555); // Jumped unconditionally
+
+    // JS (Jump to Subroutine) - 0x72xy
+    ctx.state.reg.ic = 0x1000;
+    ctx.state.reg.r[2] = 0x0000;
+    write_phys_memory(&ctx.state, 0x1001, 0x6666); // Target Address
+    interpret_JS(&ctx, 0x7220, read_phys_memory(&ctx.state, 0x1001));
+    assert(ctx.state.reg.ic == 0x6666); // PC changed to subroutine
+    assert(ctx.state.reg.r[2] == 0x1002); // Return address saved in R2
+
+    // URS (Return from Subroutine) - 0x7Fxy
+    // Memory should hold the target address
+    ctx.state.reg.ic = 0x6666;
+    ctx.state.reg.r[3] = 0x1002;
+    write_phys_memory(&ctx.state, 0x1002, 0x8888); // Target return IC
+    interpret_URS(&ctx, 0x7F30, 0);
+    assert(ctx.state.reg.ic == 0x8888);
+    assert(ctx.state.reg.r[3] == 0x1003); // Register incremented
 
     printf("PASSED\n");
 }
