@@ -36,6 +36,9 @@ void test_BEX();
 void test_BPT();
 void test_XIO();
 void test_VIO();
+void test_Memory_Access();
+void test_Memory_Cache();
+void test_MOV();
 
 /* --- The Test Harness --- */
 struct cpu_context ctx;
@@ -777,6 +780,9 @@ int main() {
     test_BPT();
     test_XIO();
     test_VIO();
+    test_Memory_Access();
+    test_Memory_Cache();
+    test_MOV();
     printf("All additional instruction tests passed.\n");
 
     // We are inside sim1750 directory
@@ -826,28 +832,148 @@ void test_XIO() {
     /* Test 1: XIO 0x2000 (SMK - Set Interrupt Mask) */
     ctx.state.reg.r[0] = 0xAAAA;
     uint16_t opcode = 0x4800; // XIO R0, 0x2000 -> RA=0, RX=0.
-    interpret_XIO(&ctx, opcode, 0x2000);
+    uint16_t imm = 0;
+
+    poke(&ctx.state, 0x0001, 0x2000);
+    peek(&ctx.state, 0x0001, &imm);
+    interpret_XIO(&ctx, opcode, imm);
     assert(ctx.state.reg.mk == 0xAAAA);
 
     /* Test 2: XIO 0xA000 (RMK - Read Interrupt Mask) */
     ctx.state.reg.mk = 0x5555;
     ctx.state.reg.r[1] = 0x0000;
     opcode = 0x4810; // XIO R1, 0xA000 -> RA=1, RX=0.
-    interpret_XIO(&ctx, opcode, 0xA000);
+    poke(&ctx.state, 0x0001, 0xA000);
+    peek(&ctx.state, 0x0001, &imm);
+    interpret_XIO(&ctx, opcode, imm);
     assert(ctx.state.reg.r[1] == 0x5555);
 
     /* Test 3: XIO 0x5000 (Write Memory Protect RAM) */
     ctx.state.reg.r[2] = 0x1234;
     opcode = 0x4820; // XIO R2, 0x500A -> RA=2, RX=0.
-    interpret_XIO(&ctx, opcode, 0x500A);
+    poke(&ctx.state, 0x0001, 0x500A);
+    peek(&ctx.state, 0x0001, &imm);
+    interpret_XIO(&ctx, opcode, imm);
     assert(ctx.state.mem_protect[0][0x0A] == 0x1234);
 
     /* Test 4: XIO 0xD000 (Read Memory Protect RAM) */
     ctx.state.mem_protect[0][0x0B] = 0xABCD;
     ctx.state.reg.r[3] = 0x0000;
     opcode = 0x4830; // XIO R3, 0xD00B -> RA=3, RX=0.
-    interpret_XIO(&ctx, opcode, 0xD00B);
+    poke(&ctx.state, 0x0001, 0xD00B);
+    peek(&ctx.state, 0x0001, &imm);
+    interpret_XIO(&ctx, opcode, imm);
     assert((uint16_t)ctx.state.reg.r[3] == 0xABCD);
+
+    /* Test 5: XIO 0x2001 (Clear Interrupt Request) */
+    ctx.state.reg.pir = 0xFFFF;
+    ctx.state.reg.ft = 0x1234;
+    opcode = 0x4800; // XIO R0, 0x2001
+    poke(&ctx.state, 0x0001, 0x2001);
+    peek(&ctx.state, 0x0001, &imm);
+    interpret_XIO(&ctx, opcode, imm);
+    assert(ctx.state.reg.pir == 0);
+    assert(ctx.state.reg.ft == 0);
+
+    /* Test 6: XIO 0x2002 (Enable Interrupts) */
+    ctx.state.reg.sys = 0;
+    ctx.state.reg.sys_update = 0;
+    opcode = 0x4800; // XIO R0, 0x2002
+    poke(&ctx.state, 0x0001, 0x2002);
+    peek(&ctx.state, 0x0001, &imm);
+    interpret_XIO(&ctx, opcode, imm);
+    assert(ctx.state.reg.sys_update & SYS_INT);
+
+    /* Test 7: XIO 0x2003 (Disable Interrupts) */
+    ctx.state.reg.sys = SYS_INT;
+    opcode = 0x4800; // XIO R0, 0x2003
+    poke(&ctx.state, 0x0001, 0x2003);
+    peek(&ctx.state, 0x0001, &imm);
+    interpret_XIO(&ctx, opcode, imm);
+    assert(!(ctx.state.reg.sys & SYS_INT));
+
+    /* Test 8: XIO 0x2004 (Reset Pending Interrupt) */
+    ctx.state.reg.pir = 0xFFFF;
+    ctx.state.reg.r[0] = 0x0005; // Reset interrupt 5
+    opcode = 0x4800; // XIO R0, 0x2004
+    poke(&ctx.state, 0x0001, 0x2004);
+    peek(&ctx.state, 0x0001, &imm);
+    interpret_XIO(&ctx, opcode, imm);
+    assert((ctx.state.reg.pir & (0x8000 >> 5)) == 0);
+
+    /* Test 9: XIO 0x2005 (Set Pending Interrupt) */
+    ctx.state.reg.pir = 0x0000;
+    ctx.state.reg.pir_update = 0x0000;
+    ctx.state.reg.r[0] = 0x0400; // Set interrupt 5
+    opcode = 0x4800; // XIO R0, 0x2005
+    poke(&ctx.state, 0x0001, 0x2005);
+    peek(&ctx.state, 0x0001, &imm);
+    interpret_XIO(&ctx, opcode, imm);
+    assert(ctx.state.reg.pir_update == 0x0400);
+
+    /* Test 10: XIO 0x200E (Write Status Word) */
+    ctx.state.reg.sw = 0x0000;
+    ctx.state.reg.r[0] = 0x1234;
+    opcode = 0x4800; // XIO R0, 0x200E
+    poke(&ctx.state, 0x0001, 0x200E);
+    peek(&ctx.state, 0x0001, &imm);
+    interpret_XIO(&ctx, opcode, imm);
+    assert(ctx.state.reg.sw == 0x1234);
+
+    /* Test 11: XIO 0x4003 (Memory Protect Enable) */
+    ctx.state.reg.sw = 0x0000; // Must be 0 to allow privileged instructions
+    ctx.state.reg.sys = 0x0000;
+    opcode = 0x4800; // XIO R0, 0x4003
+    poke(&ctx.state, 0x0001, 0x4003);
+    peek(&ctx.state, 0x0001, &imm);
+    interpret_XIO(&ctx, opcode, imm);
+    assert(ctx.state.reg.sys & SYS_MEM_PROT);
+
+    /* Test 12: XIO 0xA004 (Read Pending Interrupt) */
+    ctx.state.reg.pir = 0xDEAD;
+    ctx.state.reg.r[1] = 0x0000;
+    opcode = 0x4810; // XIO R1, 0xA004
+    poke(&ctx.state, 0x0001, 0xA004);
+    peek(&ctx.state, 0x0001, &imm);
+    interpret_XIO(&ctx, opcode, imm);
+    assert((uint16_t)ctx.state.reg.r[1] == 0xDEAD);
+
+    /* Test 13: XIO 0x5100 (Write Instruction Page Register) */
+    ctx.state.reg.r[0] = 0x1234;
+    opcode = 0x4800; // XIO R0, 0x5123 -> group 2, page 3
+    poke(&ctx.state, 0x0001, 0x5123);
+    peek(&ctx.state, 0x0001, &imm);
+    interpret_XIO(&ctx, opcode, imm);
+    // bank CODE = 0, group = 2, page = 3
+    assert(ctx.state.pagereg[CODE][2][3].word == 0x1234);
+
+    /* Test 14: XIO 0xD100 (Read Instruction Page Register) */
+    ctx.state.pagereg[CODE][5][15].word = 0x5678;
+    ctx.state.reg.r[1] = 0x0000;
+    opcode = 0x4810; // XIO R1, 0xD15F -> group 5, page 15
+    poke(&ctx.state, 0x0001, 0xD15F);
+    peek(&ctx.state, 0x0001, &imm);
+    interpret_XIO(&ctx, opcode, imm);
+    assert(ctx.state.reg.r[1] == 0x5678);
+
+    /* Test 15: XIO 0x5200 (Write Operand Page Register) */
+    ctx.state.reg.sw = 0x0000;
+    ctx.state.reg.r[2] = 0x9ABC;
+    opcode = 0x4820; // XIO R2, 0x5242 -> group 4, page 2
+    poke(&ctx.state, 0x0001, 0x5242);
+    peek(&ctx.state, 0x0001, &imm);
+    interpret_XIO(&ctx, opcode, imm);
+    // bank DATA = 1, group = 4, page = 2
+    assert((uint16_t)ctx.state.pagereg[DATA][4][2].word == 0x9ABC);
+
+    /* Test 16: XIO 0xD200 (Read Operand Page Register) */
+    ctx.state.pagereg[DATA][10][1].word = 0xDEF0;
+    ctx.state.reg.r[3] = 0x0000;
+    opcode = 0x4830; // XIO R3, 0xD2A1 -> group A, page 1
+    poke(&ctx.state, 0x0001, 0xD2A1);
+    peek(&ctx.state, 0x0001, &imm);
+    interpret_XIO(&ctx, opcode, imm);
+    assert((uint16_t)ctx.state.reg.r[3] == 0xDEF0);
 
     printf("PASSED\n");
 }
@@ -889,6 +1015,150 @@ void test_VIO() {
     assert(ctx.state.mem_protect[0][0] == 0x1111);
     assert(ctx.state.mem_protect[0][1] == 0x0000); // Unchanged
     assert(ctx.state.mem_protect[0][2] == 0x2222);
+
+    printf("PASSED\n");
+}
+
+void test_Memory_Access() {
+    reset_cpu();
+    printf("Testing Memory Access Functions... ");
+
+    // Test store_data_word and fetch_data_word
+    ctx.state.reg.sw = 0x0000;
+    ctx.state.pagereg[DATA][0][1].ppa = 5; // Logical page 1 maps to Physical page 5
+    bool ok = store_data_word(&ctx, 0x1050, 0x55AA);
+    assert(ok);
+
+    uint16_t fetched_word = 0;
+    ok = fetch_data_word(&ctx, 0x1050, &fetched_word);
+    assert(ok);
+    assert(fetched_word == 0x55AA);
+    assert(ctx.state.mem[5]->word[0x050] == 0x55AA);
+
+    // Test fetch_data_words and store_data_words
+    uint16_t words_to_store[3] = {0x1111, 0x2222, 0x3333};
+    store_data_words(&ctx, 0x1051, 3, words_to_store);
+
+    uint16_t fetched_words[3] = {0, 0, 0};
+    fetch_data_words(&ctx, 0x1051, 3, fetched_words);
+    assert(fetched_words[0] == 0x1111);
+    assert(fetched_words[1] == 0x2222);
+    assert(fetched_words[2] == 0x3333);
+
+    // Test cross-page boundary operations
+    ctx.state.pagereg[DATA][0][2].ppa = 6;
+    uint16_t cross_words[2] = {0xAAAA, 0xBBBB};
+    store_data_words(&ctx, 0x1FFF, 2, cross_words);
+
+    uint16_t fetched_cross[2] = {0, 0};
+    fetch_data_words(&ctx, 0x1FFF, 2, fetched_cross);
+    assert(fetched_cross[0] == 0xAAAA);
+    assert(fetched_cross[1] == 0xBBBB);
+
+    // Verify physical layout directly
+    assert(ctx.state.mem[5]->word[0xFFF] == 0xAAAA);
+    assert(ctx.state.mem[6]->word[0x000] == 0xBBBB);
+
+    printf("PASSED\n");
+}
+
+void test_Memory_Cache() {
+    reset_cpu();
+    printf("Testing Memory Caching Mechanism... ");
+
+    ctx.state.reg.sw = 0x0000;
+    ctx.state.pagereg[DATA][0][3].ppa = 8;
+    ctx.state.pagereg[CODE][0][4].ppa = 9;
+
+    // Initially caches are invalid
+    assert(ctx.state.data_write_cache.valid == 0);
+    assert(ctx.state.data_read_cache.valid == 0);
+    assert(ctx.state.code_read_cache.valid == 0);
+
+    // 1. Data Write Cache
+    store_data_word(&ctx, 0x3100, 0x1234);
+    // Logical qpage is 0x3100 >> 10 = 0x0C = 12
+    assert(ctx.state.data_write_cache.valid & (0x8000000000000000ULL >> 12));
+    assert(ctx.state.data_write_cache.page[12/4] == 8);
+
+    // 2. Data Read Cache
+    uint16_t fetched;
+    fetch_data_word(&ctx, 0x3100, &fetched);
+    // Logical page is 3
+    assert(ctx.state.data_read_cache.valid & (0x8000U >> 3));
+    assert(ctx.state.data_read_cache.page[3] == 8);
+
+    // 3. Code Read Cache
+    get_page_address_read_code(&ctx.state, 4);
+    assert(ctx.state.code_read_cache.valid & (0x8000U >> 4));
+    assert(ctx.state.code_read_cache.page[4] == 9);
+
+    // 4. Writing to page registers should invalidate caches
+    uint16_t opcode = 0x4800; // XIO R0, 0x5200 (Write Operand Page Register)
+    ctx.state.reg.r[0] = 0x1234;
+    poke(&ctx.state, 0x0001, 0x5200);
+    uint16_t imm = 0;
+    peek(&ctx.state, 0x0001, &imm);
+    interpret_XIO(&ctx, opcode, imm);
+
+    assert(ctx.state.data_read_cache.valid == 0);
+    assert(ctx.state.data_write_cache.valid == 0);
+
+    opcode = 0x4800; // XIO R0, 0x5100 (Write Instruction Page Register)
+    poke(&ctx.state, 0x0001, 0x5100);
+    peek(&ctx.state, 0x0001, &imm);
+    interpret_XIO(&ctx, opcode, imm);
+
+    assert(ctx.state.code_read_cache.valid == 0);
+
+    printf("PASSED\n");
+}
+
+void test_MOV() {
+    reset_cpu();
+    printf("Testing MOV Instruction... ");
+
+    // Setup memory mapping for MOV (cross-page boundaries)
+    // Source: logical page 1 (phys 5) to logical page 2 (phys 6)
+    ctx.state.pagereg[DATA][0][1].ppa = 5;
+    ctx.state.pagereg[DATA][0][2].ppa = 6;
+
+    // Dest: logical page 3 (phys 7) to logical page 4 (phys 8)
+    ctx.state.pagereg[DATA][0][3].ppa = 7;
+    ctx.state.pagereg[DATA][0][4].ppa = 8;
+
+    // Fill source memory
+    // Start at 0x1FF0 (logical page 1), count = 32 words -> crosses to 0x200F (logical page 2)
+    for (int i = 0; i < 32; i++) {
+        store_data_word(&ctx, 0x1FF0 + i, 0xA000 + i);
+    }
+
+    // Set up registers for MOV
+    // Opcode: MOV R2, R4 -> 0x9324 (RA=2, RB=4)
+    // R2 = Dest Address (0x3FF0)
+    // R3 = Count (32)
+    // R4 = Source Address (0x1FF0)
+    ctx.state.reg.r[2] = 0x3FF0;
+    ctx.state.reg.r[3] = 32;
+    ctx.state.reg.r[4] = 0x1FF0;
+
+    uint16_t opcode = 0x9324;
+    interpret_MOV(&ctx, opcode, 0);
+
+    // Assert that the instruction processed correctly
+    // Count should be 0, and R2/R4 should be advanced by 32
+    assert(ctx.state.reg.r[3] == 0);
+    assert((uint16_t)ctx.state.reg.r[2] == 0x3FF0 + 32);
+    assert((uint16_t)ctx.state.reg.r[4] == 0x1FF0 + 32);
+
+    // Verify destination memory
+    // 0x3FF0 is in physical page 7, from offset 0xFF0 to 0xFFF (16 words)
+    // 0x4000 is in physical page 8, from offset 0x000 to 0x00F (16 words)
+    for (int i = 0; i < 32; i++) {
+        uint16_t val;
+        fetch_data_word(&ctx, 0x3FF0 + i, &val);
+        assert(val == 0xA000 + i);
+    }
 
     printf("PASSED\n");
 }

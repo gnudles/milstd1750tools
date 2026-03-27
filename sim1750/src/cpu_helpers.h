@@ -304,6 +304,7 @@ uint16_t fetch_data_words(struct cpu_context *cpu_ctx, uint16_t addr, uint16_t c
         }
         count -= remaining;
         addr += remaining;
+        data += remaining;
     }
     return 0;
 }
@@ -323,6 +324,7 @@ uint16_t fetch_data_words_intr(struct cpu_context *cpu_ctx, uint16_t addr, uint1
         }
         count -= remaining;
         addr += remaining;
+        data += remaining;
     }
     return 0;
 }
@@ -342,6 +344,7 @@ uint16_t fetch_data_words_reg(struct cpu_context *cpu_ctx, uint16_t addr, uint16
         }
         count -= remaining;
         addr += remaining;
+        RA += remaining;
     }
     return 0;
 }
@@ -376,6 +379,7 @@ uint16_t get_addresses_data(struct cpu_context *cpu_ctx, uint16_t addr, uint16_t
         }
         count -= remaining;
         addr += remaining;
+        pointers += remaining;
     }
     return 0;
 }
@@ -395,6 +399,7 @@ uint16_t store_data_words(struct cpu_context *cpu_ctx, uint16_t addr, uint16_t c
         }
         count -= remaining;
         addr += remaining;
+        data += remaining;
     }
     return 0;
 }
