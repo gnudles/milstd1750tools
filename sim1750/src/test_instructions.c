@@ -66,7 +66,7 @@ void reset_cpu() {
     ctx.state.data_read_cache_intr.valid = 0;
     ctx.state.code_read_cache.valid = 0;
     ctx.state.data_write_cache.valid = 0;
-    ctx.state.reg.sys |= SYS_TA | SYS_TB;
+    ctx.state.reg.sys = SYS_TA | SYS_TB;
     ctx.state.num_phys_mem_pages = 16;
     ctx.state.halt = NO_HALT;
     ctx.state.next_scheduled_timer_calc_cycles = 0;
@@ -123,9 +123,11 @@ void run_ldm_test(const char *fname) {
 
     // Let the main loop handle interrupts via process_interrupt().
     // We just need to give it enough cycles.
+    // Important: we must request more cycles than `next_scheduled_timer_calc_cycles`
+    // to allow the internal loop to calculate and evaluate timers.
     while (ctx.state.halt == NO_HALT)
     {
-        cpu_mainloop(&ctx, ctx.state.total_cycles + 1000);
+        cpu_mainloop(&ctx, ctx.state.total_cycles + 100000);
     }
 
     uint16_t status = read_phys_memory(&ctx.state, 0x2000);
@@ -767,6 +769,7 @@ int main() {
     run_ldm_test("automated_tests/cmp_test.ldm");
     run_ldm_test("automated_tests/e_calc.ldm");
     run_ldm_test("automated_tests/pi_calc.ldm");
+    run_ldm_test("automated_tests/timer_test.ldm");
 
     return 0;
 }
