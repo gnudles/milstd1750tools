@@ -714,33 +714,33 @@ static inline void invalidate_mem_cache(struct cpu_context *cpu_ctx) {
 /*should be called right after calculate_timers*/
 static void calculate_next_scheduled_timers_check(struct cpu_context *cpu_ctx) {
     
-    uint64_t time_to_timer_b_expiration_ns = 0;
-    uint64_t go_timer_expiration_ns = 0;
-    uint64_t nearest_time_ns;
+    uint32_t go_timer_expiration_10us = 0;
+    uint32_t nearest_time_10us;
 
-    go_timer_expiration_ns  = ((0x10000 - cpu_ctx->state.reg.go)* GOTIMER_PERIOD_IN_10uSEC + cpu_ctx->state.global_10usec_timer_clock - cpu_ctx->state.timer_go_global_snap) * 10000LL ;
+    go_timer_expiration_10us  = ((0x10000 - cpu_ctx->state.reg.go)* GOTIMER_PERIOD_IN_10uSEC + cpu_ctx->state.global_10usec_timer_clock - cpu_ctx->state.timer_go_global_snap) ;
     
-    nearest_time_ns = go_timer_expiration_ns;
+    nearest_time_10us = go_timer_expiration_10us;
 
     if (cpu_ctx->state.reg.sys & SYS_TA)
     {
-        uint64_t time_to_timer_a_expiration_ns;
-        time_to_timer_a_expiration_ns  = ((0x10000 - cpu_ctx->state.reg.timer[TIM_A]) * TIMER_A_RES_IN_10uSEC + cpu_ctx->state.global_10usec_timer_clock - cpu_ctx->state.timer_a_global_snap) * 10000LL;
-        if (time_to_timer_a_expiration_ns < nearest_time_ns)
+        uint32_t time_to_timer_a_expiration_10us;
+        time_to_timer_a_expiration_10us  = ((0x10000 - cpu_ctx->state.reg.timer[TIM_A]) * TIMER_A_RES_IN_10uSEC + cpu_ctx->state.global_10usec_timer_clock - cpu_ctx->state.timer_a_global_snap);
+        if (time_to_timer_a_expiration_10us < nearest_time_10us)
         {
-            nearest_time_ns = time_to_timer_a_expiration_ns;
+            nearest_time_10us = time_to_timer_a_expiration_10us;
         }
     }
     if (cpu_ctx->state.reg.sys & SYS_TB)
     {
-        uint64_t time_to_timer_b_expiration_ns;
-        time_to_timer_b_expiration_ns  = ((0x10000 - cpu_ctx->state.reg.timer[TIM_B])* TIMER_B_RES_IN_10uSEC + cpu_ctx->state.global_10usec_timer_clock - cpu_ctx->state.timer_b_global_snap) * 10000LL;
-        if (time_to_timer_b_expiration_ns < nearest_time_ns)
+        uint32_t time_to_timer_b_expiration_10us;
+        time_to_timer_b_expiration_10us  = ((0x10000 - cpu_ctx->state.reg.timer[TIM_B])* TIMER_B_RES_IN_10uSEC + cpu_ctx->state.global_10usec_timer_clock - cpu_ctx->state.timer_b_global_snap);
+        if (time_to_timer_b_expiration_10us < nearest_time_10us)
         {
-            nearest_time_ns = time_to_timer_b_expiration_ns;
+            nearest_time_10us = time_to_timer_b_expiration_10us;
         }
     }
-    cpu_ctx->state.next_scheduled_timer_calc_cycles = cpu_ctx->state.total_cycles + (nearest_time_ns - cpu_ctx->state.timer_ns_remainder + (CYCLE_DURATION_IN_NS-1)) / CYCLE_DURATION_IN_NS;
+    // convert to nanoseconds, add num of nanoseconds till next 100Khz tick, and then convert to cycles and add to current cycles to get the next scheduled timer check cycle count
+    cpu_ctx->state.next_scheduled_timer_calc_cycles = cpu_ctx->state.total_cycles + (nearest_time_10us * 10000LL - cpu_ctx->state.timer_ns_remainder + (CYCLE_DURATION_IN_NS-1)) / CYCLE_DURATION_IN_NS;
     if (cpu_ctx->state.nearest_cycles_stop > cpu_ctx->state.next_scheduled_timer_calc_cycles)
     {
         cpu_ctx->state.nearest_cycles_stop = cpu_ctx->state.next_scheduled_timer_calc_cycles;
