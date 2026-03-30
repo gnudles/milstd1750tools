@@ -127,7 +127,7 @@ void run_ldm_test(const char *fname) {
     // to allow the internal loop to calculate and evaluate timers.
     while (ctx.state.halt == NO_HALT)
     {
-        cpu_mainloop(&ctx, ctx.state.total_cycles + 100000);
+        cpu_mainloop(&ctx, ctx.state.total_cycles + 1000);
     }
 
     uint16_t status = read_phys_memory(&ctx.state, 0x2000);
