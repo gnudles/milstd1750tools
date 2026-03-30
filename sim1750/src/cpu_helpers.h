@@ -1419,7 +1419,7 @@ int cpu_mainloop(struct cpu_context *cpu_ctx, uint64_t up_to_cycles)
             continue;
         }
         opcode = access_memory(&cpu_ctx->state, phys_page)[cpu_ctx->state.reg.ic  & 0xFFF];
-        if (cpu_ctx->state.reg.ic & 0x0FFF == 0x0FFF)
+        if ((cpu_ctx->state.reg.ic & 0x0FFF) == 0x0FFF)
         {
             phys_page = get_page_address_read_code(&cpu_ctx->state, (cpu_ctx->state.reg.ic + 1) >> 12);
             if (phys_page == 0xFFFFFFFF)
@@ -1437,6 +1437,7 @@ int cpu_mainloop(struct cpu_context *cpu_ctx, uint64_t up_to_cycles)
             if (cpu_ctx->state.total_cycles >= cpu_ctx->state.next_scheduled_timer_calc_cycles)
             {
                 calculate_timers(cpu_ctx);
+                cpu_ctx->state.nearest_cycles_stop = up_to_cycles;
                 calculate_next_scheduled_timers_check(cpu_ctx);
             }
             if (cpu_ctx->state.total_cycles >= up_to_cycles)
