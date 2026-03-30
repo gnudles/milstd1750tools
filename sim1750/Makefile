@@ -42,7 +42,7 @@ OBJECTS= $(OBJ)/arith.o		\
 	 $(OBJ)/load_coff.o	\
 	 $(OBJ)/xiodef.o \
 	 $(OBJ)/jit.o \
-	 $(OBJ)/m1750_def.o \
+	 $(OBJ)/jit_defs.o \
      $(OBJ)/new_cpu.o \
 	 $(OBJ)/sljitLir.o
 
@@ -54,12 +54,12 @@ all: sim1750 interp_gen test_inst
 sim1750: $(OBJ) $(OBJECTS)
 	# $(CC) $(CFLAGS) -o $(PROJ_DIR)/sim1750 $(OBJECTS) -lm -ltermcap
 	$(CC) $(CFLAGS) -o $(PROJ_DIR)/sim1750 $(OBJECTS) -lm -lreadline
-interp_gen: $(OBJ)/m1750_def.o $(OBJ)/interp_gen.o
-	$(CC) $(CFLAGS) -o $(PROJ_DIR)/interp_gen $(OBJ)/m1750_def.o $(OBJ)/interp_gen.o
+interp_gen: $(OBJ)/jit_defs.o $(OBJ)/interp_gen.o
+	$(CC) $(CFLAGS) -o $(PROJ_DIR)/interp_gen $(OBJ)/jit_defs.o $(OBJ)/interp_gen.o
 $(SRC)/generated_cpu.h: interp_gen
 	./interp_gen > $(SRC)/generated_cpu.h
-test_inst: $(SRC)/test_instructions.c $(SRC)/generated_cpu.h $(SRC)/cpu_helpers.h $(OBJ)/m1750_def.o
-	gcc -fsanitize=undefined -g $(SRC)/test_instructions.c $(OBJ)/m1750_def.o -o test_inst
+test_inst: $(SRC)/test_instructions.c $(SRC)/generated_cpu.h $(SRC)/cpu_helpers.h
+	gcc -fsanitize=undefined -g $(SRC)/test_instructions.c -o test_inst
 	./test_inst
 $(OBJ):
 	mkdir -p $@
@@ -152,11 +152,11 @@ $(OBJ)/utils.o: $(SRC)/type.h $(SRC)/utils.h $(SRC)/utils.c
 
 $(OBJ)/xiodef.o: $(SRC)/xiodef.h $(SRC)/xiodef.c
 	$(CC) -c $(CFLAGS) $(SRC)/xiodef.c	-o $(OBJ)/xiodef.o
-$(OBJ)/jit.o: $(SRC)/m1750.h $(SRC)/jit.c
+$(OBJ)/jit.o: $(SRC)/jit.h $(SRC)/jit.c
 	$(CC) -c $(CFLAGS) $(SRC)/jit.c	-o $(OBJ)/jit.o
-$(OBJ)/m1750_def.o: $(SRC)/m1750.h $(SRC)/m1750_def.c
-	$(CC) -c $(CFLAGS) $(SRC)/m1750_def.c	-o $(OBJ)/m1750_def.o
-$(OBJ)/interp_gen.o: $(SRC)/m1750.h $(SRC)/interp_gen.c
+$(OBJ)/jit_defs.o: $(SRC)/jit.h $(SRC)/jit_defs.c
+	$(CC) -c $(CFLAGS) $(SRC)/jit_defs.c	-o $(OBJ)/jit_defs.o
+$(OBJ)/interp_gen.o: $(SRC)/jit.h $(SRC)/interp_gen.c
 	$(CC) -c $(CFLAGS) $(SRC)/interp_gen.c	-o $(OBJ)/interp_gen.o
 $(OBJ)/new_cpu.o: $(SRC)/generated_cpu.h $(SRC)/cpu_helpers.h $(SRC)/new_cpu.c
 	$(CC) -c $(CFLAGS) $(SRC)/new_cpu.c	-o $(OBJ)/new_cpu.o

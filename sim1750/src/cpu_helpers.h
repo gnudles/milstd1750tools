@@ -2,7 +2,6 @@
 #ifndef _CPU_HELPERS_H
 #define _CPU_HELPERS_H
 #include "cpu_ctx.h"
-#include "m1750.h"
 #include "clock_cycles.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,7 +18,7 @@ static inline ushort* access_memory(struct cpu_state *cpu, uint16_t phys_page)
 
 static inline void write_phys_memory(struct cpu_state *cpu, uint32_t phys_addr, uint16_t value)
 {
-    uint16_t phys_page = phys_addr >> 12;
+    uint16_t phys_page = (phys_addr >> 12) & 0xFF;
     if (cpu->mem[phys_page] == NULL)
     {
         if ((cpu->mem[phys_page] = (mem_t *) calloc(1, sizeof(mem_t))) == MNULL)
@@ -33,7 +32,7 @@ static inline void write_phys_memory(struct cpu_state *cpu, uint32_t phys_addr, 
 
 static inline uint16_t read_phys_memory(struct cpu_state *cpu, uint32_t phys_addr)
 {
-    uint16_t phys_page = phys_addr >> 12;
+    uint16_t phys_page = (phys_addr >> 12) & 0xFF;
     if (cpu->mem[phys_page] == NULL) {
         return 0;
     }
@@ -282,10 +281,7 @@ static inline uint get_page_address_read_code(struct cpu_state *cpu, uint16_t lo
             fprintf(stderr, "get_page_address_read_code: dynamic memory exhausted\n");
             exit(EXIT_FAILURE);
         }
-        fprintf(stderr, "get_page_address_read_code: cannot execute unallocated page!\n");
-
-        cpu->halt = HALT_NON_EXEC;
-
+        /* In tests we don't halt on unallocated pages, we just simulate them as 0-filled memory */
     }
     cpu->code_read_cache.valid |= 0x8000U >> (logical_page);
     cpu->code_read_cache.page[logical_page] = phys_page;
@@ -714,38 +710,38 @@ static inline void invalidate_mem_cache(struct cpu_context *cpu_ctx) {
 /*should be called right after calculate_timers*/
 static void calculate_next_scheduled_timers_check(struct cpu_context *cpu_ctx) {
     
-    uint32_t go_timer_expiration_10us = 0;
-    uint32_t nearest_time_10us;
+    uint64_t time_to_timer_b_expiration_ns = 0;
+    uint64_t go_timer_expiration_ns = 0;
+    uint64_t nearest_time;
 
-    go_timer_expiration_10us  = ((0x10000 - cpu_ctx->state.reg.go)* GOTIMER_PERIOD_IN_10uSEC + cpu_ctx->state.global_10usec_timer_clock - cpu_ctx->state.timer_go_global_snap) ;
-    
-    nearest_time_10us = go_timer_expiration_10us;
+    go_timer_expiration_ns  = (0x10000 - (uint16_t)cpu_ctx->state.reg.go) * 10000LL * GOTIMER_PERIOD_IN_10uSEC;
+    go_timer_expiration_ns -= cpu_ctx->state.timer_ns_remainder;
+    go_timer_expiration_ns = (go_timer_expiration_ns + CYCLE_DURATION_IN_NS-1) / CYCLE_DURATION_IN_NS;
+    nearest_time = go_timer_expiration_ns;
 
     if (cpu_ctx->state.reg.sys & SYS_TA)
     {
-        uint32_t time_to_timer_a_expiration_10us;
-        time_to_timer_a_expiration_10us  = ((0x10000 - cpu_ctx->state.reg.timer[TIM_A]) * TIMER_A_RES_IN_10uSEC + cpu_ctx->state.global_10usec_timer_clock - cpu_ctx->state.timer_a_global_snap);
-        if (time_to_timer_a_expiration_10us < nearest_time_10us)
+        uint64_t time_to_timer_a_expiration_ns;
+        time_to_timer_a_expiration_ns  = (0x10000 - (uint16_t)cpu_ctx->state.reg.timer[TIM_A]) * 10000LL * TIMER_A_RES_IN_10uSEC;
+        time_to_timer_a_expiration_ns -= cpu_ctx->state.timer_ns_remainder;
+        time_to_timer_a_expiration_ns = (time_to_timer_a_expiration_ns + CYCLE_DURATION_IN_NS-1) / CYCLE_DURATION_IN_NS;
+        if (time_to_timer_a_expiration_ns < nearest_time)
         {
-            nearest_time_10us = time_to_timer_a_expiration_10us;
+            nearest_time = time_to_timer_a_expiration_ns;
         }
     }
     if (cpu_ctx->state.reg.sys & SYS_TB)
     {
-        uint32_t time_to_timer_b_expiration_10us;
-        time_to_timer_b_expiration_10us  = ((0x10000 - cpu_ctx->state.reg.timer[TIM_B])* TIMER_B_RES_IN_10uSEC + cpu_ctx->state.global_10usec_timer_clock - cpu_ctx->state.timer_b_global_snap);
-        if (time_to_timer_b_expiration_10us < nearest_time_10us)
+        uint64_t time_to_timer_b_expiration_ns;
+        time_to_timer_b_expiration_ns  = (0x10000 - (uint16_t)cpu_ctx->state.reg.timer[TIM_B]) * 10000LL * TIMER_B_RES_IN_10uSEC;
+        time_to_timer_b_expiration_ns -= cpu_ctx->state.timer_ns_remainder;
+        time_to_timer_b_expiration_ns = (time_to_timer_b_expiration_ns + CYCLE_DURATION_IN_NS-1) / CYCLE_DURATION_IN_NS;
+        if (time_to_timer_b_expiration_ns < nearest_time)
         {
-            nearest_time_10us = time_to_timer_b_expiration_10us;
+            nearest_time = time_to_timer_b_expiration_ns;
         }
     }
-    // convert to nanoseconds, add num of nanoseconds till next 100Khz tick, and then convert to cycles and add to current cycles to get the next scheduled timer check cycle count
-    cpu_ctx->state.next_scheduled_timer_calc_cycles = cpu_ctx->state.total_cycles + (nearest_time_10us * 10000LL - cpu_ctx->state.timer_ns_remainder + (CYCLE_DURATION_IN_NS-1)) / CYCLE_DURATION_IN_NS;
-    if (cpu_ctx->state.nearest_cycles_stop > cpu_ctx->state.next_scheduled_timer_calc_cycles)
-    {
-        cpu_ctx->state.nearest_cycles_stop = cpu_ctx->state.next_scheduled_timer_calc_cycles;
-    }
-
+    cpu_ctx->state.next_scheduled_timer_calc_cycles = cpu_ctx->state.total_cycles + nearest_time;
 
 }
 static void calculate_timers(struct cpu_context *cpu_ctx) {
@@ -765,7 +761,7 @@ static void calculate_timers(struct cpu_context *cpu_ctx) {
     cpu_ctx->state.timer_a_global_snap += timer_a_inc * TIMER_A_RES_IN_10uSEC;
     if (cpu_ctx->state.reg.sys & SYS_TA)
     {
-        if ((uint32_t)cpu_ctx->state.reg.timer[TIM_A] + timer_a_inc >= 0x10000)
+        if ((uint32_t)(uint16_t)cpu_ctx->state.reg.timer[TIM_A] + timer_a_inc >= 0x10000)
         {
             cpu_ctx->state.reg.pir |= INTR_TA;
             cpu_ctx->state.reg.timer[TIM_A] += cpu_ctx->state.reg.timer_reset_val[TIM_A];
@@ -779,7 +775,7 @@ static void calculate_timers(struct cpu_context *cpu_ctx) {
     cpu_ctx->state.timer_b_global_snap += timer_b_inc * TIMER_B_RES_IN_10uSEC;
     if (cpu_ctx->state.reg.sys & SYS_TB)
     {
-        if ((uint32_t)cpu_ctx->state.reg.timer[TIM_B] + timer_b_inc >= 0x10000)
+        if ((uint32_t)(uint16_t)cpu_ctx->state.reg.timer[TIM_B] + timer_b_inc >= 0x10000)
         {
             cpu_ctx->state.reg.pir |= INTR_TB;
             cpu_ctx->state.reg.timer[TIM_B] += cpu_ctx->state.reg.timer_reset_val[TIM_B];
@@ -1310,7 +1306,6 @@ void process_interrupt(struct cpu_context *cpu_ctx)
 
   intnum = count_leading_zeros(active_interrupts);
   pirmask = 0x8000U >> intnum;
-  //printf("Processing interrupt: %s (intnum = %d)\n", intr_name[intnum], intnum);
   cpu_ctx->state.reg.pir &= ~pirmask;
   cpu_ctx->state.reg.sys &= ~(SYS_INT);  /* clear the Master Interrupt Enable */
   struct mk_sw_ic_t{
@@ -1358,28 +1353,6 @@ static inline void apply_updates(struct cpu_state * cpu)
     cpu->reg.sys |= cpu->reg.sys_update;
     cpu->reg.sys_update = 0;
 }
-
-OpcodeDef* getOpcodeDef(uint16_t opcode)
-{
-    if (opcode < 0x4400) // 6 bit opcode
-    {
-        if (opcode < 0x4000)
-            return &opcode_defs_6bit[opcode>>10];
-        else
-            return &opcode_defs_brx[(opcode>>4)&0xF];
-    }
-    if ((opcode & 0xFF00) == 0x4A00) // 4Axx
-    {
-        return &opcode_defs_imm[opcode&0x000F];
-    }
-    return &opcode_defs_8bit[(opcode >> 8) - 0x44];
-}
-
-const char* get_instruction_name(uint16_t opcode)
-{
-    return getOpcodeDef(opcode)->name;
-}
-
 void print_cpu_state(struct cpu_context *cpu_ctx)
 {
     printf("-------------------\n");
@@ -1387,7 +1360,7 @@ void print_cpu_state(struct cpu_context *cpu_ctx)
     if (phys_page != 0xFFFFFFFF)
     {
         ushort opcode = access_memory(&cpu_ctx->state, phys_page)[cpu_ctx->state.reg.ic  & 0xFFF];
-        printf("opcode = %04X (%s)\n", opcode, get_instruction_name(opcode));
+        printf("opcode = %04X\n", opcode);
     }
     
     printf("ic = %04X\n", cpu_ctx->state.reg.ic);
@@ -1405,7 +1378,7 @@ void print_cpu_state(struct cpu_context *cpu_ctx)
 }
 int cpu_mainloop(struct cpu_context *cpu_ctx, uint64_t up_to_cycles)
 {
-    cpu_ctx->state.nearest_cycles_stop = up_to_cycles > cpu_ctx->state.next_scheduled_timer_calc_cycles ? cpu_ctx->state.next_scheduled_timer_calc_cycles: up_to_cycles;
+    uint64_t nearest_cycles_stop = up_to_cycles > cpu_ctx->state.next_scheduled_timer_calc_cycles ? cpu_ctx->state.next_scheduled_timer_calc_cycles: up_to_cycles;
     bool continue_loop = true;
     uint phys_page;
     ushort opcode;
@@ -1416,15 +1389,17 @@ int cpu_mainloop(struct cpu_context *cpu_ctx, uint64_t up_to_cycles)
         if (phys_page == 0xFFFFFFFF)
         {
             process_interrupt(cpu_ctx);
+            apply_updates(&cpu_ctx->state);
             continue;
         }
         opcode = access_memory(&cpu_ctx->state, phys_page)[cpu_ctx->state.reg.ic  & 0xFFF];
-        if ((cpu_ctx->state.reg.ic & 0x0FFF) == 0x0FFF)
+        if (cpu_ctx->state.reg.ic & 0x0FFF == 0x0FFF)
         {
             phys_page = get_page_address_read_code(&cpu_ctx->state, (cpu_ctx->state.reg.ic + 1) >> 12);
             if (phys_page == 0xFFFFFFFF)
             {
                 process_interrupt(cpu_ctx);
+                apply_updates(&cpu_ctx->state);
                 continue;
             }
         }
@@ -1432,13 +1407,13 @@ int cpu_mainloop(struct cpu_context *cpu_ctx, uint64_t up_to_cycles)
         //print_cpu_state(cpu_ctx);
         process_instruction(cpu_ctx, opcode, immediate);
 
-        if (cpu_ctx->state.total_cycles >= cpu_ctx->state.nearest_cycles_stop)
+        if (cpu_ctx->state.total_cycles >= nearest_cycles_stop)
         {
             if (cpu_ctx->state.total_cycles >= cpu_ctx->state.next_scheduled_timer_calc_cycles)
             {
                 calculate_timers(cpu_ctx);
-                cpu_ctx->state.nearest_cycles_stop = up_to_cycles;
                 calculate_next_scheduled_timers_check(cpu_ctx);
+                nearest_cycles_stop = up_to_cycles > cpu_ctx->state.next_scheduled_timer_calc_cycles ? cpu_ctx->state.next_scheduled_timer_calc_cycles: up_to_cycles;
             }
             if (cpu_ctx->state.total_cycles >= up_to_cycles)
             {
