@@ -248,6 +248,7 @@ struct cpu_state {
 
   uint64_t total_cycles;
   uint64_t next_scheduled_timer_calc_cycles;
+  uint64_t nearest_cycles_stop; // for main loop to stop at, either because of timer check or because of up_to_cycles
   uint64_t total_cycles_timers_snap;
   uint64_t timer_ns_remainder;
   uint32_t global_10usec_timer_clock;

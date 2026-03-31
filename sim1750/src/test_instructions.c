@@ -4,18 +4,19 @@
 #include "targsys.h"
 /* --- Stubs to link against the generated code --- */
 #include "cpu_ctx.h"
-#define RUNNING_TESTS
-/* Mock memory array */
-uint16_t mock_memory[0x10000];
+#include "cpu_helpers.h"
 
+/* Stubs */
 bool peek(struct cpu_state *state, uint phys_addr, ushort *word) {
-    *word = mock_memory[phys_addr & 0xFFFF];
+    *word = read_phys_memory(state, phys_addr & 0xFFFFF);
     return true;
 }
+
 bool poke(struct cpu_state *state, uint phys_addr, ushort value) {
-    mock_memory[phys_addr & 0xFFFF] = value;
+    write_phys_memory(state, phys_addr & 0xFFFFF, value);
     return true;
 }
+
 uint get_phys_address(struct cpu_state *state, int space, int as, uint16_t addr) {
     return addr; /* Flat memory mapping for tests */
 }
@@ -27,7 +28,17 @@ uint get_phys_address(struct cpu_state *state, int space, int as, uint16_t addr)
 
 
 void test_BEX();
+void test_BEX_AS_Switch();
 void test_BPT();
+void test_XIO();
+void test_VIO();
+void test_Memory_Access();
+void test_Memory_Cache();
+void test_MOV();
+void test_Arithmetic();
+void test_BitLogic();
+void test_Stack();
+void test_ControlFlow();
 
 /* --- The Test Harness --- */
 struct cpu_context ctx;
@@ -46,8 +57,17 @@ void reset_cpu() {
 	      ctx.state.pagereg[DATA][as][logaddr_hinibble].ppa = i++;
         }
     }
-    memset(mock_memory, 0, sizeof(mock_memory));
-    ctx.state.reg.sys |= SYS_TA | SYS_TB;
+    for (int p = 0; p < 256; p++) {
+        if (ctx.state.mem[p]) {
+            free(ctx.state.mem[p]);
+            ctx.state.mem[p] = NULL;
+        }
+    }
+    ctx.state.data_read_cache.valid = 0;
+    ctx.state.data_read_cache_intr.valid = 0;
+    ctx.state.code_read_cache.valid = 0;
+    ctx.state.data_write_cache.valid = 0;
+    ctx.state.reg.sys = SYS_TA | SYS_TB;
     ctx.state.num_phys_mem_pages = 16;
     ctx.state.halt = NO_HALT;
     ctx.state.next_scheduled_timer_calc_cycles = 0;
@@ -82,7 +102,6 @@ void my_load_ldm(struct cpu_context *cpu, const char *fname) {
                     if (*p == 0 || *p == '\n' || *p == '\r') break;
                     char data_str[5] = {p[0], p[1], p[2], p[3], 0};
                     uint16_t data = strtoul(data_str, NULL, 16);
-                    mock_memory[addr & 0xFFFF] = data;
                     poke(&ctx.state, addr & 0xFFFF, data);
                     addr++;
                     p += 4;
@@ -99,25 +118,25 @@ void my_load_ldm(struct cpu_context *cpu, const char *fname) {
 void run_ldm_test(const char *fname) {
     reset_cpu();
 
-    // Clear memory properly
-    memset(mock_memory, 0, sizeof(mock_memory));
-
     my_load_ldm(&ctx, fname);
 
     printf("Executing %s starting at 0x%04X... ", fname, ctx.state.reg.ic);
 
     // Let the main loop handle interrupts via process_interrupt().
     // We just need to give it enough cycles.
+    // Important: we must request more cycles than `next_scheduled_timer_calc_cycles`
+    // to allow the internal loop to calculate and evaluate timers.
     while (ctx.state.halt == NO_HALT)
     {
         cpu_mainloop(&ctx, ctx.state.total_cycles + 1000);
     }
 
-    if (mock_memory[0x2000] == 0xAAAA) {
+    uint16_t status = read_phys_memory(&ctx.state, 0x2000);
+    if (status == 0xAAAA) {
         printf("PASSED\n");
     } else {
         fflush(stdout);
-        fprintf(stderr, "FAILED! (status=0x%04X)\n", mock_memory[0x2000]);
+        fprintf(stderr, "FAILED! (status=0x%04X)\n", status);
         fprintf(stderr, "IC: 0x%04X\n", ctx.state.reg.ic);
         fprintf(stderr, "SW: 0x%04X\n", ctx.state.reg.sw);
         fprintf(stderr, "PIR: 0x%04X\n", ctx.state.reg.pir);
@@ -135,13 +154,13 @@ void test_LB_Base_Relative() {
     ctx.state.reg.r[13] = 0x1000;
     
     /* Setup: Memory at 0x1005 holds -5 (0xFFFB) */
-    mock_memory[0x1005] = 0xFFFB;
+    poke(&ctx.state, 0x1005, 0xFFFB);
     
     /* Opcode: LB R13, 5 -> BR=13 (0x1 in field), Disp=0x05 */
     /* LB opcode is 0x00,  Disp=0x05 -> 0x0025 */
     uint16_t opcode = 0x0105; 
     
-    interpret_LB(&ctx, opcode, mock_memory[0x0001]);
+    interpret_LB(&ctx, opcode, read_phys_memory(&ctx.state, 0x0001));
     
     /* Verifications */
     assert(ctx.state.reg.r[2] == (int16_t)0xFFFB); // Loaded correctly
@@ -167,7 +186,7 @@ void test_SLL_Logical_Left() {
        Total: 0x6035 */
     uint16_t opcode = 0x6035;
     
-    interpret_SLL(&ctx, opcode, mock_memory[0x0001]);
+    interpret_SLL(&ctx, opcode, read_phys_memory(&ctx.state, 0x0001));
     
     /* Verification: 0x0F00 << 4 = 0xF000 */
     assert(ctx.state.reg.r[5] == (int16_t)0xF000); 
@@ -193,20 +212,20 @@ void test_STUB_Upper_Byte() {
     ctx.state.reg.r[2] = 0xAABB;
     
     /* Setup: Memory at 0x2000 holds 0x1122 */
-    mock_memory[0x2000] = 0x1122;
+    poke(&ctx.state, 0x2000, 0x1122);
     
     /* Opcode: STUB R2, 0x2000 -> RA=2, RX=0. IMM=0x2000 */
     /* STUB opcode is 0x9B. RA=2 -> 0x9B20. */
     uint16_t opcode = 0x9B20;
     ctx.state.reg.ic = 0x0000;
-    mock_memory[0x0001] = 0x2000; // Immediate address
+    poke(&ctx.state, 0x0001, 0x2000); // Immediate address
     
-    interpret_STUB(&ctx, opcode, mock_memory[0x0001]);
+    interpret_STUB(&ctx, opcode, read_phys_memory(&ctx.state, 0x0001));
     
     /* Verification: Memory should be updated to (Lower byte of R2 in Upper byte of Memory)
        Lower byte of R2 is 0xBB. Memory upper byte becomes 0xBB. Lower byte preserved (0x22).
        Result: 0xBB22 */
-    assert(mock_memory[0x2000] == 0xBB22);
+    assert(read_phys_memory(&ctx.state, 0x2000) == 0xBB22);
     printf("PASSED\n");
 }
 
@@ -228,14 +247,14 @@ void test_FD_Basic_Division() {
     /* Setup Operand B in Memory at 0x1000 (2.0)
      * 2.0 = 0.5 * 2^2. 
      * Mantissa: 0x400000. Exponent: 0x02. W1=0x4000, W2=0x0002 */
-    mock_memory[0x1000] = 0x4000;
-    mock_memory[0x1001] = 0x0002;
+    poke(&ctx.state, 0x1000, 0x4000);
+    poke(&ctx.state, 0x1001, 0x0002);
     
     /* Opcode: FD R2, 0x1000 -> Opcode 0xD8. RA=2. RX=0. */
     uint16_t opcode = 0xD820; 
-    mock_memory[0x0001] = 0x1000; /* Immediate Address */
+    poke(&ctx.state, 0x0001, 0x1000); /* Immediate Address */
     
-    interpret_FD(&ctx, opcode, mock_memory[0x0001]);
+    interpret_FD(&ctx, opcode, read_phys_memory(&ctx.state, 0x0001));
     
     /* Verification: Result should be 0.5 (0.5 * 2^0)
      * Mantissa: 0x400000. Exponent: 0x00. W1=0x4000, W2=0x0000 */
@@ -264,14 +283,14 @@ void test_FD_Negative_Normalization() {
     
     /* Setup Operand B in Memory at 0x2000 (1.5)
      * 1.5 = 0.75 * 2^1. Mantissa: 0x600000. Exp: 0x01. */
-    mock_memory[0x2000] = 0x6000;
-    mock_memory[0x2001] = 0x0001;
+    poke(&ctx.state, 0x2000, 0x6000);
+    poke(&ctx.state, 0x2001, 0x0001);
     
     /* Opcode: FD R4, 0x2000 -> Opcode 0xD8. RA=4. */
     uint16_t opcode = 0xD840; 
-    mock_memory[0x0001] = 0x2000;
+    poke(&ctx.state, 0x0001, 0x2000);
     
-    interpret_FD(&ctx, opcode, mock_memory[0x0001]);
+    interpret_FD(&ctx, opcode, read_phys_memory(&ctx.state, 0x0001));
     
     /* Verification: Result should be -2.0 (-1.0 * 2^1)
      * -1.0 is exactly 0x800000 in 2's comp fractions. Exp: 0x01. */
@@ -299,15 +318,15 @@ void test_EFD_48bit_Math() {
     
     /* Setup Operand B in Memory at 0x3000 (4.0)
      * 4.0 = 0.5 * 2^3. Mantissa (0.100 binary) = 0x40 0000 0000. Exp: 0x03 */
-    mock_memory[0x3000] = 0x4000;
-    mock_memory[0x3001] = 0x0003;
-    mock_memory[0x3002] = 0x0000;
+    poke(&ctx.state, 0x3000, 0x4000);
+    poke(&ctx.state, 0x3001, 0x0003);
+    poke(&ctx.state, 0x3002, 0x0000);
     
     /* Opcode: EFD R6, 0x3000 -> Opcode 0xDA. RA=6. */
     uint16_t opcode = 0xDA60; 
-    mock_memory[0x0001] = 0x3000;
+    poke(&ctx.state, 0x0001, 0x3000);
     
-    interpret_EFD(&ctx, opcode, mock_memory[0x0001]);
+    interpret_EFD(&ctx, opcode, read_phys_memory(&ctx.state, 0x0001));
     
     /* Verification: Result should be 1.25 (0.625 * 2^1)
      * 1.25 Mantissa = 0x50 0000 0000. Exp: 0x01 */
@@ -328,16 +347,60 @@ void test_FD_Divide_By_Zero() {
     ctx.state.reg.r[3] = 0x0001;
     
     /* Operand B: 0.0 (Mantissa is 0) */
-    mock_memory[0x1000] = 0x0000;
-    mock_memory[0x1001] = 0x0000;
+    poke(&ctx.state, 0x1000, 0x0000);
+    poke(&ctx.state, 0x1001, 0x0000);
     
     uint16_t opcode = 0xD820; 
-    mock_memory[0x0001] = 0x1000;
+    poke(&ctx.state, 0x0001, 0x1000);
     
-    interpret_FD(&ctx, opcode, mock_memory[0x0001]);
+    interpret_FD(&ctx, opcode, read_phys_memory(&ctx.state, 0x0001));
     
     /* Verification: Ensure the PIR (Pending Interrupt Register) caught the overflow */
     assert(ctx.state.reg.pir & INTR_FLTOFL); 
+    printf("PASSED\n");
+}
+
+void test_FD_Underflow() {
+    reset_cpu();
+    printf("Testing FD (Floating Point Underflow Trap)... ");
+
+    // For division: E_res = E_A - E_B.
+    // If E_A is -65 (0xBF) and E_B is +65 (0x41), E_A - E_B = -130.
+    // After normalization (+1), E_res = -129, which causes Underflow!
+
+    // Float A: Mantissa 0x4000, Exponent -65 (0xBF) -> 0x4000 00BF
+    ctx.state.reg.r[2] = 0x4000;
+    ctx.state.reg.r[3] = 0x00BF;
+
+    // Float B: Mantissa 0x4000, Exponent +65 (0x41) -> 0x4000 0041
+    ctx.state.reg.r[4] = 0x4000;
+    ctx.state.reg.r[5] = 0x0041;
+
+    // FDR R2, R4 (Floating Divide Register) - Opcode 0xD9xy -> 0xD924
+    interpret_FDR(&ctx, 0xD924, 0);
+
+    /* Verification: Ensure PIR triggered INTR_FLTUFL */
+    assert(ctx.state.reg.pir & INTR_FLTUFL);
+
+    /* Verification: Underflow forces result to true zero */
+    assert(ctx.state.reg.r[2] == 0x0000);
+    assert(ctx.state.reg.r[3] == 0x0000);
+
+    printf("PASSED\n");
+}
+
+void test_Fixed_Point_Overflow() {
+    reset_cpu();
+    printf("Testing Fixed Point Arithmetic Overflow (INTR_FIXOFL)... ");
+
+    // 0x7FFF + 0x0002 = 0x8001 (Overflow)
+    ctx.state.reg.r[5] = 0x7FFF;
+    ctx.state.reg.r[6] = 0x0002;
+    interpret_AR(&ctx, 0xA156, 0); // AR R5, R6
+
+    assert(ctx.state.reg.pir & INTR_FIXOFL);
+    assert((uint16_t)ctx.state.reg.r[5] == 0x8001); // Result is computed normally despite trap
+
     printf("PASSED\n");
 }
 
@@ -577,7 +640,7 @@ void test_Extended_Float_Pi_Pipeline() {
     ctx.state.reg.r[1] = 355;
     /* OP_INT32_TO_EFLT RA=0, RB=0. Target is R[RA], Source is R[RB] */
     ctx.state.reg.ic = 0;
-    interpret_EFLT(&ctx, 0x0000, mock_memory[0x0001]); 
+    interpret_EFLT(&ctx, 0x0000, read_phys_memory(&ctx.state, 0x0001));
     /* R0, R1, R2 now hold exactly 355.0 */
 
     /* --- 2. CONVERT 113 to EFLT (Denominator) --- */
@@ -585,60 +648,60 @@ void test_Extended_Float_Pi_Pipeline() {
     ctx.state.reg.r[5] = 113;
     /* OP_INT32_TO_EFLT RA=4, RB=4 */
     ctx.state.reg.ic = 0;
-    interpret_EFLT(&ctx, 0x0044, mock_memory[0x0001]);
+    interpret_EFLT(&ctx, 0x0044, read_phys_memory(&ctx.state, 0x0001));
     /* R4, R5, R6 now hold exactly 113.0 */
 
     /* --- 3. DIVIDE (Pi Approx: 355.0 / 113.0) --- */
     /* Push Denominator to Memory so we can use EFD (Divide by Memory) */
-    mock_memory[0x1000] = ctx.state.reg.r[4];
-    mock_memory[0x1001] = ctx.state.reg.r[5];
-    mock_memory[0x1002] = ctx.state.reg.r[6];
-    mock_memory[0x0001] = 0x1000; /* Instruction fetcher DO address */
+    poke(&ctx.state, 0x1000, ctx.state.reg.r[4]);
+    poke(&ctx.state, 0x1001, ctx.state.reg.r[5]);
+    poke(&ctx.state, 0x1002, ctx.state.reg.r[6]);
+    poke(&ctx.state, 0x0001, 0x1000); /* Instruction fetcher DO address */
     /* OP_DIV_EXFLOAT RA=0. R0 = R0 / Mem */
     ctx.state.reg.ic = 0;
-    interpret_EFD(&ctx, 0x0000, mock_memory[0x0001]); 
+    interpret_EFD(&ctx, 0x0000, read_phys_memory(&ctx.state, 0x0001));
     /* R0, R1, R2 now hold 3.1415929... */
 
     /* --- 4. ADD 1000.0 --- */
     ctx.state.reg.r[4] = 0x0000;
     ctx.state.reg.r[5] = 1000;
     ctx.state.reg.ic = 0;
-    interpret_EFLT(&ctx, 0x0044, mock_memory[0x0001]); 
-    mock_memory[0x2000] = ctx.state.reg.r[4];
-    mock_memory[0x2001] = ctx.state.reg.r[5];
-    mock_memory[0x2002] = ctx.state.reg.r[6];
-    mock_memory[0x0001] = 0x2000;
+    interpret_EFLT(&ctx, 0x0044, read_phys_memory(&ctx.state, 0x0001));
+    poke(&ctx.state, 0x2000, ctx.state.reg.r[4]);
+    poke(&ctx.state, 0x2001, ctx.state.reg.r[5]);
+    poke(&ctx.state, 0x2002, ctx.state.reg.r[6]);
+    poke(&ctx.state, 0x0001, 0x2000);
     ctx.state.reg.ic = 0;
     /* OP_ADD_EXFLOAT RA=0. R0 = R0 + Mem */
-    interpret_EFA(&ctx, 0x0000, mock_memory[0x0001]); 
+    interpret_EFA(&ctx, 0x0000, read_phys_memory(&ctx.state, 0x0001));
     /* R0, R1, R2 now hold 1003.14159... */
 
     /* --- 5. SUBTRACT 500.0 --- */
     ctx.state.reg.r[4] = 0x0000;
     ctx.state.reg.r[5] = 500;
     ctx.state.reg.ic = 0;
-    interpret_EFLT(&ctx, 0x0044, mock_memory[0x0001]); 
-    mock_memory[0x3000] = ctx.state.reg.r[4];
-    mock_memory[0x3001] = ctx.state.reg.r[5];
-    mock_memory[0x3002] = ctx.state.reg.r[6];
-    mock_memory[0x0001] = 0x3000;
+    interpret_EFLT(&ctx, 0x0044, read_phys_memory(&ctx.state, 0x0001));
+    poke(&ctx.state, 0x3000, ctx.state.reg.r[4]);
+    poke(&ctx.state, 0x3001, ctx.state.reg.r[5]);
+    poke(&ctx.state, 0x3002, ctx.state.reg.r[6]);
+    poke(&ctx.state, 0x0001, 0x3000);
     ctx.state.reg.ic = 0;
     /* OP_SUB_EXFLOAT RA=0. R0 = R0 - Mem */
-    interpret_EFS(&ctx, 0x0000, mock_memory[0x0001]); 
+    interpret_EFS(&ctx, 0x0000, read_phys_memory(&ctx.state, 0x0001));
     /* R0, R1, R2 now hold 503.14159... */
 
     /* --- 6. MULTIPLY BY 2.0 --- */
     ctx.state.reg.r[4] = 0x0000;
     ctx.state.reg.r[5] = 2;
     ctx.state.reg.ic = 0;
-    interpret_EFLT(&ctx, 0x0044, mock_memory[0x0001]); 
-    mock_memory[0x4000] = ctx.state.reg.r[4];
-    mock_memory[0x4001] = ctx.state.reg.r[5];
-    mock_memory[0x4002] = ctx.state.reg.r[6];
-    mock_memory[0x0001] = 0x4000;
+    interpret_EFLT(&ctx, 0x0044, read_phys_memory(&ctx.state, 0x0001));
+    poke(&ctx.state, 0x4000, ctx.state.reg.r[4]);
+    poke(&ctx.state, 0x4001, ctx.state.reg.r[5]);
+    poke(&ctx.state, 0x4002, ctx.state.reg.r[6]);
+    poke(&ctx.state, 0x0001, 0x4000);
     ctx.state.reg.ic = 0;
     /* OP_MULT_EXFLOAT RA=0. R0 = R0 * Mem */
-    interpret_EFM(&ctx, 0x0000, mock_memory[0x0001]); 
+    interpret_EFM(&ctx, 0x0000, read_phys_memory(&ctx.state, 0x0001));
     /* R0, R1, R2 now hold 1006.283185... */
 
     /* --- VERIFICATION 1: Double Precision Threshold Check --- */
@@ -652,7 +715,7 @@ void test_Extended_Float_Pi_Pipeline() {
     /* --- 7. CONVERT BACK TO INT32 --- */
     /* OP_EFLT_TO_INT32 RA=4, RB=0. R4, R5 gets Int32 of Float R0 */
     ctx.state.reg.ic = 0;
-    interpret_EFIX(&ctx, 0x0040, mock_memory[0x0001]); 
+    interpret_EFIX(&ctx, 0x0040, read_phys_memory(&ctx.state, 0x0001));
     
     /* --- VERIFICATION 2: Integer Truncation Check --- */
     int32_t final_int = ((int32_t)ctx.state.reg.r[4] << 16) | (uint16_t)ctx.state.reg.r[5];
@@ -724,6 +787,8 @@ int main() {
     test_FD_Negative_Normalization();
     test_EFD_48bit_Math();
     test_FD_Divide_By_Zero();
+    test_FD_Underflow();
+    test_Fixed_Point_Overflow();
     test_SQRT();
     test_ESQR();
     test_FNEG_FABS();
@@ -732,16 +797,28 @@ int main() {
     printf("All floating point tests passed.\n");
 
     test_BEX();
+    test_BEX_AS_Switch();
     test_BPT();
+    test_XIO();
+    test_VIO();
+    test_Memory_Access();
+    test_Memory_Cache();
+    test_MOV();
+    test_Arithmetic();
+    test_BitLogic();
+    test_Stack();
+    test_ControlFlow();
     printf("All additional instruction tests passed.\n");
 
     // We are inside sim1750 directory
+    run_ldm_test("automated_tests/bex_test.ldm");
     run_ldm_test("automated_tests/interrupt_test.ldm");
     run_ldm_test("automated_tests/simple_math.ldm");
     run_ldm_test("automated_tests/simple_logic.ldm");
     run_ldm_test("automated_tests/cmp_test.ldm");
     run_ldm_test("automated_tests/e_calc.ldm");
     run_ldm_test("automated_tests/pi_calc.ldm");
+    run_ldm_test("automated_tests/timer_test.ldm");
 
     return 0;
 }
@@ -761,6 +838,90 @@ void test_BEX() {
     printf("PASSED\n");
 }
 
+void test_BEX_AS_Switch() {
+    reset_cpu();
+    printf("Testing BEX Context Switching between Address States (AS=0 to AS=1 and back)... ");
+
+    // Initialize memory for execution
+    write_phys_memory(&ctx.state, 0x0000, 0); // Allocate physical page 0
+    write_phys_memory(&ctx.state, 0x1000, 0); // Allocate physical page 1
+
+    // Configure Memory Mapping
+    // AS = 0 maps Logical Page 0x0 to Physical Page 0
+    ctx.state.pagereg[CODE][0][0].ppa = 0;
+    ctx.state.pagereg[CODE][0][0].e_w = 0; // Executable
+    ctx.state.pagereg[DATA][0][0].ppa = 0;
+
+    // AS = 1 maps Logical Page 0x1 to Physical Page 1
+    ctx.state.pagereg[CODE][1][1].ppa = 1;
+    ctx.state.pagereg[CODE][1][1].e_w = 0; // Executable
+    ctx.state.pagereg[DATA][1][1].ppa = 1;
+
+    // Interrupt Vector for BEX (Executive Call = Interrupt #5) -> Vector Address = 0x20 + 5*2 = 0x2A
+    // It reads 2 words from 0x002A: Logical Pointer, Service Pointer.
+    store_data_word(&ctx, 0x002A, 0x0100); // Logical Pointer (LP)
+    store_data_word(&ctx, 0x002B, 0x0200); // Service Pointer (SVP)
+
+    // The BEX Interrupt (Intr 5) reads MK/SW from SVP, and IC from SVP + 2 + bex_index.
+    // Let's configure the BEX Handler Service block:
+    store_data_word(&ctx, 0x0200, 0x0000); // MK
+    store_data_word(&ctx, 0x0201, 0x0000); // SW (AS=0, PS=0)
+    store_data_word(&ctx, 0x0202, 0x0080); // IC for BEX index 0
+
+    // Setup the main execution code in AS=0 at IC=0x0050
+    ctx.state.reg.ic = 0x0050;
+    ctx.state.reg.sw = 0x0000; // AS=0, PS=0
+
+    // Code at AS=0 (Physical Address 0x0050)
+    // 1. Prepare target MK, SW, IC for jumping to AS=1
+    store_data_word(&ctx, 0x0060, 0x0000); // MK
+    store_data_word(&ctx, 0x0061, 0x0001); // SW (AS=1, PS=0)
+    store_data_word(&ctx, 0x0062, 0x1050); // IC (Logical address 0x1050 mapped to Physical 0x1050)
+
+    // Instruction: LST 0x0060 (Load Status Direct)
+    // Opcode: 0x7D00, Immed: 0x0060
+    store_data_word(&ctx, 0x0050, 0x7D00); // LST R0 (where 0 means no register base)
+    store_data_word(&ctx, 0x0051, 0x0060); // Immediate 0x0060
+
+    // Now we are in AS=1! Code at AS=1, Logical IC=0x1050
+    // Maps to Physical Page 1, Address 0x1050
+    // Instruction: BEX 0 (Branch Executive)
+    // Opcode: 0x7700
+    write_phys_memory(&ctx.state, 0x1050, 0x7700);
+    write_phys_memory(&ctx.state, 0x1051, 0x0000); // Pad just in case
+
+    // BEX 0 executes! The CPU traps, saves AS=1 state to LP (0x0100), and loads AS=0 handler.
+    // The handler executes at AS=0, Logical IC=0x0080 (Mapped to Physical 0x0080)
+    // Instruction: LIM R3, 0xAAAA (Opcode 0x8530, Immed 0xAAAA)
+    store_data_word(&ctx, 0x0080, 0x8530);
+    store_data_word(&ctx, 0x0081, 0xAAAA);
+    // Instruction: BPT (Breakpoint - Opcode 0xFFFF)
+    store_data_word(&ctx, 0x0082, 0xFFFF);
+
+    // Run the CPU loop! It should run LST -> switch to AS=1 -> execute BEX -> switch to AS=0 -> run LIM -> BPT
+    int steps = 0;
+    while (ctx.state.halt == NO_HALT && steps < 100) {
+        cpu_mainloop(&ctx, ctx.state.total_cycles + 100);
+        steps++;
+    }
+
+    // Verify Success
+    assert(ctx.state.halt != NO_HALT); // Ensure it halted
+    assert(ctx.state.reg.r[3] == (int32_t)(int16_t)0xAAAA); // Verify handler executed
+
+    // Verify the LP captured the old state correctly from AS=1!
+    // The LP was 0x0100.
+    uint16_t saved_mk, saved_sw, saved_ic;
+    fetch_data_word(&ctx, 0x0100, &saved_mk);
+    fetch_data_word(&ctx, 0x0101, &saved_sw);
+    fetch_data_word(&ctx, 0x0102, &saved_ic);
+
+    assert(saved_sw == 0x0001); // Saved AS=1, PS=0!
+    assert(saved_ic == 0x1051); // IC after BEX instruction!
+
+    printf("PASSED\n");
+}
+
 void test_BPT() {
     reset_cpu();
     printf("Testing BPT (Breakpoint)... ");
@@ -772,6 +933,610 @@ void test_BPT() {
 
     /* Nothing explicitly verified for BPT here since its interpreter-level exit logic
        will be handled in the main execution loop/test runner later. */
+    printf("PASSED\n");
+}
+
+void test_XIO() {
+    reset_cpu();
+    printf("Testing XIO... ");
+
+    /* Test 0: XIO privilege execution (PS != 0) */
+    ctx.state.reg.sw = 0x0010; // Set PS = 1
+    ctx.state.reg.pir = 0x0000;
+    ctx.state.reg.ft = 0x0000;
+    uint16_t opcode = 0x4800; // XIO R0, 0x2000
+    poke(&ctx.state, 0x0001, 0x2000);
+    interpret_XIO(&ctx, opcode, read_phys_memory(&ctx.state, 0x0001));
+    assert(ctx.state.reg.pir & INTR_MACHERR);
+    assert(ctx.state.reg.ft & FT_PRIV_INSTR);
+
+    // Reset state for remaining tests
+    ctx.state.reg.sw = 0x0000;
+    ctx.state.reg.pir = 0x0000;
+    ctx.state.reg.ft = 0x0000;
+
+    /* Test 1: XIO 0x2000 (SMK - Set Interrupt Mask) */
+    ctx.state.reg.r[0] = 0xAAAA;
+
+    poke(&ctx.state, 0x0001, 0x2000);
+    interpret_XIO(&ctx, opcode, read_phys_memory(&ctx.state, 0x0001));
+    assert(ctx.state.reg.mk == 0xAAAA);
+
+    /* Test 2: XIO 0xA000 (RMK - Read Interrupt Mask) */
+    ctx.state.reg.mk = 0x5555;
+    ctx.state.reg.r[1] = 0x0000;
+    opcode = 0x4810; // XIO R1, 0xA000 -> RA=1, RX=0.
+    poke(&ctx.state, 0x0001, 0xA000);
+    interpret_XIO(&ctx, opcode, read_phys_memory(&ctx.state, 0x0001));
+    assert(ctx.state.reg.r[1] == 0x5555);
+
+    /* Test 3: XIO 0x5000 (Write Memory Protect RAM) */
+    ctx.state.reg.r[2] = 0x1234;
+    opcode = 0x4820; // XIO R2, 0x500A -> RA=2, RX=0.
+    poke(&ctx.state, 0x0001, 0x500A);
+    interpret_XIO(&ctx, opcode, read_phys_memory(&ctx.state, 0x0001));
+    assert(ctx.state.mem_protect[0][0x0A] == 0x1234);
+
+    /* Test 4: XIO 0xD000 (Read Memory Protect RAM) */
+    ctx.state.mem_protect[0][0x0B] = 0xABCD;
+    ctx.state.reg.r[3] = 0x0000;
+    opcode = 0x4830; // XIO R3, 0xD00B -> RA=3, RX=0.
+    poke(&ctx.state, 0x0001, 0xD00B);
+    interpret_XIO(&ctx, opcode, read_phys_memory(&ctx.state, 0x0001));
+    assert((uint16_t)ctx.state.reg.r[3] == 0xABCD);
+
+    /* Test 5: XIO 0x2001 (Clear Interrupt Request) */
+    ctx.state.reg.pir = 0xFFFF;
+    ctx.state.reg.ft = 0x1234;
+    opcode = 0x4800; // XIO R0, 0x2001
+    poke(&ctx.state, 0x0001, 0x2001);
+    interpret_XIO(&ctx, opcode, read_phys_memory(&ctx.state, 0x0001));
+    assert(ctx.state.reg.pir == 0);
+    assert(ctx.state.reg.ft == 0);
+
+    /* Test 6: XIO 0x2002 (Enable Interrupts) */
+    ctx.state.reg.sys = 0;
+    ctx.state.reg.sys_update = 0;
+    opcode = 0x4800; // XIO R0, 0x2002
+    poke(&ctx.state, 0x0001, 0x2002);
+    interpret_XIO(&ctx, opcode, read_phys_memory(&ctx.state, 0x0001));
+    assert(ctx.state.reg.sys_update & SYS_INT);
+
+    /* Test 7: XIO 0x2003 (Disable Interrupts) */
+    ctx.state.reg.sys = SYS_INT;
+    opcode = 0x4800; // XIO R0, 0x2003
+    poke(&ctx.state, 0x0001, 0x2003);
+    interpret_XIO(&ctx, opcode, read_phys_memory(&ctx.state, 0x0001));
+    assert(!(ctx.state.reg.sys & SYS_INT));
+
+    /* Test 8: XIO 0x2004 (Reset Pending Interrupt) */
+    ctx.state.reg.pir = 0xFFFF;
+    ctx.state.reg.r[0] = 0x0005; // Reset interrupt 5
+    opcode = 0x4800; // XIO R0, 0x2004
+    poke(&ctx.state, 0x0001, 0x2004);
+    interpret_XIO(&ctx, opcode, read_phys_memory(&ctx.state, 0x0001));
+    assert((ctx.state.reg.pir & (0x8000 >> 5)) == 0);
+
+    /* Test 9: XIO 0x2005 (Set Pending Interrupt) */
+    ctx.state.reg.pir = 0x0000;
+    ctx.state.reg.pir_update = 0x0000;
+    ctx.state.reg.r[0] = 0x0400; // Set interrupt 5
+    opcode = 0x4800; // XIO R0, 0x2005
+    poke(&ctx.state, 0x0001, 0x2005);
+    interpret_XIO(&ctx, opcode, read_phys_memory(&ctx.state, 0x0001));
+    assert(ctx.state.reg.pir_update == 0x0400);
+
+    /* Test 10: XIO 0x200E (Write Status Word) */
+    ctx.state.reg.sw = 0x0000;
+    ctx.state.reg.r[0] = 0x1234;
+    opcode = 0x4800; // XIO R0, 0x200E
+    poke(&ctx.state, 0x0001, 0x200E);
+    interpret_XIO(&ctx, opcode, read_phys_memory(&ctx.state, 0x0001));
+    assert(ctx.state.reg.sw == 0x1234);
+
+    /* Test 11: XIO 0x4003 (Memory Protect Enable) */
+    ctx.state.reg.sw = 0x0000; // Must be 0 to allow privileged instructions
+    ctx.state.reg.sys = 0x0000;
+    opcode = 0x4800; // XIO R0, 0x4003
+    poke(&ctx.state, 0x0001, 0x4003);
+    interpret_XIO(&ctx, opcode, read_phys_memory(&ctx.state, 0x0001));
+    assert(ctx.state.reg.sys & SYS_MEM_PROT);
+
+    /* Test 12: XIO 0xA004 (Read Pending Interrupt) */
+    ctx.state.reg.pir = 0xDEAD;
+    ctx.state.reg.r[1] = 0x0000;
+    opcode = 0x4810; // XIO R1, 0xA004
+    poke(&ctx.state, 0x0001, 0xA004);
+    interpret_XIO(&ctx, opcode, read_phys_memory(&ctx.state, 0x0001));
+    assert((uint16_t)ctx.state.reg.r[1] == 0xDEAD);
+
+    /* Test 13: XIO 0x5100 (Write Instruction Page Register) */
+    ctx.state.reg.r[0] = 0x1234;
+    opcode = 0x4800; // XIO R0, 0x5123 -> group 2, page 3
+    poke(&ctx.state, 0x0001, 0x5123);
+    interpret_XIO(&ctx, opcode, read_phys_memory(&ctx.state, 0x0001));
+    // bank CODE = 0, group = 2, page = 3
+    assert(ctx.state.pagereg[CODE][2][3].word == 0x1234);
+
+    /* Test 14: XIO 0xD100 (Read Instruction Page Register) */
+    ctx.state.pagereg[CODE][5][15].word = 0x5678;
+    ctx.state.reg.r[1] = 0x0000;
+    opcode = 0x4810; // XIO R1, 0xD15F -> group 5, page 15
+    poke(&ctx.state, 0x0001, 0xD15F);
+    interpret_XIO(&ctx, opcode, read_phys_memory(&ctx.state, 0x0001));
+    assert(ctx.state.reg.r[1] == 0x5678);
+
+    /* Test 15: XIO 0x5200 (Write Operand Page Register) */
+    ctx.state.reg.sw = 0x0000;
+    ctx.state.reg.r[2] = 0x9ABC;
+    opcode = 0x4820; // XIO R2, 0x5242 -> group 4, page 2
+    poke(&ctx.state, 0x0001, 0x5242);
+    interpret_XIO(&ctx, opcode, read_phys_memory(&ctx.state, 0x0001));
+    // bank DATA = 1, group = 4, page = 2
+    assert((uint16_t)ctx.state.pagereg[DATA][4][2].word == 0x9ABC);
+
+    /* Test 16: XIO 0xD200 (Read Operand Page Register) */
+    ctx.state.pagereg[DATA][10][1].word = 0xDEF0;
+    ctx.state.reg.r[3] = 0x0000;
+    opcode = 0x4830; // XIO R3, 0xD2A1 -> group A, page 1
+    poke(&ctx.state, 0x0001, 0xD2A1);
+    interpret_XIO(&ctx, opcode, read_phys_memory(&ctx.state, 0x0001));
+    assert((uint16_t)ctx.state.reg.r[3] == 0xDEF0);
+
+    printf("PASSED\n");
+}
+
+void test_VIO() {
+    reset_cpu();
+    printf("Testing VIO... ");
+
+    /* Test 0: VIO privilege execution (PS != 0) */
+    ctx.state.reg.sw = 0x0010; // Set PS = 1
+    ctx.state.reg.pir = 0x0000;
+    ctx.state.reg.ft = 0x0000;
+    uint16_t opcode = 0x4900; // VIO
+    poke(&ctx.state, 0x0001, 0x2000);
+    interpret_VIO(&ctx, opcode, read_phys_memory(&ctx.state, 0x0001));
+    assert(ctx.state.reg.pir & INTR_MACHERR);
+    assert(ctx.state.reg.ft & FT_PRIV_INSTR);
+
+    // Reset state for remaining tests
+    ctx.state.reg.sw = 0x0000;
+    ctx.state.reg.pir = 0x0000;
+    ctx.state.reg.ft = 0x0000;
+
+    /* Setup vector IO memory block */
+    /* DO_ADDR points to vio_struct:
+       word 0: io_cmd
+       word 1: vector_select
+       word 2+: data for selected bits
+    */
+    poke(&ctx.state, 0x2000, 0x5000); // Base IO cmd (Write Memory Protect)
+    poke(&ctx.state, 0x2001, 0xA000); // Vector select: Bits 0 and 2 set (1010...)
+    poke(&ctx.state, 0x2002, 0x1111); // Data for Bit 0
+    poke(&ctx.state, 0x2003, 0x2222); // Data for Bit 2
+
+    /* RA (cmd_inc) */
+    ctx.state.reg.r[4] = 0x0001; // Increment command address by 1 per checked bit
+
+    opcode = 0x4940; // VIO R4, 0x2000 -> RA=4, RX=0
+    poke(&ctx.state, 0x0001, 0x2000);
+
+    interpret_VIO(&ctx, opcode, read_phys_memory(&ctx.state, 0x0001));
+
+    /*
+       Bit 0 was set:
+       IO_cmd = 0x5000. Data = 0x1111 -> Write MP RAM at 0
+       Bit 1 was NOT set:
+       IO_cmd would be evaluated as 0x5001. No write.
+       Bit 2 was set:
+       IO_cmd = 0x5002. Data = 0x2222 -> Write MP RAM at 2
+    */
+
+    assert(ctx.state.mem_protect[0][0] == 0x1111);
+    assert(ctx.state.mem_protect[0][1] == 0x0000); // Unchanged
+    assert(ctx.state.mem_protect[0][2] == 0x2222);
+
+    printf("PASSED\n");
+}
+
+void test_Memory_Access() {
+    reset_cpu();
+    printf("Testing Memory Access Functions... ");
+
+    // Test store_data_word and fetch_data_word
+    ctx.state.reg.sw = 0x0000;
+    ctx.state.pagereg[DATA][0][1].ppa = 5; // Logical page 1 maps to Physical page 5
+    bool ok = store_data_word(&ctx, 0x1050, 0x55AA);
+    assert(ok);
+
+    uint16_t fetched_word = 0;
+    ok = fetch_data_word(&ctx, 0x1050, &fetched_word);
+    assert(ok);
+    assert(fetched_word == 0x55AA);
+    assert(ctx.state.mem[5]->word[0x050] == 0x55AA);
+
+    // Test fetch_data_words and store_data_words
+    uint16_t words_to_store[3] = {0x1111, 0x2222, 0x3333};
+    store_data_words(&ctx, 0x1051, 3, words_to_store);
+
+    uint16_t fetched_words[3] = {0, 0, 0};
+    fetch_data_words(&ctx, 0x1051, 3, fetched_words);
+    assert(fetched_words[0] == 0x1111);
+    assert(fetched_words[1] == 0x2222);
+    assert(fetched_words[2] == 0x3333);
+
+    // Test cross-page boundary operations
+    ctx.state.pagereg[DATA][0][2].ppa = 6;
+    uint16_t cross_words[2] = {0xAAAA, 0xBBBB};
+    store_data_words(&ctx, 0x1FFF, 2, cross_words);
+
+    uint16_t fetched_cross[2] = {0, 0};
+    fetch_data_words(&ctx, 0x1FFF, 2, fetched_cross);
+    assert(fetched_cross[0] == 0xAAAA);
+    assert(fetched_cross[1] == 0xBBBB);
+
+    // Verify physical layout directly
+    assert(ctx.state.mem[5]->word[0xFFF] == 0xAAAA);
+    assert(ctx.state.mem[6]->word[0x000] == 0xBBBB);
+
+    /* Setup memory protection mapping for CODE block */
+    // Access State = 0 (Executive)
+    // Page = 5
+    // Map logical page 5 to physical page 1
+    ctx.state.pagereg[CODE][0][5].ppa = 1;
+    ctx.state.pagereg[CODE][0][5].e_w = 0; // Executable
+    write_phys_memory(&ctx.state, 0x1000, 0x0); // Allocate physical page 1
+
+    // Valid execution
+    uint phys_exec = get_page_address_read_code(&ctx.state, 5);
+    assert(phys_exec == 1);
+    assert(ctx.state.halt == NO_HALT);
+
+    // Lock page (Not Executable)
+    ctx.state.code_read_cache.valid = 0; // Clear code cache to force re-fetch
+    ctx.state.pagereg[CODE][0][5].e_w = 1; // Not Executable (Execution/Write Protect)
+
+    phys_exec = get_page_address_read_code(&ctx.state, 5);
+    assert(phys_exec == 0xFFFFFFFF);
+    assert(ctx.state.halt == HALT_NON_EXEC);
+    assert(ctx.state.reg.pir & INTR_MACHERR);
+    assert(ctx.state.reg.ft & FT_MEMPROT);
+
+    ctx.state.halt = NO_HALT; // Clear for next run
+
+    printf("PASSED\n");
+}
+
+void test_Memory_Cache() {
+    reset_cpu();
+    printf("Testing Memory Caching Mechanism... ");
+
+    ctx.state.reg.sw = 0x0000;
+    ctx.state.pagereg[DATA][0][3].ppa = 8;
+    ctx.state.pagereg[CODE][0][4].ppa = 9;
+
+    // Initially caches are invalid
+    assert(ctx.state.data_write_cache.valid == 0);
+    assert(ctx.state.data_read_cache.valid == 0);
+    assert(ctx.state.code_read_cache.valid == 0);
+
+    // 1. Data Write Cache
+    store_data_word(&ctx, 0x3100, 0x1234);
+    // Logical qpage is 0x3100 >> 10 = 0x0C = 12
+    assert(ctx.state.data_write_cache.valid & (0x8000000000000000ULL >> 12));
+    assert(ctx.state.data_write_cache.page[12/4] == 8);
+
+    // 2. Data Read Cache
+    uint16_t fetched;
+    fetch_data_word(&ctx, 0x3100, &fetched);
+    // Logical page is 3
+    assert(ctx.state.data_read_cache.valid & (0x8000U >> 3));
+    assert(ctx.state.data_read_cache.page[3] == 8);
+
+    // 3. Code Read Cache
+    get_page_address_read_code(&ctx.state, 4);
+    assert(ctx.state.code_read_cache.valid & (0x8000U >> 4));
+    assert(ctx.state.code_read_cache.page[4] == 9);
+
+    // 4. Writing to page registers should invalidate caches
+    uint16_t opcode = 0x4800; // XIO R0, 0x5200 (Write Operand Page Register)
+    ctx.state.reg.r[0] = 0x1234;
+    poke(&ctx.state, 0x0001, 0x5200);
+    uint16_t imm = 0;
+    peek(&ctx.state, 0x0001, &imm);
+    interpret_XIO(&ctx, opcode, imm);
+
+    assert(ctx.state.data_read_cache.valid == 0);
+    assert(ctx.state.data_write_cache.valid == 0);
+
+    opcode = 0x4800; // XIO R0, 0x5100 (Write Instruction Page Register)
+    poke(&ctx.state, 0x0001, 0x5100);
+    peek(&ctx.state, 0x0001, &imm);
+    interpret_XIO(&ctx, opcode, imm);
+
+    assert(ctx.state.code_read_cache.valid == 0);
+
+    printf("PASSED\n");
+}
+
+void test_Arithmetic() {
+    reset_cpu();
+    printf("Testing Arithmetic... ");
+
+    // Test AR (Add Register)
+    // Opcode A1xy -> AR R2, R3 (0xA123)
+    ctx.state.reg.r[2] = 0x1111;
+    ctx.state.reg.r[3] = 0x2222;
+    interpret_AR(&ctx, 0xA123, 0);
+    assert(ctx.state.reg.r[2] == 0x3333);
+    assert(ctx.state.reg.sw & CS_POSITIVE);
+
+    // Test SR (Subtract Register)
+    // Opcode B1xy -> SR R4, R5 (0xB145)
+    ctx.state.reg.r[4] = 0x5555;
+    ctx.state.reg.r[5] = 0x1111;
+    interpret_SR(&ctx, 0xB145, 0);
+    assert(ctx.state.reg.r[4] == 0x4444);
+    assert(ctx.state.reg.sw & CS_POSITIVE);
+
+    // Test MR (Multiply Register)
+    // Opcode C5xy -> MR R6, R7 (0xC567)
+    // R6 gets high word, R7 gets low word (but RA must be even, so R6, R7 are the pair)
+    ctx.state.reg.r[6] = 0x0002;
+    ctx.state.reg.r[7] = 0xFFFF; // -1
+    interpret_MR(&ctx, 0xC567, 0);
+    // 2 * -1 = -2 = 0xFFFFFFFE -> R6=0xFFFF, R7=0xFFFE
+    assert(ctx.state.reg.r[6] == (int16_t)0xFFFF);
+    assert(ctx.state.reg.r[7] == (int16_t)0xFFFE);
+    assert(ctx.state.reg.sw & CS_NEGATIVE);
+
+    // Test DR (Divide Register)
+    // Opcode D5xy -> DR R8, R10 (0xD58A)
+    // A / B -> Quotient in RA, Remainder in RA+1
+    // A is a 32-bit number formed by (R8 << 16) | R9
+    ctx.state.reg.r[8] = 0;
+    ctx.state.reg.r[9] = 10;
+    ctx.state.reg.r[10] = 3;
+    interpret_DR(&ctx, 0xD58A, 0);
+    assert(ctx.state.reg.r[8] == 3);  // Quotient
+    assert(ctx.state.reg.r[9] == 1);  // Remainder
+
+    printf("PASSED\n");
+}
+
+void test_BitLogic() {
+    reset_cpu();
+    printf("Testing Bit and Logic Operations... ");
+
+    // SBR (Set Bit Register) - 0x51xy
+    ctx.state.reg.r[0] = 0x0000;
+    interpret_SBR(&ctx, 0x5130, 0); // Set bit 3 in R0
+    assert(ctx.state.reg.r[0] == 0x1000); // 0001 0000 ...
+
+    // RBR (Reset Bit Register) - 0x54xy
+    interpret_RBR(&ctx, 0x5430, 0);
+    assert(ctx.state.reg.r[0] == 0x0000);
+
+    // TBR (Test Bit Register) - 0x57xy
+    ctx.state.reg.r[1] = 0x1000;
+    ctx.state.reg.sw = 0x0000;
+    interpret_TBR(&ctx, 0x5731, 0); // Test bit 3
+    assert(ctx.state.reg.sw & CS_POSITIVE); // Bit is on -> POSITIVE because bit 3 > 0
+
+    ctx.state.reg.sw = 0x0000;
+    interpret_TBR(&ctx, 0x5741, 0); // Test bit 4
+    assert(ctx.state.reg.sw & CS_ZERO); // Bit is off -> ZERO
+
+    // ANDR (AND Register) - 0xE3xy
+    ctx.state.reg.r[2] = 0xF0F0;
+    ctx.state.reg.r[3] = 0x0FF0;
+    interpret_ANDR(&ctx, 0xE323, 0);
+    assert(ctx.state.reg.r[2] == 0x00F0);
+
+    // ORR (OR Register) - 0xE1xy
+    ctx.state.reg.r[4] = 0x0A00;
+    ctx.state.reg.r[5] = 0x000B;
+    interpret_ORR(&ctx, 0xE145, 0);
+    assert(ctx.state.reg.r[4] == 0x0A0B);
+
+    // XORR (XOR Register) - 0xE5xy
+    ctx.state.reg.r[6] = 0xFFFF;
+    ctx.state.reg.r[7] = 0x00FF;
+    interpret_XORR(&ctx, 0xE567, 0);
+    assert(ctx.state.reg.r[6] == (int16_t)0xFF00);
+
+    // NR (NAND Register) - 0xE7xy
+    ctx.state.reg.r[8] = 0xFFFF;
+    ctx.state.reg.r[9] = 0xFFFF;
+    interpret_NR(&ctx, 0xE789, 0);
+    assert(ctx.state.reg.r[8] == 0x0000);
+
+    printf("PASSED\n");
+}
+
+void test_Stack() {
+    reset_cpu();
+    printf("Testing Stack Operations... ");
+
+    // Setup Stack Pointer
+    ctx.state.reg.r[15] = 0x1000;
+
+    // Fill registers R3 to R5
+    ctx.state.reg.r[3] = 0x3333;
+    ctx.state.reg.r[4] = 0x4444;
+    ctx.state.reg.r[5] = 0x5555;
+
+    // PSHM (Push Multiple) - 0x9Fxy
+    // Push R3 through R5 (RA=3, RB=5)
+    interpret_PSHM(&ctx, 0x9F35, 0);
+
+    // R15 should be decremented by 3
+    assert(ctx.state.reg.r[15] == 0x0FFD);
+
+    // Check memory (R15 grows downwards, so R5 is at 0x0FFD, R4 at 0x0FFE, R3 at 0x0FFF)
+    assert(read_phys_memory(&ctx.state, 0x0FFD) == 0x3333); // R3
+    assert(read_phys_memory(&ctx.state, 0x0FFE) == 0x4444); // R4
+    assert(read_phys_memory(&ctx.state, 0x0FFF) == 0x5555); // R5
+
+    // Clear registers
+    ctx.state.reg.r[3] = 0;
+    ctx.state.reg.r[4] = 0;
+    ctx.state.reg.r[5] = 0;
+
+    // POPM (Pop Multiple) - 0x8Fxy
+    // Pop R3 through R5 (RA=3, RB=5)
+    interpret_POPM(&ctx, 0x8F35, 0);
+
+    // R15 should be back to 0x1000
+    assert(ctx.state.reg.r[15] == 0x1000);
+
+    // Check registers are restored
+    assert(ctx.state.reg.r[3] == 0x3333);
+    assert(ctx.state.reg.r[4] == 0x4444);
+    assert(ctx.state.reg.r[5] == 0x5555);
+
+    // Test Wrap-around push (RA > RB)
+    // Push R14 through R1 (RA=14, RB=1) -> 14, 15, 0, 1 (4 registers)
+    ctx.state.reg.r[14] = 0xEEEE;
+    ctx.state.reg.r[15] = 0x2000; // Reset SP
+    ctx.state.reg.r[0] = 0xAAAA;
+    ctx.state.reg.r[1] = 0xBBBB;
+
+    interpret_PSHM(&ctx, 0x9FE1, 0);
+
+    // SP decremented by 4
+    assert(ctx.state.reg.r[15] == 0x1FFC);
+
+    // Check wrap-around memory structure
+    assert(read_phys_memory(&ctx.state, 0x1FFC) == 0xEEEE); // R14
+    // R15 should be stored as the value it had AT THE MOMENT of its insertion!
+    // At insertion (after R14), R15 would be 0x1FFE (since 2 more registers R0, R1 are pushed after it,
+    // wait: R15 is inserted at offset 1! Initial SP=0x2000, count=4. Final SP=0x1FFC.
+    // 0x1FFC -> R14, 0x1FFD -> R15, 0x1FFE -> R0, 0x1FFF -> R1
+    // The value of R15 inserted should be 0x1FFD.
+    assert(read_phys_memory(&ctx.state, 0x1FFD) == 0x1FFD); // R15
+    assert(read_phys_memory(&ctx.state, 0x1FFE) == 0xAAAA); // R0
+    assert(read_phys_memory(&ctx.state, 0x1FFF) == 0xBBBB); // R1
+
+    printf("PASSED\n");
+}
+
+void test_ControlFlow() {
+    reset_cpu();
+    printf("Testing Control Flow Operations... ");
+
+    // Setup typical environment
+    ctx.state.reg.ic = 0x1000;
+
+    // BR (Branch Unconditional) - 0x74xy
+    // 0x7405 -> Branch +5 (forward)
+    interpret_BR(&ctx, 0x7405, 0);
+    assert(ctx.state.reg.ic == 0x1005);
+
+    // 0x74F0 -> Branch -16 (backward)
+    // 0xF0 signed is -16. From 0x1005, it should go to 0x0FF5
+    interpret_BR(&ctx, 0x74F0, 0);
+    assert(ctx.state.reg.ic == 0x0FF5);
+
+    // JC (Jump Conditional) - 0x70xy
+    // 0x7070 -> Condition 7 is unconditional jump
+    // Needs DO_ADDR -> Memory fetch
+    ctx.state.reg.ic = 0x1000;
+    ctx.state.reg.r[0] = 0x0000; // Base relative RX=0
+    write_phys_memory(&ctx.state, 0x1001, 0x5555); // Immediate address value
+    interpret_JC(&ctx, 0x7070, read_phys_memory(&ctx.state, 0x1001));
+    assert(ctx.state.reg.ic == 0x5555); // Jumped unconditionally
+
+    // JS (Jump to Subroutine) - 0x72xy
+    ctx.state.reg.ic = 0x1000;
+    ctx.state.reg.r[2] = 0x0000;
+    write_phys_memory(&ctx.state, 0x1001, 0x6666); // Target Address
+    interpret_JS(&ctx, 0x7220, read_phys_memory(&ctx.state, 0x1001));
+    assert(ctx.state.reg.ic == 0x6666); // PC changed to subroutine
+    assert(ctx.state.reg.r[2] == 0x1002); // Return address saved in R2
+
+    // URS (Return from Subroutine) - 0x7Fxy
+    // Memory should hold the target address
+    ctx.state.reg.ic = 0x6666;
+    ctx.state.reg.r[3] = 0x1002;
+    write_phys_memory(&ctx.state, 0x1002, 0x8888); // Target return IC
+    interpret_URS(&ctx, 0x7F30, 0);
+    assert(ctx.state.reg.ic == 0x8888);
+    assert(ctx.state.reg.r[3] == 0x1003); // Register incremented
+
+    // SJS (Stack IC and Jump to Subroutine) - 0x7Exy
+    reset_cpu();
+    ctx.state.reg.ic = 0x2000;
+    ctx.state.reg.r[15] = 0x5000; // Stack pointer
+    write_phys_memory(&ctx.state, 0x2001, 0x4444); // Subroutine entry address
+    interpret_SJS(&ctx, 0x7EF0, read_phys_memory(&ctx.state, 0x2001)); // SJS R15, 0x4444
+    assert(ctx.state.reg.ic == 0x4444); // Jumped
+    assert(ctx.state.reg.r[15] == 0x4FFF); // SP decremented
+    assert(read_phys_memory(&ctx.state, 0x4FFF) == 0x2002); // Return address pushed
+
+    // SOJ (Subtract One and Jump) - 0x73xy
+    reset_cpu();
+    ctx.state.reg.ic = 0x3000;
+    ctx.state.reg.r[5] = 0x0002;
+    write_phys_memory(&ctx.state, 0x3001, 0x1234); // Target address
+    interpret_SOJ(&ctx, 0x7350, read_phys_memory(&ctx.state, 0x3001)); // SOJ R5, 0x1234
+    assert(ctx.state.reg.r[5] == 0x0001); // Decremented
+    assert(ctx.state.reg.ic == 0x1234); // Jumped because > 0
+
+    interpret_SOJ(&ctx, 0x7350, read_phys_memory(&ctx.state, 0x3001)); // Again
+    assert(ctx.state.reg.r[5] == 0x0000); // Decremented to 0
+    assert(ctx.state.reg.ic == 0x1236); // NO jump! IC merely advanced by 2 past the target address
+
+    printf("PASSED\n");
+}
+
+void test_MOV() {
+    reset_cpu();
+    printf("Testing MOV Instruction... ");
+
+    // Setup memory mapping for MOV (cross-page boundaries)
+    // Source: logical page 1 (phys 5) to logical page 2 (phys 6)
+    ctx.state.pagereg[DATA][0][1].ppa = 5;
+    ctx.state.pagereg[DATA][0][2].ppa = 6;
+
+    // Dest: logical page 3 (phys 7) to logical page 4 (phys 8)
+    ctx.state.pagereg[DATA][0][3].ppa = 7;
+    ctx.state.pagereg[DATA][0][4].ppa = 8;
+
+    // Fill source memory
+    // Start at 0x1FF0 (logical page 1), count = 32 words -> crosses to 0x200F (logical page 2)
+    for (int i = 0; i < 32; i++) {
+        store_data_word(&ctx, 0x1FF0 + i, 0xA000 + i);
+    }
+
+    // Set up registers for MOV
+    // Opcode: MOV R2, R4 -> 0x9324 (RA=2, RB=4)
+    // R2 = Dest Address (0x3FF0)
+    // R3 = Count (32)
+    // R4 = Source Address (0x1FF0)
+    ctx.state.reg.r[2] = 0x3FF0;
+    ctx.state.reg.r[3] = 32;
+    ctx.state.reg.r[4] = 0x1FF0;
+
+    uint16_t opcode = 0x9324;
+    interpret_MOV(&ctx, opcode, 0);
+
+    // Assert that the instruction processed correctly
+    // Count should be 0, and R2/R4 should be advanced by 32
+    assert(ctx.state.reg.r[3] == 0);
+    assert((uint16_t)ctx.state.reg.r[2] == 0x3FF0 + 32);
+    assert((uint16_t)ctx.state.reg.r[4] == 0x1FF0 + 32);
+
+    // Verify destination memory
+    // 0x3FF0 is in physical page 7, from offset 0xFF0 to 0xFFF (16 words)
+    // 0x4000 is in physical page 8, from offset 0x000 to 0x00F (16 words)
+    for (int i = 0; i < 32; i++) {
+        uint16_t val;
+        fetch_data_word(&ctx, 0x3FF0 + i, &val);
+        assert(val == 0xA000 + i);
+    }
+
     printf("PASSED\n");
 }
 
@@ -927,12 +1692,15 @@ void test_EFA_EFS() {
         ctx.state.reg.r[2] = 0x0000; ctx.state.reg.r[3] = 0x0000; ctx.state.reg.r[4] = 0x0000;
         double_to_1750a_efloat(a, &ctx.state.reg.r[2], &ctx.state.reg.r[3], &ctx.state.reg.r[4]);
 
-        mock_memory[0x1000] = 0x0000; mock_memory[0x1001] = 0x0000; mock_memory[0x1002] = 0x0000;
-        double_to_1750a_efloat(b, &mock_memory[0x1000], &mock_memory[0x1001], &mock_memory[0x1002]);
-        mock_memory[0x0001] = 0x1000;
+        uint16_t w1=0, w2=0, w3=0;
+        double_to_1750a_efloat(b, &w1, &w2, &w3);
+        poke(&ctx.state, 0x1000, w1);
+        poke(&ctx.state, 0x1001, w2);
+        poke(&ctx.state, 0x1002, w3);
+        poke(&ctx.state, 0x0001, 0x1000);
 
         // EFA R2, 0x1000 -> Opcode 0xCC, RA=2
-        interpret_EFA(&ctx, 0xCC20, mock_memory[0x0001]);
+    interpret_EFA(&ctx, 0xCC20, read_phys_memory(&ctx.state, 0x0001));
 
         double res_add = efloat_1750a_to_double(ctx.state.reg.r[2], ctx.state.reg.r[3], ctx.state.reg.r[4]);
         double exp_add = a + b;
@@ -945,12 +1713,14 @@ void test_EFA_EFS() {
         ctx.state.reg.r[2] = 0x0000; ctx.state.reg.r[3] = 0x0000; ctx.state.reg.r[4] = 0x0000;
         double_to_1750a_efloat(a, &ctx.state.reg.r[2], &ctx.state.reg.r[3], &ctx.state.reg.r[4]);
 
-        mock_memory[0x1000] = 0x0000; mock_memory[0x1001] = 0x0000; mock_memory[0x1002] = 0x0000;
-        double_to_1750a_efloat(b, &mock_memory[0x1000], &mock_memory[0x1001], &mock_memory[0x1002]);
-        mock_memory[0x0001] = 0x1000;
+        double_to_1750a_efloat(b, &w1, &w2, &w3);
+        poke(&ctx.state, 0x1000, w1);
+        poke(&ctx.state, 0x1001, w2);
+        poke(&ctx.state, 0x1002, w3);
+        poke(&ctx.state, 0x0001, 0x1000);
 
         // EFS R2, 0x1000 -> Opcode 0xCD, RA=2
-        interpret_EFS(&ctx, 0xCD20, mock_memory[0x0001]);
+    interpret_EFS(&ctx, 0xCD20, read_phys_memory(&ctx.state, 0x0001));
 
         double res_sub = efloat_1750a_to_double(ctx.state.reg.r[2], ctx.state.reg.r[3], ctx.state.reg.r[4]);
         double exp_sub = a - b;
@@ -993,12 +1763,14 @@ void test_FA_FS() {
         ctx.state.reg.r[2] = 0x0000; ctx.state.reg.r[3] = 0x0000;
         double_to_1750a_float(a, &ctx.state.reg.r[2], &ctx.state.reg.r[3]);
 
-        mock_memory[0x1000] = 0x0000; mock_memory[0x1001] = 0x0000;
-        double_to_1750a_float(b, &mock_memory[0x1000], &mock_memory[0x1001]);
-        mock_memory[0x0001] = 0x1000;
+        uint16_t w1=0, w2=0;
+        double_to_1750a_float(b, &w1, &w2);
+        poke(&ctx.state, 0x1000, w1);
+        poke(&ctx.state, 0x1001, w2);
+        poke(&ctx.state, 0x0001, 0x1000);
 
         // FA R2, 0x1000 -> Opcode 0xC8, RA=2
-        interpret_FA(&ctx, 0xC820, mock_memory[0x0001]);
+    interpret_FA(&ctx, 0xC820, read_phys_memory(&ctx.state, 0x0001));
 
         double res_add = float_1750a_to_double(ctx.state.reg.r[2], ctx.state.reg.r[3]);
         double exp_add = a + b;
@@ -1011,12 +1783,13 @@ void test_FA_FS() {
         ctx.state.reg.r[2] = 0x0000; ctx.state.reg.r[3] = 0x0000;
         double_to_1750a_float(a, &ctx.state.reg.r[2], &ctx.state.reg.r[3]);
 
-        mock_memory[0x1000] = 0x0000; mock_memory[0x1001] = 0x0000;
-        double_to_1750a_float(b, &mock_memory[0x1000], &mock_memory[0x1001]);
-        mock_memory[0x0001] = 0x1000;
+        double_to_1750a_float(b, &w1, &w2);
+        poke(&ctx.state, 0x1000, w1);
+        poke(&ctx.state, 0x1001, w2);
+        poke(&ctx.state, 0x0001, 0x1000);
 
         // FS R2, 0x1000 -> Opcode 0xC9, RA=2
-        interpret_FS(&ctx, 0xC920, mock_memory[0x0001]);
+    interpret_FS(&ctx, 0xC920, read_phys_memory(&ctx.state, 0x0001));
 
         double res_sub = float_1750a_to_double(ctx.state.reg.r[2], ctx.state.reg.r[3]);
         double exp_sub = a - b;

@@ -1,4 +1,4 @@
-#include "jit.h"
+#include "m1750.h"
 
 OpcodeDef opcode_defs_brx[16] = {
         {"LBX", OPC_BRX_LBX,  CS_W_ALL, false, true, VALID, false, IF_BASE_REL_INDX, OP_LOAD, AM_BASE_REL_IDX_BX, OPERAND_INT16, "Single precision load, Base Relative Indexed"},
