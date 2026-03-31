@@ -20,11 +20,11 @@ start:
         LIM  R0, -1
         XIO  R0, 2001H     ; CLIR
 
-        ; Load Timer A 
+        ; Load Timer A
         LIM  R0, -64
         XIO  R0, 400AH     ; OTA (Output Timer A)
 
-        ; Load Timer B 
+        ; Load Timer B
         LIM  R0, -4
         XIO  R0, 400EH     ; OTB (Output Timer B)
 

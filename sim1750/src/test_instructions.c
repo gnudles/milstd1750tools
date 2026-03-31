@@ -28,6 +28,7 @@ uint get_phys_address(struct cpu_state *state, int space, int as, uint16_t addr)
 
 
 void test_BEX();
+void test_BEX_AS_Switch();
 void test_BPT();
 void test_XIO();
 void test_VIO();
@@ -356,6 +357,50 @@ void test_FD_Divide_By_Zero() {
     
     /* Verification: Ensure the PIR (Pending Interrupt Register) caught the overflow */
     assert(ctx.state.reg.pir & INTR_FLTOFL); 
+    printf("PASSED\n");
+}
+
+void test_FD_Underflow() {
+    reset_cpu();
+    printf("Testing FD (Floating Point Underflow Trap)... ");
+
+    // For division: E_res = E_A - E_B.
+    // If E_A is -65 (0xBF) and E_B is +65 (0x41), E_A - E_B = -130.
+    // After normalization (+1), E_res = -129, which causes Underflow!
+
+    // Float A: Mantissa 0x4000, Exponent -65 (0xBF) -> 0x4000 00BF
+    ctx.state.reg.r[2] = 0x4000;
+    ctx.state.reg.r[3] = 0x00BF;
+
+    // Float B: Mantissa 0x4000, Exponent +65 (0x41) -> 0x4000 0041
+    ctx.state.reg.r[4] = 0x4000;
+    ctx.state.reg.r[5] = 0x0041;
+
+    // FDR R2, R4 (Floating Divide Register) - Opcode 0xD9xy -> 0xD924
+    interpret_FDR(&ctx, 0xD924, 0);
+
+    /* Verification: Ensure PIR triggered INTR_FLTUFL */
+    assert(ctx.state.reg.pir & INTR_FLTUFL);
+
+    /* Verification: Underflow forces result to true zero */
+    assert(ctx.state.reg.r[2] == 0x0000);
+    assert(ctx.state.reg.r[3] == 0x0000);
+
+    printf("PASSED\n");
+}
+
+void test_Fixed_Point_Overflow() {
+    reset_cpu();
+    printf("Testing Fixed Point Arithmetic Overflow (INTR_FIXOFL)... ");
+
+    // 0x7FFF + 0x0002 = 0x8001 (Overflow)
+    ctx.state.reg.r[5] = 0x7FFF;
+    ctx.state.reg.r[6] = 0x0002;
+    interpret_AR(&ctx, 0xA156, 0); // AR R5, R6
+
+    assert(ctx.state.reg.pir & INTR_FIXOFL);
+    assert((uint16_t)ctx.state.reg.r[5] == 0x8001); // Result is computed normally despite trap
+
     printf("PASSED\n");
 }
 
@@ -742,6 +787,8 @@ int main() {
     test_FD_Negative_Normalization();
     test_EFD_48bit_Math();
     test_FD_Divide_By_Zero();
+    test_FD_Underflow();
+    test_Fixed_Point_Overflow();
     test_SQRT();
     test_ESQR();
     test_FNEG_FABS();
@@ -750,6 +797,7 @@ int main() {
     printf("All floating point tests passed.\n");
 
     test_BEX();
+    test_BEX_AS_Switch();
     test_BPT();
     test_XIO();
     test_VIO();
@@ -763,6 +811,7 @@ int main() {
     printf("All additional instruction tests passed.\n");
 
     // We are inside sim1750 directory
+    run_ldm_test("automated_tests/bex_test.ldm");
     run_ldm_test("automated_tests/interrupt_test.ldm");
     run_ldm_test("automated_tests/simple_math.ldm");
     run_ldm_test("automated_tests/simple_logic.ldm");
@@ -789,6 +838,90 @@ void test_BEX() {
     printf("PASSED\n");
 }
 
+void test_BEX_AS_Switch() {
+    reset_cpu();
+    printf("Testing BEX Context Switching between Address States (AS=0 to AS=1 and back)... ");
+
+    // Initialize memory for execution
+    write_phys_memory(&ctx.state, 0x0000, 0); // Allocate physical page 0
+    write_phys_memory(&ctx.state, 0x1000, 0); // Allocate physical page 1
+
+    // Configure Memory Mapping
+    // AS = 0 maps Logical Page 0x0 to Physical Page 0
+    ctx.state.pagereg[CODE][0][0].ppa = 0;
+    ctx.state.pagereg[CODE][0][0].e_w = 0; // Executable
+    ctx.state.pagereg[DATA][0][0].ppa = 0;
+
+    // AS = 1 maps Logical Page 0x1 to Physical Page 1
+    ctx.state.pagereg[CODE][1][1].ppa = 1;
+    ctx.state.pagereg[CODE][1][1].e_w = 0; // Executable
+    ctx.state.pagereg[DATA][1][1].ppa = 1;
+
+    // Interrupt Vector for BEX (Executive Call = Interrupt #5) -> Vector Address = 0x20 + 5*2 = 0x2A
+    // It reads 2 words from 0x002A: Logical Pointer, Service Pointer.
+    store_data_word(&ctx, 0x002A, 0x0100); // Logical Pointer (LP)
+    store_data_word(&ctx, 0x002B, 0x0200); // Service Pointer (SVP)
+
+    // The BEX Interrupt (Intr 5) reads MK/SW from SVP, and IC from SVP + 2 + bex_index.
+    // Let's configure the BEX Handler Service block:
+    store_data_word(&ctx, 0x0200, 0x0000); // MK
+    store_data_word(&ctx, 0x0201, 0x0000); // SW (AS=0, PS=0)
+    store_data_word(&ctx, 0x0202, 0x0080); // IC for BEX index 0
+
+    // Setup the main execution code in AS=0 at IC=0x0050
+    ctx.state.reg.ic = 0x0050;
+    ctx.state.reg.sw = 0x0000; // AS=0, PS=0
+
+    // Code at AS=0 (Physical Address 0x0050)
+    // 1. Prepare target MK, SW, IC for jumping to AS=1
+    store_data_word(&ctx, 0x0060, 0x0000); // MK
+    store_data_word(&ctx, 0x0061, 0x0001); // SW (AS=1, PS=0)
+    store_data_word(&ctx, 0x0062, 0x1050); // IC (Logical address 0x1050 mapped to Physical 0x1050)
+
+    // Instruction: LST 0x0060 (Load Status Direct)
+    // Opcode: 0x7D00, Immed: 0x0060
+    store_data_word(&ctx, 0x0050, 0x7D00); // LST R0 (where 0 means no register base)
+    store_data_word(&ctx, 0x0051, 0x0060); // Immediate 0x0060
+
+    // Now we are in AS=1! Code at AS=1, Logical IC=0x1050
+    // Maps to Physical Page 1, Address 0x1050
+    // Instruction: BEX 0 (Branch Executive)
+    // Opcode: 0x7700
+    write_phys_memory(&ctx.state, 0x1050, 0x7700);
+    write_phys_memory(&ctx.state, 0x1051, 0x0000); // Pad just in case
+
+    // BEX 0 executes! The CPU traps, saves AS=1 state to LP (0x0100), and loads AS=0 handler.
+    // The handler executes at AS=0, Logical IC=0x0080 (Mapped to Physical 0x0080)
+    // Instruction: LIM R3, 0xAAAA (Opcode 0x8530, Immed 0xAAAA)
+    store_data_word(&ctx, 0x0080, 0x8530);
+    store_data_word(&ctx, 0x0081, 0xAAAA);
+    // Instruction: BPT (Breakpoint - Opcode 0xFFFF)
+    store_data_word(&ctx, 0x0082, 0xFFFF);
+
+    // Run the CPU loop! It should run LST -> switch to AS=1 -> execute BEX -> switch to AS=0 -> run LIM -> BPT
+    int steps = 0;
+    while (ctx.state.halt == NO_HALT && steps < 100) {
+        cpu_mainloop(&ctx, ctx.state.total_cycles + 100);
+        steps++;
+    }
+
+    // Verify Success
+    assert(ctx.state.halt != NO_HALT); // Ensure it halted
+    assert(ctx.state.reg.r[3] == (int32_t)(int16_t)0xAAAA); // Verify handler executed
+
+    // Verify the LP captured the old state correctly from AS=1!
+    // The LP was 0x0100.
+    uint16_t saved_mk, saved_sw, saved_ic;
+    fetch_data_word(&ctx, 0x0100, &saved_mk);
+    fetch_data_word(&ctx, 0x0101, &saved_sw);
+    fetch_data_word(&ctx, 0x0102, &saved_ic);
+
+    assert(saved_sw == 0x0001); // Saved AS=1, PS=0!
+    assert(saved_ic == 0x1051); // IC after BEX instruction!
+
+    printf("PASSED\n");
+}
+
 void test_BPT() {
     reset_cpu();
     printf("Testing BPT (Breakpoint)... ");
@@ -807,9 +940,23 @@ void test_XIO() {
     reset_cpu();
     printf("Testing XIO... ");
 
+    /* Test 0: XIO privilege execution (PS != 0) */
+    ctx.state.reg.sw = 0x0010; // Set PS = 1
+    ctx.state.reg.pir = 0x0000;
+    ctx.state.reg.ft = 0x0000;
+    uint16_t opcode = 0x4800; // XIO R0, 0x2000
+    poke(&ctx.state, 0x0001, 0x2000);
+    interpret_XIO(&ctx, opcode, read_phys_memory(&ctx.state, 0x0001));
+    assert(ctx.state.reg.pir & INTR_MACHERR);
+    assert(ctx.state.reg.ft & FT_PRIV_INSTR);
+
+    // Reset state for remaining tests
+    ctx.state.reg.sw = 0x0000;
+    ctx.state.reg.pir = 0x0000;
+    ctx.state.reg.ft = 0x0000;
+
     /* Test 1: XIO 0x2000 (SMK - Set Interrupt Mask) */
     ctx.state.reg.r[0] = 0xAAAA;
-    uint16_t opcode = 0x4800; // XIO R0, 0x2000 -> RA=0, RX=0.
 
     poke(&ctx.state, 0x0001, 0x2000);
     interpret_XIO(&ctx, opcode, read_phys_memory(&ctx.state, 0x0001));
@@ -943,6 +1090,21 @@ void test_VIO() {
     reset_cpu();
     printf("Testing VIO... ");
 
+    /* Test 0: VIO privilege execution (PS != 0) */
+    ctx.state.reg.sw = 0x0010; // Set PS = 1
+    ctx.state.reg.pir = 0x0000;
+    ctx.state.reg.ft = 0x0000;
+    uint16_t opcode = 0x4900; // VIO
+    poke(&ctx.state, 0x0001, 0x2000);
+    interpret_VIO(&ctx, opcode, read_phys_memory(&ctx.state, 0x0001));
+    assert(ctx.state.reg.pir & INTR_MACHERR);
+    assert(ctx.state.reg.ft & FT_PRIV_INSTR);
+
+    // Reset state for remaining tests
+    ctx.state.reg.sw = 0x0000;
+    ctx.state.reg.pir = 0x0000;
+    ctx.state.reg.ft = 0x0000;
+
     /* Setup vector IO memory block */
     /* DO_ADDR points to vio_struct:
        word 0: io_cmd
@@ -957,7 +1119,7 @@ void test_VIO() {
     /* RA (cmd_inc) */
     ctx.state.reg.r[4] = 0x0001; // Increment command address by 1 per checked bit
 
-    uint16_t opcode = 0x4940; // VIO R4, 0x2000 -> RA=4, RX=0
+    opcode = 0x4940; // VIO R4, 0x2000 -> RA=4, RX=0
     poke(&ctx.state, 0x0001, 0x2000);
 
     interpret_VIO(&ctx, opcode, read_phys_memory(&ctx.state, 0x0001));
@@ -1017,6 +1179,31 @@ void test_Memory_Access() {
     // Verify physical layout directly
     assert(ctx.state.mem[5]->word[0xFFF] == 0xAAAA);
     assert(ctx.state.mem[6]->word[0x000] == 0xBBBB);
+
+    /* Setup memory protection mapping for CODE block */
+    // Access State = 0 (Executive)
+    // Page = 5
+    // Map logical page 5 to physical page 1
+    ctx.state.pagereg[CODE][0][5].ppa = 1;
+    ctx.state.pagereg[CODE][0][5].e_w = 0; // Executable
+    write_phys_memory(&ctx.state, 0x1000, 0x0); // Allocate physical page 1
+
+    // Valid execution
+    uint phys_exec = get_page_address_read_code(&ctx.state, 5);
+    assert(phys_exec == 1);
+    assert(ctx.state.halt == NO_HALT);
+
+    // Lock page (Not Executable)
+    ctx.state.code_read_cache.valid = 0; // Clear code cache to force re-fetch
+    ctx.state.pagereg[CODE][0][5].e_w = 1; // Not Executable (Execution/Write Protect)
+
+    phys_exec = get_page_address_read_code(&ctx.state, 5);
+    assert(phys_exec == 0xFFFFFFFF);
+    assert(ctx.state.halt == HALT_NON_EXEC);
+    assert(ctx.state.reg.pir & INTR_MACHERR);
+    assert(ctx.state.reg.ft & FT_MEMPROT);
+
+    ctx.state.halt = NO_HALT; // Clear for next run
 
     printf("PASSED\n");
 }
@@ -1277,6 +1464,29 @@ void test_ControlFlow() {
     interpret_URS(&ctx, 0x7F30, 0);
     assert(ctx.state.reg.ic == 0x8888);
     assert(ctx.state.reg.r[3] == 0x1003); // Register incremented
+
+    // SJS (Stack IC and Jump to Subroutine) - 0x7Exy
+    reset_cpu();
+    ctx.state.reg.ic = 0x2000;
+    ctx.state.reg.r[15] = 0x5000; // Stack pointer
+    write_phys_memory(&ctx.state, 0x2001, 0x4444); // Subroutine entry address
+    interpret_SJS(&ctx, 0x7EF0, read_phys_memory(&ctx.state, 0x2001)); // SJS R15, 0x4444
+    assert(ctx.state.reg.ic == 0x4444); // Jumped
+    assert(ctx.state.reg.r[15] == 0x4FFF); // SP decremented
+    assert(read_phys_memory(&ctx.state, 0x4FFF) == 0x2002); // Return address pushed
+
+    // SOJ (Subtract One and Jump) - 0x73xy
+    reset_cpu();
+    ctx.state.reg.ic = 0x3000;
+    ctx.state.reg.r[5] = 0x0002;
+    write_phys_memory(&ctx.state, 0x3001, 0x1234); // Target address
+    interpret_SOJ(&ctx, 0x7350, read_phys_memory(&ctx.state, 0x3001)); // SOJ R5, 0x1234
+    assert(ctx.state.reg.r[5] == 0x0001); // Decremented
+    assert(ctx.state.reg.ic == 0x1234); // Jumped because > 0
+
+    interpret_SOJ(&ctx, 0x7350, read_phys_memory(&ctx.state, 0x3001)); // Again
+    assert(ctx.state.reg.r[5] == 0x0000); // Decremented to 0
+    assert(ctx.state.reg.ic == 0x1236); // NO jump! IC merely advanced by 2 past the target address
 
     printf("PASSED\n");
 }

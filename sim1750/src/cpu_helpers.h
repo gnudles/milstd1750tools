@@ -718,7 +718,7 @@ static void calculate_next_scheduled_timers_check(struct cpu_context *cpu_ctx) {
     uint32_t nearest_time_10us;
 
     go_timer_expiration_10us  = ((0x10000 - cpu_ctx->state.reg.go)* GOTIMER_PERIOD_IN_10uSEC + cpu_ctx->state.global_10usec_timer_clock - cpu_ctx->state.timer_go_global_snap) ;
-    
+
     nearest_time_10us = go_timer_expiration_10us;
 
     if (cpu_ctx->state.reg.sys & SYS_TA)
