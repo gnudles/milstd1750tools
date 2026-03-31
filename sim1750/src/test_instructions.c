@@ -28,6 +28,7 @@ uint get_phys_address(struct cpu_state *state, int space, int as, uint16_t addr)
 
 
 void test_BEX();
+void test_BEX_AS_Switch();
 void test_BPT();
 void test_XIO();
 void test_VIO();
@@ -796,6 +797,7 @@ int main() {
     printf("All floating point tests passed.\n");
 
     test_BEX();
+    test_BEX_AS_Switch();
     test_BPT();
     test_XIO();
     test_VIO();
@@ -832,6 +834,90 @@ void test_BEX() {
     /* BEX triggers INTR_BEX flag in pir */
     assert(ctx.state.reg.pir & INTR_BEX);
     assert(ctx.state.bex_index == 0);
+    printf("PASSED\n");
+}
+
+void test_BEX_AS_Switch() {
+    reset_cpu();
+    printf("Testing BEX Context Switching between Address States (AS=0 to AS=1 and back)... ");
+
+    // Initialize memory for execution
+    write_phys_memory(&ctx.state, 0x0000, 0); // Allocate physical page 0
+    write_phys_memory(&ctx.state, 0x1000, 0); // Allocate physical page 1
+
+    // Configure Memory Mapping
+    // AS = 0 maps Logical Page 0x0 to Physical Page 0
+    ctx.state.pagereg[CODE][0][0].ppa = 0;
+    ctx.state.pagereg[CODE][0][0].e_w = 0; // Executable
+    ctx.state.pagereg[DATA][0][0].ppa = 0;
+
+    // AS = 1 maps Logical Page 0x1 to Physical Page 1
+    ctx.state.pagereg[CODE][1][1].ppa = 1;
+    ctx.state.pagereg[CODE][1][1].e_w = 0; // Executable
+    ctx.state.pagereg[DATA][1][1].ppa = 1;
+
+    // Interrupt Vector for BEX (Executive Call = Interrupt #5) -> Vector Address = 0x20 + 5*2 = 0x2A
+    // It reads 2 words from 0x002A: Logical Pointer, Service Pointer.
+    store_data_word(&ctx, 0x002A, 0x0100); // Logical Pointer (LP)
+    store_data_word(&ctx, 0x002B, 0x0200); // Service Pointer (SVP)
+
+    // The BEX Interrupt (Intr 5) reads MK/SW from SVP, and IC from SVP + 2 + bex_index.
+    // Let's configure the BEX Handler Service block:
+    store_data_word(&ctx, 0x0200, 0x0000); // MK
+    store_data_word(&ctx, 0x0201, 0x0000); // SW (AS=0, PS=0)
+    store_data_word(&ctx, 0x0202, 0x0080); // IC for BEX index 0
+
+    // Setup the main execution code in AS=0 at IC=0x0050
+    ctx.state.reg.ic = 0x0050;
+    ctx.state.reg.sw = 0x0000; // AS=0, PS=0
+
+    // Code at AS=0 (Physical Address 0x0050)
+    // 1. Prepare target MK, SW, IC for jumping to AS=1
+    store_data_word(&ctx, 0x0060, 0x0000); // MK
+    store_data_word(&ctx, 0x0061, 0x0001); // SW (AS=1, PS=0)
+    store_data_word(&ctx, 0x0062, 0x1050); // IC (Logical address 0x1050 mapped to Physical 0x1050)
+
+    // Instruction: LST 0x0060 (Load Status Direct)
+    // Opcode: 0x7D00, Immed: 0x0060
+    store_data_word(&ctx, 0x0050, 0x7D00); // LST R0 (where 0 means no register base)
+    store_data_word(&ctx, 0x0051, 0x0060); // Immediate 0x0060
+
+    // Now we are in AS=1! Code at AS=1, Logical IC=0x1050
+    // Maps to Physical Page 1, Address 0x1050
+    // Instruction: BEX 0 (Branch Executive)
+    // Opcode: 0x7700
+    write_phys_memory(&ctx.state, 0x1050, 0x7700);
+    write_phys_memory(&ctx.state, 0x1051, 0x0000); // Pad just in case
+
+    // BEX 0 executes! The CPU traps, saves AS=1 state to LP (0x0100), and loads AS=0 handler.
+    // The handler executes at AS=0, Logical IC=0x0080 (Mapped to Physical 0x0080)
+    // Instruction: LIM R3, 0xAAAA (Opcode 0x8530, Immed 0xAAAA)
+    store_data_word(&ctx, 0x0080, 0x8530);
+    store_data_word(&ctx, 0x0081, 0xAAAA);
+    // Instruction: BPT (Breakpoint - Opcode 0xFFFF)
+    store_data_word(&ctx, 0x0082, 0xFFFF);
+
+    // Run the CPU loop! It should run LST -> switch to AS=1 -> execute BEX -> switch to AS=0 -> run LIM -> BPT
+    int steps = 0;
+    while (ctx.state.halt == NO_HALT && steps < 100) {
+        cpu_mainloop(&ctx, ctx.state.total_cycles + 100);
+        steps++;
+    }
+
+    // Verify Success
+    assert(ctx.state.halt != NO_HALT); // Ensure it halted
+    assert(ctx.state.reg.r[3] == (int32_t)(int16_t)0xAAAA); // Verify handler executed
+
+    // Verify the LP captured the old state correctly from AS=1!
+    // The LP was 0x0100.
+    uint16_t saved_mk, saved_sw, saved_ic;
+    fetch_data_word(&ctx, 0x0100, &saved_mk);
+    fetch_data_word(&ctx, 0x0101, &saved_sw);
+    fetch_data_word(&ctx, 0x0102, &saved_ic);
+
+    assert(saved_sw == 0x0001); // Saved AS=1, PS=0!
+    assert(saved_ic == 0x1051); // IC after BEX instruction!
+
     printf("PASSED\n");
 }
 
