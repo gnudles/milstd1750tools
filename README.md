@@ -23,7 +23,7 @@ The toolchain in this repository provides the necessary utilities to assemble 17
 *   **Macro Processing:** Built-in text-preprocessing phase for macro symbols, conditional assembly (`IF`/`ELSEIF`/`ENDIF`), loop generation (`WHILE`), and parameterized macros.
 *   **Linking:** Automatically resolves symbols across multiple source files.
 *   **Output Formats:** Generates loadfiles in both TLD Load Module (`.ldm`, default) and Tektronix Extended Hex (`.hex`) formats.
-*   **Memory Sections:** Supports predefined program sections: `CODE`, `KONST` (constants), `DATA`, and `BSS` (uninitialized variables) for fine-grained memory layout.
+*   **Memory Sections:** Supports predefined program sections: `INIT`, `NORMAL` (executable code), `KONST` (read-only constants), and `STATIC` (read-write data) for fine-grained memory layout.
 *   **Library Mechanism:** Includes a simple mechanism to automatically resolve unbound global symbols from library files in `AS1750_LIB_PATH`.
 
 ### 2. `sim1750` - Software Simulator
@@ -73,9 +73,9 @@ as1750 -a program.s
 *   `-a`, `-al`, `-ar`, `-as`: Turn on assembly listings (`-a` for everything, `-al` before relocation, `-ar` after relocation, `-as` symbols only).
 *   `-D symbol[=value]`: Define a macro symbol. Useful in combination with `IF DEF(symbol)` directives in the source code.
 *   `-I path`: Add a path to the search list for `INCLUDE` directives.
-*   `-c hexaddr`: Force the `CODE` section to start at the specified hexadecimal address.
+*   `-c hexaddr`: Force the `NORMAL` (code) section to start at the specified hexadecimal address.
 *   `-k hexaddr`: Force the `KONST` section to start at the specified address.
-*   `-s hexaddr`: Force the `DATA` section to start at the specified address.
+*   `-s hexaddr`: Force the `STATIC` (data) section to start at the specified address.
 *   `-t address`: Set the execution start address (overrides the `END` directive).
 
 ---
