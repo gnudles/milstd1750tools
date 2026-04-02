@@ -1214,11 +1214,10 @@ void emit_instruction (OpcodeDef *def)
             }
             break;
         case OP_MOVE:
-        /*TODO: check how many we can move until we have timer interrupt */
             printf("    uint16_t count = (uint16_t)cpu_ctx->state.reg.r[(RA+1)&0xF]; /* count range is 0 - 2^16-1*/\n");
             printf("    uint16_t total_written = 0;\n");
-            printf("    const int move_steps_1_tick = (TIMER_A_RES_IN_10uSEC*10000)/(CLK_CYC_MOV_STEP(1)*CYCLE_DURATION_IN_NS);\n");
-            printf("    const int move_steps = move_steps_1_tick == 0 ? 1 : move_steps_1_tick;\n");
+            printf("    const int move_steps_to_nearest_stop = (cpu_ctx->state.nearest_cycles_stop - cpu_ctx->state.total_cycles - CLK_CYC_MOV_INIT - CLK_CYC_MOV_FINI(1) + CLK_CYC_MOV_STEP(1) - 1)/(CLK_CYC_MOV_STEP(1));\n");
+            printf("    const int move_steps = move_steps_to_nearest_stop <= 0 ? 1 : move_steps_to_nearest_stop;\n");
             printf("    cpu_ctx->state.total_cycles += CLK_CYC_MOV_INIT;\n");
             printf("    while(count > 0){\n");
             printf("        uint16_t partial_count = (count > move_steps)? move_steps: count;\n");
