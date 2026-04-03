@@ -2,6 +2,7 @@
 #ifndef _CPU_HELPERS_H
 #define _CPU_HELPERS_H
 #include "cpu_ctx.h"
+#include "cpu_xio_defs.h"
 #include "m1750.h"
 #include "clock_cycles.h"
 #include <stdio.h>
@@ -307,6 +308,18 @@ uint16_t fetch_data_words(struct cpu_context *cpu_ctx, uint16_t addr, uint16_t c
         uint remaining = 4096 - (addr  & 0xFFF);
         if (remaining > count) remaining = count;
         
+        // Fast Read Watchpoint Check
+        uint phys_page = phys_addr >> 12;
+        if (cpu_ctx->state.mem[phys_page] && cpu_ctx->state.mem[phys_page]->read_exec_bp_summary) {
+            for (uint i = 0; i < remaining; i++) {
+                uint offset = (addr + i) & 0xFFF;
+                if (cpu_ctx->state.mem[phys_page]->read_exec_bp[offset >> 6] & (1ULL << (offset & 63))) {
+                    cpu_ctx->state.halt = HALT_WP_READ;
+                    return count; // Halt the execution pipeline and abort fetch
+                }
+            }
+        }
+
         for (uint i = 0; i < remaining; i++) {
             data[i] = access_memory(&cpu_ctx->state, phys_addr)[(addr + i) & 0xFFF];
         }
@@ -347,6 +360,18 @@ uint16_t fetch_data_words_reg(struct cpu_context *cpu_ctx, uint16_t addr, uint16
         uint remaining = 4096 - (addr  & 0xFFF);
         if (remaining > count) remaining = count;
         
+        // Fast Read Watchpoint Check
+        uint phys_page = phys_addr >> 12;
+        if (cpu_ctx->state.mem[phys_page] && cpu_ctx->state.mem[phys_page]->read_exec_bp_summary) {
+            for (uint i = 0; i < remaining; i++) {
+                uint offset = (addr + i) & 0xFFF;
+                if (cpu_ctx->state.mem[phys_page]->read_exec_bp[offset >> 6] & (1ULL << (offset & 63))) {
+                    cpu_ctx->state.halt = HALT_WP_READ;
+                    return count;
+                }
+            }
+        }
+
         for (uint i = 0; i < remaining; i++) {
             cpu_ctx->state.reg.r[(RA+i)&0xF] = access_memory(&cpu_ctx->state, phys_addr)[(addr + i) & 0xFFF];
         }
@@ -362,14 +387,37 @@ bool fetch_data_word(struct cpu_context *cpu_ctx, uint16_t addr, uint16_t *data)
     uint phys_addr = get_page_address_read_data(&cpu_ctx->state, addr >> 12);
     if (phys_addr == 0xFFFFFFFF) return false;
 
-    *data = access_memory(&cpu_ctx->state, phys_addr)[addr & 0xFFF];
+    uint phys_page = phys_addr >> 12;
+    uint offset = addr & 0xFFF;
+    if (cpu_ctx->state.mem[phys_page] && (cpu_ctx->state.mem[phys_page]->read_exec_bp_summary & (1ULL << (offset >> 6)))) {
+        if (cpu_ctx->state.mem[phys_page]->read_exec_bp[offset >> 6] & (1ULL << (offset & 63))) {
+            cpu_ctx->state.halt = HALT_WP_READ;
+            return false;
+        }
+    }
+
+    *data = access_memory(&cpu_ctx->state, phys_addr)[offset];
 
     return true;
 }
 ushort* get_address_data(struct cpu_context *cpu_ctx, uint16_t addr) {
     uint phys_addr = get_quarter_page_address_write_data(&cpu_ctx->state, addr >> 10);
     if (phys_addr == 0xFFFFFFFF) return NULL;
-    return &access_memory(&cpu_ctx->state, phys_addr)[(addr ) & 0xFFF];
+
+    uint phys_page = phys_addr >> 12;
+    uint offset = addr & 0xFFF;
+    if (cpu_ctx->state.mem[phys_page]) {
+        if (cpu_ctx->state.mem[phys_page]->read_exec_bp_summary & (1ULL << (offset >> 6)) ||
+            cpu_ctx->state.mem[phys_page]->write_bp_summary & (1ULL << (offset >> 6))) {
+            if ((cpu_ctx->state.mem[phys_page]->read_exec_bp[offset >> 6] & (1ULL << (offset & 63))) ||
+                (cpu_ctx->state.mem[phys_page]->write_bp[offset >> 6] & (1ULL << (offset & 63)))) {
+                cpu_ctx->state.halt = HALT_WP_READ;
+                return NULL;
+            }
+        }
+    }
+
+    return &access_memory(&cpu_ctx->state, phys_addr)[offset];
 }
 /* get multiple address*/
 uint16_t get_addresses_data(struct cpu_context *cpu_ctx, uint16_t addr, uint16_t count, uint16_t **pointers) {
@@ -382,6 +430,19 @@ uint16_t get_addresses_data(struct cpu_context *cpu_ctx, uint16_t addr, uint16_t
         uint remaining = 1024 - (addr  & 0x3FF);
         if (remaining > count) remaining = count;
         
+        // Fast Read/Write Watchpoint Check (Treating pointer fetch as a potential access)
+        uint phys_page = phys_addr >> 12;
+        if (cpu_ctx->state.mem[phys_page] && (cpu_ctx->state.mem[phys_page]->read_exec_bp_summary || cpu_ctx->state.mem[phys_page]->write_bp_summary)) {
+            for (uint i = 0; i < remaining; i++) {
+                uint offset = (addr + i) & 0xFFF;
+                if ((cpu_ctx->state.mem[phys_page]->read_exec_bp[offset >> 6] & (1ULL << (offset & 63))) ||
+                    (cpu_ctx->state.mem[phys_page]->write_bp[offset >> 6] & (1ULL << (offset & 63)))) {
+                    cpu_ctx->state.halt = HALT_WP_READ; // Halt on pointer load if restricted
+                    return count;
+                }
+            }
+        }
+
         for (uint i = 0; i < remaining; i++) {
             pointers[i] = &access_memory(&cpu_ctx->state, phys_addr)[(addr + i) & 0xFFF];
         }
@@ -402,6 +463,18 @@ uint16_t store_data_words(struct cpu_context *cpu_ctx, uint16_t addr, uint16_t c
         uint remaining = 1024 - (addr  & 0x3FF);
         if (remaining > count) remaining = count;
         
+        // Fast Write Watchpoint Check
+        uint phys_page = phys_addr >> 12;
+        if (cpu_ctx->state.mem[phys_page] && cpu_ctx->state.mem[phys_page]->write_bp_summary) {
+            for (uint i = 0; i < remaining; i++) {
+                uint offset = (addr + i) & 0xFFF;
+                if (cpu_ctx->state.mem[phys_page]->write_bp[offset >> 6] & (1ULL << (offset & 63))) {
+                    cpu_ctx->state.halt = HALT_WP_WRITE;
+                    return count; // Halt the execution pipeline and abort store
+                }
+            }
+        }
+
         for (uint i = 0; i < remaining; i++) {
             access_memory(&cpu_ctx->state, phys_addr)[(addr + i) & 0xFFF] = data[i];
         }
@@ -422,6 +495,18 @@ uint16_t store_data_words_reg(struct cpu_context *cpu_ctx, uint16_t addr, uint16
         uint remaining = 1024 - (addr  & 0x3FF);
         if (remaining > count) remaining = count;
         
+        // Fast Write Watchpoint Check
+        uint phys_page = phys_addr >> 12;
+        if (cpu_ctx->state.mem[phys_page] && cpu_ctx->state.mem[phys_page]->write_bp_summary) {
+            for (uint i = 0; i < remaining; i++) {
+                uint offset = (addr + i) & 0xFFF;
+                if (cpu_ctx->state.mem[phys_page]->write_bp[offset >> 6] & (1ULL << (offset & 63))) {
+                    cpu_ctx->state.halt = HALT_WP_WRITE;
+                    return count;
+                }
+            }
+        }
+
         for (uint i = 0; i < remaining; i++) {
             access_memory(&cpu_ctx->state, phys_addr)[(addr + i) & 0xFFF] = cpu_ctx->state.reg.r[(RA+i)&0xF];
         }
@@ -435,7 +520,17 @@ bool store_data_word(struct cpu_context *cpu_ctx, uint16_t addr, uint16_t data) 
 
     uint phys_addr = get_quarter_page_address_write_data(&cpu_ctx->state, addr >> 10);
     if (phys_addr == 0xFFFFFFFF) return false;
-    access_memory(&cpu_ctx->state, phys_addr)[(addr ) & 0xFFF] = data;
+
+    uint phys_page = phys_addr >> 12;
+    uint offset = addr & 0xFFF;
+    if (cpu_ctx->state.mem[phys_page] && (cpu_ctx->state.mem[phys_page]->write_bp_summary & (1ULL << (offset >> 6)))) {
+        if (cpu_ctx->state.mem[phys_page]->write_bp[offset >> 6] & (1ULL << (offset & 63))) {
+            cpu_ctx->state.halt = HALT_WP_WRITE;
+            return false;
+        }
+    }
+
+    access_memory(&cpu_ctx->state, phys_addr)[offset] = data;
     return true;
 }
 
@@ -472,6 +567,22 @@ uint16_t move_words(struct cpu_context *cpu_ctx, uint16_t from_addr, uint16_t to
         uint remaining = remaining_from < remaining_to ? remaining_from : remaining_to;
         if (remaining > count) remaining = count;
         
+        // Fast Read/Write Watchpoint Check
+        uint from_page = from_phys_addr >> 12;
+        uint to_page = to_phys_addr >> 12;
+        if ((cpu_ctx->state.mem[from_page] && cpu_ctx->state.mem[from_page]->read_exec_bp_summary) ||
+            (cpu_ctx->state.mem[to_page] && cpu_ctx->state.mem[to_page]->write_bp_summary)) {
+            for (uint i = 0; i < remaining; i++) {
+                uint from_offset = (from_addr + i) & 0xFFF;
+                uint to_offset = (to_addr + i) & 0xFFF;
+                if ((cpu_ctx->state.mem[from_page] && (cpu_ctx->state.mem[from_page]->read_exec_bp[from_offset >> 6] & (1ULL << (from_offset & 63)))) ||
+                    (cpu_ctx->state.mem[to_page] && (cpu_ctx->state.mem[to_page]->write_bp[to_offset >> 6] & (1ULL << (to_offset & 63))))) {
+                    cpu_ctx->state.halt = HALT_WP_READ; // Or HALT_WP_WRITE, defaulting to READ
+                    return count;
+                }
+            }
+        }
+
         for (uint i = 0; i < remaining; i++) {
             cpu_ctx->state.mem[to_phys_addr]->word[(to_addr + i) & 0xFFF] = cpu_ctx->state.mem[from_phys_addr]->word[(from_addr + i) & 0xFFF];
         }
@@ -908,60 +1019,60 @@ A00D RMFS	Read Memory Fault Status:  This command transfers the 16-bit
 */
     switch(xio_address)
     {
-        case 0x2000: /*set interrupt mask*/
+        case XIO_SMK_2000: /*set interrupt mask*/
             cpu_ctx->state.reg.mk = *transfer;
             break;
-        case 0x2001: /*clear interrupt request*/
+        case XIO_CLIR_2001: /*clear interrupt request*/
             cpu_ctx->state.reg.pir = 0;
             cpu_ctx->state.reg.ft = 0;
             break;
-        case 0x2002: /*enable interrupts*/
+        case XIO_ENBL_2002: /*enable interrupts*/
             cpu_ctx->state.reg.sys_update |= SYS_INT;
             break;
-        case 0x2003: /*disable interrupts*/
+        case XIO_DSBL_2003: /*disable interrupts*/
             cpu_ctx->state.reg.sys &= ~(SYS_INT);
             break;
-        case 0x2004: /*reset pending interrupt*/            
+        case XIO_RPI_2004: /*reset pending interrupt*/
         	cpu_ctx->state.reg.pir &= ~(0x8000 >> (*transfer & 0xF));
 	        if ((*transfer & 0xF) == 1)
 	            cpu_ctx->state.reg.ft = 0;
             break;
-        case 0x2005: /*set pending interrupt register*/
+        case XIO_SPI_2005: /*set pending interrupt register*/
             cpu_ctx->state.reg.pir_update |= *transfer;
             break;
-        case 0x200E: /*write status word*/
+        case XIO_WSW_200E: /*write status word*/
             cpu_ctx->state.reg.sw = *transfer;
             break;
-        case 0x2008: /*output discretes*/
+        case XIO_OD_2008: /*output discretes*/
             cpu_ctx->state.reg.dsctout = *transfer;
             break;
-        case 0x200A: /*reset normal power up discrete*/
+        case XIO_RNS_200A: /*reset normal power up discrete*/
             cpu_ctx->state.reg.sys &= ~SYS_PWRUP;
             break;
-        case 0xA000:
+        case XIO_RMK_A000:
             *transfer = cpu_ctx->state.reg.mk;
             break;
-        case 0xA004:
+        case XIO_RPIR_A004:
             *transfer = cpu_ctx->state.reg.pir;
             break;
-        case 0xA00E:
+        case XIO_RSW_A00E:
             *transfer = cpu_ctx->state.reg.sw;
             break;
-        case 0xA00F:
+        case XIO_RCFR_A00F:
             *transfer = cpu_ctx->state.reg.ft;
             cpu_ctx->state.reg.ft = 0;
             cpu_ctx->state.reg.pir &= ~INTR_MACHERR;
             break;
-        case 0xA001:
+        case XIO_RIC1_A001:
             *transfer = cpu_ctx->state.reg.ioic1;
             break;
-        case 0xA002:
+        case XIO_RIC2_A002:
             *transfer = cpu_ctx->state.reg.ioic2;
             break;
-        case 0xA008:
+        case XIO_RDOR_A008:
             *transfer = cpu_ctx->state.reg.dsctout;
             break;
-        case 0xA009:
+        case XIO_RDI_A009:
             *transfer = cpu_ctx->state.reg.dsctin;
             break;
         
@@ -1049,7 +1160,7 @@ C00E ITB	Input Timer B:  This command inputs the 16-bit contents of timer B
     int sys_flag = (xio_address&0x000F) >= 0x000C ? SYS_TB: SYS_TA;
     switch(xio_address)
     {
-        case 0x4000: /* CO: Console Output (Outputs 2 bytes, MSB first) */
+        case XIO_CO_4000: /* CO: Console Output (Outputs 2 bytes, MSB first) */
         {
             char msb = (*transfer >> 8) & 0xFF;
             char lsb = *transfer & 0xFF;
@@ -1058,7 +1169,7 @@ C00E ITB	Input Timer B:  This command inputs the 16-bit contents of timer B
             fflush(stdout); /* Ensure it hits the screen immediately */
             break;
         }
-        case 0xC000: /* CI: Console Input (Inputs 2 bytes, MSB first) */
+        case XIO_CI_C000: /* CI: Console Input (Inputs 2 bytes, MSB first) */
         {
             /* Warning: Standard getchar() is blocking. For a real-time 
                emulator, you usually want to hook this into a non-blocking 
@@ -1072,7 +1183,7 @@ C00E ITB	Input Timer B:  This command inputs the 16-bit contents of timer B
             *transfer = ((c1 & 0xFF) << 8) | (c2 & 0xFF);
             break;
         }
-        case 0xC001: /* RCS: Read Console Status */
+        case XIO_RCS_C001: /* RCS: Read Console Status */
         {
             /* The OS polls this to see if it's safe to read/write.
                Bit 0 = Tx Ready (We are always ready to print to stdout)
@@ -1081,47 +1192,47 @@ C00E ITB	Input Timer B:  This command inputs the 16-bit contents of timer B
             *transfer = 0x0001; /* 1 = Tx Ready, 0 = No Rx Data */
             break;
         }
-        case 0x4001: /* CLC: Clear Console */
+        case XIO_CLC_4001: /* CLC: Clear Console */
         {
             /* We don't really have a hardware buffer to clear, so NOP */
             break;
         }
-        case 0x4003: /*memory protect enable*/
+        case XIO_MPEN_4003: /*memory protect enable*/
             cpu_ctx->state.reg.sys |= SYS_MEM_PROT;
             break;
-        case 0x4004: /*enable start up rom*/
+        case XIO_ESUR_4004: /*enable start up rom*/
             cpu_ctx->state.reg.sys |= SYS_SUROM;
             break;
-        case 0x4005: /*disable start up rom*/
+        case XIO_DSUR_4005: /*disable start up rom*/
             cpu_ctx->state.reg.sys &= ~SYS_SUROM;
             break;
-        case 0x4006: /*direct memory access enable*/
+        case XIO_DMAE_4006: /*direct memory access enable*/
             cpu_ctx->state.reg.sys |= SYS_DMA;
             break;
-        case 0x4007: /*direct memory access disable*/
+        case XIO_DMAD_4007: /*direct memory access disable*/
             cpu_ctx->state.reg.sys &= ~SYS_DMA;
             break;
-        case 0x400B: /* go timer reset*/
+        case XIO_GO_400B: /* go timer reset*/
             calculate_timers(cpu_ctx);
             cpu_ctx->state.reg.go = cpu_ctx->state.reg.timer_go_reset_val;
             calculate_next_scheduled_timers_check(cpu_ctx);
             break;
-        case 0x4008: /*timer A start*/
-        case 0x400C: /*timer B start*/
+        case XIO_TAS_4008: /*timer A start*/
+        case XIO_TBS_400C: /*timer B start*/
             calculate_timers(cpu_ctx);
             cpu_ctx->state.reg.sys |= sys_flag;
             calculate_next_scheduled_timers_check(cpu_ctx);
             break;
-        case 0x4009: /*timer A halt*/
-        case 0x400D: /*timer B halt*/
+        case XIO_TAH_4009: /*timer A halt*/
+        case XIO_TBH_400D: /*timer B halt*/
             calculate_timers(cpu_ctx);
             cpu_ctx->state.reg.sys &= ~sys_flag;
             calculate_next_scheduled_timers_check(cpu_ctx);
             break;
-        case 0xC00A:
-        case 0xC00E:
-        case 0x400A:
-        case 0x400E:
+        case XIO_ITA_C00A:
+        case XIO_ITB_C00E:
+        case XIO_OTA_400A:
+        case XIO_OTB_400E:
             calculate_timers(cpu_ctx);
             if (xio_address & 0x8000)
             {
@@ -1137,6 +1248,9 @@ C00E ITB	Input Timer B:  This command inputs the 16-bit contents of timer B
             break;
         case 0x401D:
             cpu_ctx->state.reg.timer_go_reset_val = *transfer;
+            break;
+        case 0xC01D:
+            *transfer = cpu_ctx->state.reg.timer_go_reset_val;
             break;
     }
 }
@@ -1183,31 +1297,34 @@ D1XY RIPR	Read Instruction Page Register:  This command transfers the 16-bit
 D2XY ROPR	Read Operand Page Register:  This command transfers the 16-bit contents
 		of page register Y of the operand set of group X to register RA.
 */
-    switch (xio_address & 0x7F00)
+    switch (xio_address & 0xFF00)
     {
-        case 0x5000: // or 0xD000
+        case XIO_RMP_D0XX:
+        case XIO_LMP_50XX:
             {
             ushort a = xio_address & 0x00FF;
             if (a > 127)
                 break;
-            if (xio_address&0x8000)
+            if (xio_address&0x8000) // RMP - 0xD000
             {
                 *transfer = cpu_ctx->state.mem_protect[a/64][a%64];
             }
-            else
+            else // 0x5000
             {
                 cpu_ctx->state.mem_protect[a/64][a%64] = *transfer;
                 cpu_ctx->state.data_write_cache.valid = 0;
             }
             }
             break;
-        case 0x5100: // or 0xD100
-        case 0x5200: // or 0xD200
+        case XIO_RIPR_D1XY:
+        case XIO_ROPR_D2XY:
+        case XIO_WIPR_51XY:
+        case XIO_WOPR_52XY:
             {
                 ushort bank = ((xio_address & 0x0F00) >> 8) - 1; /* CODE = 0, DATA = 1*/
                 ushort grp = (xio_address & 0x00F0) >> 4;
                 ushort page = xio_address &(xio_address & 0x000F);
-                if (xio_address&0x8000)
+                if (xio_address & 0x8000)
                 {
                     *transfer = cpu_ctx->state.pagereg[bank][grp][page].word;
                 }
@@ -1228,7 +1345,7 @@ D2XY ROPR	Read Operand Page Register:  This command transfers the 16-bit content
                 }
             }
             break;
-            default:
+        default:
             break;
     }
 
@@ -1418,7 +1535,16 @@ int cpu_mainloop(struct cpu_context *cpu_ctx, uint64_t up_to_cycles)
             process_interrupt(cpu_ctx);
             continue;
         }
-        opcode = access_memory(&cpu_ctx->state, phys_page)[cpu_ctx->state.reg.ic  & 0xFFF];
+
+        uint offset = cpu_ctx->state.reg.ic & 0xFFF;
+        if (cpu_ctx->state.mem[phys_page]->read_exec_bp_summary & (1ULL << (offset >> 6))) {
+            if (cpu_ctx->state.mem[phys_page]->read_exec_bp[offset >> 6] & (1ULL << (offset & 63))) {
+                cpu_ctx->state.halt = HALT_WP_READ;
+                continue;
+            }
+        }
+
+        opcode = access_memory(&cpu_ctx->state, phys_page)[offset];
         if ((cpu_ctx->state.reg.ic & 0x0FFF) == 0x0FFF)
         {
             phys_page = get_page_address_read_code(&cpu_ctx->state, (cpu_ctx->state.reg.ic + 1) >> 12);
