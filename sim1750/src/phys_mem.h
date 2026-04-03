@@ -17,10 +17,20 @@ extern uint allocated;  /* total amount allocated by xalloc() */
    Hence, read operations on uninitialized memory locations can be signalled.
  */
 
+#include <stdint.h>
+
 typedef struct
   {
     ushort word[4096];
     uint  was_written[128];  /* bit-packed, one bit per address */
+
+    /* 2-Level Execution and Read Breakpoint / Watchpoint O(1) Mask */
+    uint64_t read_exec_bp_summary; /* L1: 1 bit per 64-word block */
+    uint64_t read_exec_bp[64];     /* L2: 1 bit per word */
+
+    /* 2-Level Write Breakpoint / Watchpoint O(1) Mask */
+    uint64_t write_bp_summary;     /* L1: 1 bit per 64-word block */
+    uint64_t write_bp[64];         /* L2: 1 bit per word */
   } mem_t;
 
 #define N_PAGES   256  /* 1 Mword address space */

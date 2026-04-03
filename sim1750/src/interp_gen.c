@@ -184,14 +184,14 @@ void emit_shift_instruction (OpcodeDef *def)
     printf("}\n\n");
 }
 /* this file will generate C code for new instruction interpreter */
-void emit_instruction (OpcodeDef *def)
+void emit_instruction (OpcodeDef *def, bool all_inline)
 {
     bool complicated_clock_cycles_calc = def->op_type == OP_MOVE ||
         def->op_type == OP_ABS || def->op_type == OP_ABS_FLOAT || def->op_type == OP_BRANCH ||
         def->op_type == OP_SUBTR_JUMP || def->op_type == OP_LD_ST_REGS ||
         def->op_type == OP_JUMP_COND || def->op_type == OP_XIO || def->op_type == OP_EXTENSION;
     printf("/* %s - %s*/\n", def->name, def->description);
-    if ((def->code >= OPC_IMM_AIM && def->code <= OPC_IMM_NIM) || (def->code >= OPC_BRX_LBX && def->code <= OPC_BRX_ORBX)) // imm and brx sub opcodes will be inlined
+    if (all_inline || (def->code >= OPC_IMM_AIM && def->code <= OPC_IMM_NIM) || (def->code >= OPC_BRX_LBX && def->code <= OPC_BRX_ORBX)) // imm and brx sub opcodes will be inlined
         printf("static inline ");
     printf("void interpret_%s(struct cpu_context *cpu_ctx, uint16_t opcode, uint16_t %s) {\n", def->name, def->is_imm?"imm_value":"/* imm_value */");
     if (def->op_type == OP_SHIFT) {
@@ -1364,33 +1364,33 @@ void emit_instruction (OpcodeDef *def)
     printf("}\n\n");
 }
 
-void generate_interpreter_code()
+void generate_interpreter_code(bool use_switch)
 {
     printf("#include \"cpu_helpers.h\"\n");
     
     for (int i = 0; i < 16; i++) {
         OpcodeDef *def = &opcode_defs_6bit[i];
         if (!def->valid) continue;
-        emit_instruction(def);
+        emit_instruction(def,use_switch);
     }
     for (int i = 0; i < 16; i++) {
         OpcodeDef *def = &opcode_defs_brx[i];
         if (!def->valid) continue;
-        emit_instruction(def);
+        emit_instruction(def,use_switch);
     }
-    emit_instruction(&opcode_defs_8bit[4]); //XIO
-    emit_instruction(&opcode_defs_8bit[5]); //VIO
+    emit_instruction(&opcode_defs_8bit[4],use_switch); //XIO
+    emit_instruction(&opcode_defs_8bit[5],use_switch); //VIO
     for (int i = 0; i < 16; i++) {
         OpcodeDef *def = &opcode_defs_imm[i];
         if (!def->valid) continue;
-        emit_instruction(def);
+        emit_instruction(def,use_switch);
     }
 
     for (int i = 9 ; i < 188; i++) {
         
         OpcodeDef *def = &opcode_defs_8bit[i];
         if (!def->valid) continue;
-        emit_instruction(def);
+        emit_instruction(def,use_switch);
     }
     
     {
@@ -1431,46 +1431,95 @@ void generate_interpreter_code()
     printf("    }\n");
     printf("}\n");
     }
-    /* now create the opcode func map*/
-    printf("static void (*op_func_map[256])(struct cpu_context *cpu_ctx, uint16_t opcode, uint16_t imm_value) = {\n");
-    int opcode = 0;
-    for (int i = 0; i < 17; i++) {
-        OpcodeDef *def = &opcode_defs_6bit[i];
-        /* because these are 6 bit opcodes, we print them 4 times to fit 8bit opcodes*/
-        for (int j = 0 ; j < 4; j++)
-        {            
-            if (!def->valid) 
-            printf("interpret_ILLEGAL, /* 0x%02X */\n",opcode);
+    if (!use_switch)
+    {
+        /* now create the opcode func map*/
+        printf("static void (*op_func_map[256])(struct cpu_context *cpu_ctx, uint16_t opcode, uint16_t imm_value) = {\n");
+        int opcode = 0;
+        for (int i = 0; i < 17; i++) {
+            OpcodeDef *def = &opcode_defs_6bit[i];
+            /* because these are 6 bit opcodes, we print them 4 times to fit 8bit opcodes*/
+            for (int j = 0 ; j < 4; j++)
+            {            
+                if (!def->valid) 
+                printf("interpret_ILLEGAL, /* 0x%02X */\n",opcode);
+                else
+                printf("interpret_%s, /* 0x%02X */\n", def->name, opcode);
+                opcode++;
+            }
+        }
+        for (int i = 0 ; i < 188; i++) {
+            
+            OpcodeDef *def = &opcode_defs_8bit[i];
+            if (def->valid == INVALID) 
+                printf("interpret_ILLEGAL, /* 0x%02X */\n",opcode);
+            else if (def->valid == VALID_IN_GVSC)
+            {
+                printf("#ifdef GVSC\n");
+                printf("interpret_%s, /* 0x%02X */\n", def->name, opcode);
+                printf("#else\n");
+                printf("interpret_ILLEGAL, /* 0x%02X */\n",opcode);
+                printf("#endif\n");
+            }
             else
             printf("interpret_%s, /* 0x%02X */\n", def->name, opcode);
             opcode++;
         }
+        printf("};\n\n");
+        printf("static inline void process_instruction(struct cpu_context *cpu_ctx, uint16_t opcode, uint16_t imm_value)\n"
+        "{\n"
+        "    op_func_map[opcode>>8](cpu_ctx, opcode, imm_value);\n"
+        "}\n");
     }
-    for (int i = 0 ; i < 188; i++) {
-        
-        OpcodeDef *def = &opcode_defs_8bit[i];
-        if (def->valid == INVALID) 
-            printf("interpret_ILLEGAL, /* 0x%02X */\n",opcode);
-        else if (def->valid == VALID_IN_GVSC)
-        {
-            printf("#ifdef GVSC\n");
-            printf("interpret_%s, /* 0x%02X */\n", def->name, opcode);
-            printf("#else\n");
-            printf("interpret_ILLEGAL, /* 0x%02X */\n",opcode);
-            printf("#endif\n");
+    else
+    {
+        printf("static inline void op_code_switch(struct cpu_context *cpu_ctx, uint16_t opcode, uint16_t imm_value) {\n");
+        printf("    switch(opcode>>8) {\n");
+        int opcode = 0;
+        for (int i = 0; i < 17; i++) {
+            OpcodeDef *def = &opcode_defs_6bit[i];
+            /* because these are 6 bit opcodes, we print them 4 times to fit 8bit opcodes*/
+            for (int j = 0 ; j < 4; j++)
+            {
+                printf("    case 0x%02X:\n", opcode);
+                opcode++;
+            }
+            if (!def->valid) 
+            printf("        interpret_ILLEGAL(cpu_ctx, opcode, imm_value); \n");
+            else
+            printf("        interpret_%s(cpu_ctx, opcode, imm_value); \n", def->name);
+            printf("        break;\n");
         }
-        else
-        printf("interpret_%s, /* 0x%02X */\n", def->name, opcode);
-        opcode++;
+        for (int i = 0 ; i < 188; i++) {
+            printf("    case 0x%02X:\n", opcode);
+            OpcodeDef *def = &opcode_defs_8bit[i];
+            if (def->valid == INVALID) 
+                printf("        interpret_ILLEGAL(cpu_ctx, opcode, imm_value); /* 0x%02X */\n",opcode);
+            else if (def->valid == VALID_IN_GVSC)
+            {
+                printf("#ifdef GVSC\n");
+                printf("        interpret_%s(cpu_ctx, opcode, imm_value); /* 0x%02X */\n", def->name, opcode);
+                printf("#else\n");
+                printf("        interpret_ILLEGAL(cpu_ctx, opcode, imm_value); /* 0x%02X */\n",opcode);
+                printf("#endif\n");
+            }
+            else
+            printf("        interpret_%s(cpu_ctx, opcode, imm_value); /* 0x%02X */\n", def->name, opcode);
+            printf("        break;\n");
+            opcode++;
+        }
+        printf("    }\n}\n");
+        printf("static inline void process_instruction(struct cpu_context *cpu_ctx, uint16_t opcode, uint16_t imm_value)\n"
+        "{\n"
+        "    op_code_switch(cpu_ctx, opcode, imm_value);\n"
+        "}");
     }
-    printf("};\n");
-    
 }
 
 
 
 int main()
 {
-    generate_interpreter_code();
+    generate_interpreter_code(false); /* switch case was slower on my machine, stick to function pointers*/
     return 0;
 }

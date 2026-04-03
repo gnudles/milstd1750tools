@@ -124,6 +124,13 @@ init_cpu (struct cpu_state *cpu)
   cpu->timers.one_tatick_in_ns = 0;
   cpu->timers.one_tbtick_in_tatix = 0;
   cpu->timers.one_gotick_in_10usec = 0;
+  cpu->code_read_cache.valid = 0;
+  cpu->data_read_cache.valid = 0;
+  cpu->data_read_cache_intr.valid = 0;
+  cpu->data_write_cache.valid = 0;
+  cpu->halt = NO_HALT;
+  cpu->bex_index = -1;
+  cpu->need_to_process_intr_after_watchpoint = false;
 }
 
 

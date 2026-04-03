@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <assert.h>
 #include <string.h>
+#include <time.h>
 #include "targsys.h"
 /* --- Stubs to link against the generated code --- */
 #include "cpu_ctx.h"
@@ -126,10 +127,17 @@ void run_ldm_test(const char *fname) {
     // We just need to give it enough cycles.
     // Important: we must request more cycles than `next_scheduled_timer_calc_cycles`
     // to allow the internal loop to calculate and evaluate timers.
+    clock_t start, end;
+
+    start = clock();
+
     while (ctx.state.halt == NO_HALT)
     {
         cpu_mainloop(&ctx, ctx.state.total_cycles + 1000);
     }
+
+    end = clock();
+    printf("\ntest took:  %f seconds\n", ((double) (end - start)) / CLOCKS_PER_SEC);
 
     uint16_t status = read_phys_memory(&ctx.state, 0x2000);
     if (status == 0xAAAA) {

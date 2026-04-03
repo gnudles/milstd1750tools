@@ -68,6 +68,25 @@ set_inactive (struct cpu_context *cpu_ctx, int bp_index)
   if (bp_index < 0)
     return;
   cpu_ctx->breakpt[bp_index].is_active = FALSE;
+
+  uint addr = cpu_ctx->breakpt[bp_index].addr;
+  breaktype type = cpu_ctx->breakpt[bp_index].type;
+  uint page = addr >> 12;
+  uint offset = addr & 0xFFF;
+  if (cpu_ctx->state.mem[page] != MNULL) {
+      if (type == READ_WRITE || type == READ) {
+          cpu_ctx->state.mem[page]->read_exec_bp[offset >> 6] &= ~(1ULL << (offset & 63));
+          if (cpu_ctx->state.mem[page]->read_exec_bp[offset >> 6] == 0) {
+              cpu_ctx->state.mem[page]->read_exec_bp_summary &= ~(1ULL << (offset >> 6));
+          }
+      }
+      if (type == READ_WRITE || type == WRITE) {
+          cpu_ctx->state.mem[page]->write_bp[offset >> 6] &= ~(1ULL << (offset & 63));
+          if (cpu_ctx->state.mem[page]->write_bp[offset >> 6] == 0) {
+              cpu_ctx->state.mem[page]->write_bp_summary &= ~(1ULL << (offset >> 6));
+          }
+      }
+  }
 }
 
 void
@@ -76,6 +95,21 @@ set_active (struct cpu_context *cpu_ctx, int bp_index)
   if (bp_index < 0)
     return;
   cpu_ctx->breakpt[bp_index].is_active = TRUE;
+
+  uint addr = cpu_ctx->breakpt[bp_index].addr;
+  breaktype type = cpu_ctx->breakpt[bp_index].type;
+  uint page = addr >> 12;
+  uint offset = addr & 0xFFF;
+  if (cpu_ctx->state.mem[page] != MNULL) {
+      if (type == READ_WRITE || type == READ) {
+          cpu_ctx->state.mem[page]->read_exec_bp_summary |= (1ULL << (offset >> 6));
+          cpu_ctx->state.mem[page]->read_exec_bp[offset >> 6] |= (1ULL << (offset & 63));
+      }
+      if (type == READ_WRITE || type == WRITE) {
+          cpu_ctx->state.mem[page]->write_bp_summary |= (1ULL << (offset >> 6));
+          cpu_ctx->state.mem[page]->write_bp[offset >> 6] |= (1ULL << (offset & 63));
+      }
+  }
 }
 
 
@@ -122,6 +156,24 @@ si_brkset (int argc, char **argv)
   sim_cpu_ctx->breakpt[sim_cpu_ctx->n_breakpts].is_active = TRUE;
   sim_cpu_ctx->n_breakpts++;
 
+  /* Register O(1) Execution/Watchpoint Breakpoints */
+  uint page = address >> 12;
+  uint offset = address & 0xFFF;
+  if (sim_cpu_ctx->state.mem[page] == MNULL) {
+      // Allocate the page manually
+      sim_cpu_ctx->state.mem[page] = (mem_t *) calloc (1, sizeof (mem_t));
+  }
+  if (sim_cpu_ctx->state.mem[page] != MNULL) {
+      if (type == READ_WRITE || type == READ) {
+          sim_cpu_ctx->state.mem[page]->read_exec_bp_summary |= (1ULL << (offset >> 6));
+          sim_cpu_ctx->state.mem[page]->read_exec_bp[offset >> 6] |= (1ULL << (offset & 63));
+      }
+      if (type == READ_WRITE || type == WRITE) {
+          sim_cpu_ctx->state.mem[page]->write_bp_summary |= (1ULL << (offset >> 6));
+          sim_cpu_ctx->state.mem[page]->write_bp[offset >> 6] |= (1ULL << (offset & 63));
+      }
+  }
+
   return OKAY;
 }
 
@@ -155,6 +207,17 @@ si_brkclear (int argc, char **argv)
   if (*argv[1] == '*')
     {
       sim_cpu_ctx->n_breakpts = 0;
+      // Clear O(1) structures
+      for (uint p = 0; p < N_PAGES; p++) {
+          if (sim_cpu_ctx->state.mem[p] != MNULL) {
+              sim_cpu_ctx->state.mem[p]->read_exec_bp_summary = 0;
+              sim_cpu_ctx->state.mem[p]->write_bp_summary = 0;
+              for (int b = 0; b < 64; b++) {
+                  sim_cpu_ctx->state.mem[p]->read_exec_bp[b] = 0;
+                  sim_cpu_ctx->state.mem[p]->write_bp[b] = 0;
+              }
+          }
+      }
       return OKAY;
     }
   if (parse_address (sim_cpu_ctx, argv[1], &addr))
@@ -164,6 +227,8 @@ si_brkclear (int argc, char **argv)
       break;
   if (i == sim_cpu_ctx->n_breakpts)
     return info ("\tno breakpoint at that address");
+
+  breaktype type_to_clear = sim_cpu_ctx->breakpt[i].type;
   sim_cpu_ctx->n_breakpts--;
   while (i < sim_cpu_ctx->n_breakpts)
     {
@@ -171,6 +236,34 @@ si_brkclear (int argc, char **argv)
       sim_cpu_ctx->breakpt[i].addr = sim_cpu_ctx->breakpt[i+1].addr;
       i++;
     }
+
+  // Determine if there are any remaining breakpoints of the same type at this address
+  bool still_has_read = false;
+  bool still_has_write = false;
+  for (i = 0; i < sim_cpu_ctx->n_breakpts; i++) {
+      if (sim_cpu_ctx->breakpt[i].addr == addr && sim_cpu_ctx->breakpt[i].is_active) {
+          if (sim_cpu_ctx->breakpt[i].type == READ_WRITE || sim_cpu_ctx->breakpt[i].type == READ) still_has_read = true;
+          if (sim_cpu_ctx->breakpt[i].type == READ_WRITE || sim_cpu_ctx->breakpt[i].type == WRITE) still_has_write = true;
+      }
+  }
+
+  // Clear O(1) structures if no active overlapping breakpoints remain
+  uint page = addr >> 12;
+  uint offset = addr & 0xFFF;
+  if (sim_cpu_ctx->state.mem[page] != MNULL) {
+      if ((type_to_clear == READ_WRITE || type_to_clear == READ) && !still_has_read) {
+          sim_cpu_ctx->state.mem[page]->read_exec_bp[offset >> 6] &= ~(1ULL << (offset & 63));
+          if (sim_cpu_ctx->state.mem[page]->read_exec_bp[offset >> 6] == 0) {
+              sim_cpu_ctx->state.mem[page]->read_exec_bp_summary &= ~(1ULL << (offset >> 6));
+          }
+      }
+      if ((type_to_clear == READ_WRITE || type_to_clear == WRITE) && !still_has_write) {
+          sim_cpu_ctx->state.mem[page]->write_bp[offset >> 6] &= ~(1ULL << (offset & 63));
+          if (sim_cpu_ctx->state.mem[page]->write_bp[offset >> 6] == 0) {
+              sim_cpu_ctx->state.mem[page]->write_bp_summary &= ~(1ULL << (offset >> 6));
+          }
+      }
+  }
 
   return (OKAY);
 }

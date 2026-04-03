@@ -53,7 +53,6 @@ enum xio_defs
 
 /*
  from the manual:
- 
 0YXX PO		Programmed Output:  This command outputs 16 bits of data
 		from RA to a programmed I/O port.  Y may be from 0 through 3.
 
@@ -82,7 +81,7 @@ enum xio_defs
 		be cleared, then the contents of the fault register shall also be
 		set to zero.
 
-2005 SPI	Set Pending Interrupt Register:  This command ORs the 16-bit 
+2005 SPI	Set Pending Interrupt Register:  This command ORs the 16-bit
 		contents of RA with the pending interrupt register.  If there is a
 		one in the corresponding bit position of the interrupt mask (same
 		bit set in both the PI and the MK), and the interrupts are enabled,
@@ -118,7 +117,7 @@ Optional XIO Command Fields and Mnemonics
 OYXX PO		Programmed Output:  This command outputs 16 bits of data from
 		RA to a programmed I/O port.  Y may be from 0 through 3.
 
-2008 OD		Output Discretes:  This command outputs the 16-bit contents of the 
+2008 OD		Output Discretes:  This command outputs the 16-bit contents of the
 		register RA to the discrete output buffer.  A "1" indicates an "on"
 		condition and a "0" indicates an "off" condition.
 
@@ -153,7 +152,7 @@ OYXX PO		Programmed Output:  This command outputs 16 bits of data from
 400A OTA	Output Timer A:  The contents of register RA are loaded (i.e.,
 		jam transfered) into timer A and the timer automatically starts
 		operation by incrementing from the loaded timer in steps of ten
-		microseconds.  Bit fifteen is the least significant bit and shall 
+		microseconds.  Bit fifteen is the least significant bit and shall
 		represent ten microseconds.
 
 400B GO		Trigger Go Indicator:  This command restarts a counter which is
@@ -161,8 +160,8 @@ OYXX PO		Programmed Output:  This command outputs 16 bits of data from
 		to time-out shall be determined by the system requirements.  When
 		the Go timer is started, the discrete output shall go high and
 		remain high for
-		TBD milliseconds, at which time the output shall go low unless 
-		another GO is executed.  The Go discrete output signal may be 
+		TBD milliseconds, at which time the output shall go low unless
+		another GO is executed.  The Go discrete output signal may be
 		used as a software fault indicator.
 
 400C TBS	Timer B, Start:  This command starts timer B from its current
@@ -181,11 +180,11 @@ OYXX PO		Programmed Output:  This command outputs 16 bits of data from
 		A "1" in a bit provides write protection and a "0" in a bit permits
 		writing to the corresponding 1024 word physical memory block.
 		The RAM word MSB (bit 0) represents the lowest number block and
-		the RAM word LSB (bit 15) represents the highest block (i.e., 
+		the RAM word LSB (bit 15) represents the highest block (i.e.,
 		bit 0 represents locations 0 through 1023 and bit 15 represents
-		locations 15360 through 16383 for word zero).  Each word represents 
+		locations 15360 through 16383 for word zero).  Each word represents
 		consecutive 16K blocks of physical memory.  The RAM words of 0
-		through 63 apply to processor write protect and words 64 through 
+		through 63 apply to processor write protect and words 64 through
 		127 apply to DMA write protect.
 
 51XY WIPR	Write Instruction Page Register:  This command transfers the contents
@@ -243,10 +242,10 @@ D0XX RMP	Read Memory Protect RAM (D000 + RAM address):  This command inputs
 		a bit provides write protection and a "0" in a bit permits writing
 		to the corresponding 1024 word physical memory block.  The RAM
 		words MSB (bit 0) represents the lowest number block and the RAM
-		word LSB (bit 15) represents the highest block (i.e., bit 0 
-		represents locations 0 through 1023 and bit 15 represents locations 
-		15360 through 16383 for word zero).  Each word represents consecutive 
-		16K blocks of physical memory.  The RAM words of 0 through 63 
+		word LSB (bit 15) represents the highest block (i.e., bit 0
+		represents locations 0 through 1023 and bit 15 represents locations
+		15360 through 16383 for word zero).  Each word represents consecutive
+		16K blocks of physical memory.  The RAM words of 0 through 63
 		apply to processor write protect and words 64 through 127 apply
 		to DMA write protect.
 

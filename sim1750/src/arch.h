@@ -169,7 +169,9 @@ enum halt_t
   HALT_ILL_MEM,
   HALT_NON_EXEC,
   HALT_URS_EMPTY_STACK, /* happens when running functions as programs. the function is calling URS, but the stack is empty*/
-  HALT_INF_LOOP /* some programs choose to terminate by inf loop */
+  HALT_INF_LOOP, /* some programs choose to terminate by inf loop */
+  HALT_WP_READ,
+  HALT_WP_WRITE
 };
 
 
@@ -259,7 +261,7 @@ struct cpu_state {
 
   enum halt_t halt;
   ushort bex_index;
-  
+  bool need_to_process_intr_after_watchpoint;
   bool disable_timers;
   /*old timing mechanism */
   struct {
