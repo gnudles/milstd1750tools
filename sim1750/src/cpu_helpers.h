@@ -1055,6 +1055,10 @@ A00D RMFS	Read Memory Fault Status:  This command transfers the 16-bit
             cpu_ctx->state.reg.pir_update |= *transfer;
             break;
         case XIO_WSW_200E: /*write status word*/
+			if ((cpu_ctx->state.reg.sw ^ *transfer)& 0x00FF)
+			{
+				invalidate_mem_cache(cpu_ctx);
+			}
             cpu_ctx->state.reg.sw = *transfer;
             break;
         case XIO_OD_2008: /*output discretes*/
