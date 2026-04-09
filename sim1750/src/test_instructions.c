@@ -31,6 +31,7 @@ uint get_phys_address(struct cpu_state *state, int space, int as, uint16_t addr)
 void test_BEX();
 void test_BEX_AS_Switch();
 void test_BPT();
+void test_Emulator_Watchpoints();
 void test_XIO();
 void test_VIO();
 void test_Memory_Access();
@@ -805,6 +806,7 @@ int main() {
     test_BEX();
     test_BEX_AS_Switch();
     test_BPT();
+    test_Emulator_Watchpoints();
     test_XIO();
     test_VIO();
     test_Memory_Access();
@@ -939,6 +941,75 @@ void test_BPT() {
 
     /* Nothing explicitly verified for BPT here since its interpreter-level exit logic
        will be handled in the main execution loop/test runner later. */
+    printf("PASSED\n");
+}
+
+#include "bpt.h"
+
+void test_Emulator_Watchpoints() {
+    reset_cpu();
+    printf("Testing Emulator Breakpoints and Watchpoints... ");
+
+    write_phys_memory(&ctx.state, 0x1000, 0);
+    write_phys_memory(&ctx.state, 0x2000, 0);
+    write_phys_memory(&ctx.state, 0x3000, 0);
+    ctx.state.pagereg[CODE][0][0].ppa = 1;
+    ctx.state.pagereg[CODE][0][0].e_w = 0;
+    ctx.state.pagereg[DATA][0][1].ppa = 2;
+    ctx.state.pagereg[DATA][0][2].ppa = 3;
+
+    ctx.state.reg.r[2] = 0x2000;
+    ctx.state.reg.r[3] = 2; // Count 2, meaning it will read 2 words from 0x1000 and write 2 words to 0x2000
+    ctx.state.reg.r[4] = 0x1000;
+
+    store_data_word(&ctx, 0x0000, 0x9324);
+    ctx.state.reg.ic = 0x0000;
+
+    ctx.watchpt[0].addr = 0x2000;
+    ctx.watchpt[0].type = READ;
+    ctx.watchpt[0].is_active = TRUE;
+    ctx.watchpt[1].addr = 0x2001;
+    ctx.watchpt[1].type = READ;
+    ctx.watchpt[1].is_active = TRUE;
+
+    ctx.watchpt[2].addr = 0x3000;
+    ctx.watchpt[2].type = WRITE;
+    ctx.watchpt[2].is_active = TRUE;
+    ctx.watchpt[3].addr = 0x3001;
+    ctx.watchpt[3].type = WRITE;
+    ctx.watchpt[3].is_active = TRUE;
+    ctx.n_watchpts = 4;
+
+    set_wp_active(&ctx, 0);
+    set_wp_active(&ctx, 1);
+    set_wp_active(&ctx, 2);
+    set_wp_active(&ctx, 3);
+
+    // Directly test interpretation to bypass the loop wrapper caching
+    interpret_MOV(&ctx, 0x9324, 0);
+
+    assert(ctx.state.halt == DBG_WATCHPOINT);
+
+    clear_all_wp_hits(&ctx);
+    ctx.state.halt = NO_HALT;
+    ctx.state.need_to_process_intr_after_watchpoint = false;
+
+    store_data_word(&ctx, 0x0001, 0x0000);
+
+    ctx.breakpt[0].addr = 0x1001;
+    ctx.breakpt[0].is_active = TRUE;
+    ctx.n_breakpts = 1;
+    set_bp_active(&ctx, 0);
+
+    cpu_mainloop(&ctx, ctx.state.total_cycles + 10);
+
+    assert(ctx.state.halt == DBG_BREAKPOINT);
+    assert(ctx.state.reg.ic == 0x0001);
+
+    ctx.breakpt[0].hitted = false;
+    ctx.bpindex = -1;
+    ctx.state.halt = NO_HALT;
+
     printf("PASSED\n");
 }
 
