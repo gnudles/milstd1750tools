@@ -28,7 +28,7 @@ void emit_shift_instruction (OpcodeDef *def)
         {
             printf("    if (shift < -16 || shift > 16)\n");
         }
-        printf("    {\n        cpu_ctx->state.reg.pir |= INTR_FIXOFL;\n    return;\n    }\n");
+        printf("    {\n        cpu_ctx->state.reg.pir |= INTR_FIXOFL;\n        return;\n    }\n");
         
 
     
@@ -125,7 +125,7 @@ void emit_shift_instruction (OpcodeDef *def)
         if (!cyclic && !logical && dir == SHIFT_BIDIRECTIONAL)
         {
             // turn on overflow interrupt if shift left changed sign.
-            printf ("    if (overflow_test < -2147483648LL || overflow_test > 2147483647LL)  cpu_ctx->state.reg.pir |= INTR_FIXOFL;");
+            printf ("    if (overflow_test < -2147483648LL || overflow_test > 2147483647LL)  {cpu_ctx->state.reg.pir |= INTR_FIXOFL;}\n");
         }
         printf("    cpu_ctx->state.reg.r[dest_reg] = (uint16_t)(val >> 16);\n");
         printf("    cpu_ctx->state.reg.r[(dest_reg + 1) & 0xF] = (uint16_t)(val & 0xFFFF);\n");
@@ -173,7 +173,7 @@ void emit_shift_instruction (OpcodeDef *def)
         if (!cyclic && !logical && dir == SHIFT_BIDIRECTIONAL)
         {
             // turn on overflow interrupt if sign changed during left shift.
-            printf ("    if (overflow_test > 32767 || overflow_test < -32768)  cpu_ctx->state.reg.pir |= INTR_FIXOFL;");
+            printf ("    if (overflow_test > 32767 || overflow_test < -32768)  {cpu_ctx->state.reg.pir |= INTR_FIXOFL;}\n");
         }
         printf("    cpu_ctx->state.reg.r[dest_reg] = val;\n");
         printf("    calculate_flags_16bit(cpu_ctx, val);\n");
@@ -210,7 +210,7 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
     if (def->addr_mode != AM_REG_DIRECT_R && def->addr_mode != AM_IMM_SHRT_NEG_ISN
      && def->addr_mode != AM_IMM_SHRT_POS_ISP && def->addr_mode != AM_CNT_REL_ICR)
     {
-        printf("    bool ok = true;\n"); // we are going to fetch/set memory, so we need that var;
+        printf("    /* bool ok = true; */\n"); // we are going to fetch/set memory, so we need that var;
     }
     bool has_DO_ADDR = false;
     bool priviledged = false;
@@ -255,7 +255,8 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
     if (def->format == IF_REG_REG) {
         printf("    uint16_t RA = (opcode & 0x00F0) >> 4;\n");
         printf("    uint16_t RB = opcode & 0x000F;\n");
-        if (def->op_type != OP_INT32_TO_EFLT)
+        /* if not in     OP_FLT_TO_INT16, OP_INT16_TO_FLT, OP_EFLT_TO_INT32,    OP_INT32_TO_EFLT    */
+        if (def->op_type != OP_INT32_TO_EFLT && def->op_type != OP_EFLT_TO_INT32 && def->op_type != OP_FLT_TO_INT16 && def->op_type != OP_INT16_TO_FLT)
         {
             printf("    int16_t DO[%d];\n", DO_SIZE);
             for (int i = 0 ; i < DO_SIZE; ++i)
@@ -299,7 +300,7 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
         {
             printf("    uint16_t DO_INDIRECT = ((RX > 0)?(uint16_t)cpu_ctx->state.reg.r[RX]:0) + (uint16_t)imm_value;\n");
             printf("    uint16_t DO_ADDR;\n");
-            printf("    ok = fetch_data_word(cpu_ctx, (uint16_t)DO_INDIRECT, &DO_ADDR);\n");
+            printf("    /* ok = */fetch_data_word(cpu_ctx, (uint16_t)DO_INDIRECT, &DO_ADDR);\n");
             has_DO_ADDR = true;
         }
         else if (def->addr_mode == AM_MEM_DIRECT_D_DX)
@@ -331,11 +332,11 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
             printf ("    int16_t DO[%d];\n", DO_SIZE);
             if (DO_SIZE == 1)
             {
-                printf ("    ok =  fetch_data_word(cpu_ctx, DO_ADDR, (uint16_t *)DO);\n");
+                printf ("    /* ok = */ fetch_data_word(cpu_ctx, DO_ADDR, (uint16_t *)DO);\n");
             }
             else
             {
-                printf ("    ok = 0 == fetch_data_words(cpu_ctx, DO_ADDR, %d, (uint16_t *)DO);\n", DO_SIZE);
+                printf ("    /* ok = 0 == */ fetch_data_words(cpu_ctx, DO_ADDR, %d, (uint16_t *)DO);\n", DO_SIZE);
             }
         }
     }
@@ -404,17 +405,17 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
             /* store contents of RA into DO_ADDR*/
             if (def->format == IF_CONST_LONG) /* STC, STCI*/
             {
-                printf ("    ok = store_data_word(cpu_ctx, DO_ADDR, N);\n");
+                printf ("    /* ok = */store_data_word(cpu_ctx, DO_ADDR, N);\n");
             }
             else
             {
                 if (DO_SIZE == 1)
                 {
-                    printf ("    ok = store_data_word(cpu_ctx, DO_ADDR, cpu_ctx->state.reg.r[RA]);\n");
+                    printf ("    /* ok = */store_data_word(cpu_ctx, DO_ADDR, cpu_ctx->state.reg.r[RA]);\n");
                 }
                 else if (DO_SIZE >= 2)
                 {
-                    printf ("    ok = 0 == store_data_words_reg(cpu_ctx, DO_ADDR, %d, RA);\n", DO_SIZE);
+                    printf ("    /* ok = 0 == */ store_data_words_reg(cpu_ctx, DO_ADDR, %d, RA);\n", DO_SIZE);
                 }
             }
             break;
@@ -428,7 +429,7 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
             {
                 printf ("    DO[0] = (DO[0] & 0xFF00) | (cpu_ctx->state.reg.r[RA] & 0x00FF);\n");
             }
-            printf ("    ok = store_data_word(cpu_ctx, DO_ADDR, DO[0]);\n");
+            printf ("    /* ok = */store_data_word(cpu_ctx, DO_ADDR, DO[0]);\n");
             break;
         case OP_BRANCH:
             /* displacement is signed, range -128 to 127*/
@@ -489,7 +490,7 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
             else
             {
                 printf("    DO[0] |= 1 << (15 - N);\n");
-                printf("    ok = store_data_word(cpu_ctx, DO_ADDR, DO[0]);\n");
+                printf("    /* ok = */store_data_word(cpu_ctx, DO_ADDR, DO[0]);\n");
             }
             break;
         case OP_RESET_BIT:
@@ -505,7 +506,7 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
             else
             {
                 printf("    DO[0] &= ~(1 << (15 - N));\n");
-                printf("    ok = store_data_word(cpu_ctx, DO_ADDR, DO[0]);\n");
+                printf("    /* ok = */store_data_word(cpu_ctx, DO_ADDR, DO[0]);\n");
             }
             break;
         case OP_TEST_BIT:
@@ -530,7 +531,7 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
                 if (def->op_type == OP_TEST_SET_BIT)
                 {
                     printf("    DO[0] |= 1 << (15 - N);\n");
-                    printf("    ok = store_data_word(cpu_ctx, DO_ADDR, DO[0]);\n");
+                    printf("    /* ok = */store_data_word(cpu_ctx, DO_ADDR, DO[0]);\n");
                 }
             }
             printf("    cpu_ctx->state.reg.sw &= 0x0FFF;\n"); // Clear condition flags
@@ -626,7 +627,7 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
             printf("    if (res > 32767 || res < -32768) cpu_ctx->state.reg.pir |= INTR_FIXOFL;\n");
             
             printf("    DO[0] = (int16_t)res;\n");
-            printf("    ok = store_data_word(cpu_ctx, DO_ADDR, DO[0]);\n");
+            printf("    /* ok = */store_data_word(cpu_ctx, DO_ADDR, DO[0]);\n");
             
             printf("    calculate_flags_16bit(cpu_ctx, DO[0]);\n");
             printf("    if (carry) cpu_ctx->state.reg.sw |= CS_CARRY;\n");
@@ -942,6 +943,7 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
             printf("    if (A == B) cpu_ctx->state.reg.sw |= CS_ZERO;\n");
             printf("    else if (A > B) cpu_ctx->state.reg.sw |= CS_POSITIVE;\n");
             printf("    else cpu_ctx->state.reg.sw |= CS_NEGATIVE;\n");
+            break;
 
         case OP_COMP_LIM:
             /* Compare Between Limits (CBL) */
@@ -1048,7 +1050,7 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
             if (def->code == OPC_SJS)
             {
                 printf("    cpu_ctx->state.reg.r[RA] -= 1;\n");
-                printf("    ok = store_data_word(cpu_ctx, cpu_ctx->state.reg.r[RA], cpu_ctx->state.reg.ic + 2);\n");
+                printf("    /* ok = */store_data_word(cpu_ctx, cpu_ctx->state.reg.r[RA], cpu_ctx->state.reg.ic + 2);\n");
             }
             if (def->code == OPC_JS)
             {
@@ -1061,12 +1063,13 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
             printf("    if (cpu_ctx->state.reg.r[RA] == 0) {\n"); // we should halt
             printf("        cpu_ctx->state.halt = HALT_URS_EMPTY_STACK;\n");
             printf("    }\n");
-            printf("    ok = fetch_data_word(cpu_ctx, cpu_ctx->state.reg.r[RA], &cpu_ctx->state.reg.ic);\n");
+            printf("    /* ok = */fetch_data_word(cpu_ctx, cpu_ctx->state.reg.r[RA], &cpu_ctx->state.reg.ic);\n");
             printf("    cpu_ctx->state.reg.r[RA] += 1;\n");
             break;
         case OP_LOAD_STATUS:
             /* DO[0] -> Status Word, DO[1] -> Mask Register */
             printf("    if ((DO[1] ^ cpu_ctx->state.reg.sw) & 0xFF ) { invalidate_mem_cache(cpu_ctx); }\n");
+            printf("    cpu_ctx->state.reg.check_pir |= cpu_ctx->state.reg.mk ^ DO[0];\n"); /* interrupt mask changed */
             printf("    cpu_ctx->state.reg.mk = DO[0];\n");
             printf("    cpu_ctx->state.reg.sw = DO[1];\n");
             printf("    cpu_ctx->state.reg.ic = DO[2];\n");
@@ -1075,11 +1078,11 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
             switch(def->code)
             {
                 case OPC_STM:
-                    printf("    ok = 0 == store_data_words_reg(cpu_ctx, DO_ADDR, N +1, 0 /* reg 0 */);\n");
+                    printf("    /* ok = 0 == */ store_data_words_reg(cpu_ctx, DO_ADDR, N +1, 0 /* reg 0 */);\n");
                     printf("    cpu_ctx->state.total_cycles += CLK_CYC_STM(N +1);\n");
                     break;
                 case OPC_LM:
-                    printf("    ok = 0 == fetch_data_words_reg(cpu_ctx, DO_ADDR, N +1, 0 /* reg 0 */);\n");
+                    printf("    /* ok = 0 == */ fetch_data_words_reg(cpu_ctx, DO_ADDR, N +1, 0 /* reg 0 */);\n");
                     printf("    cpu_ctx->state.total_cycles += CLK_CYC_LM(N +1);\n");
                     break;
                 case OPC_PSHM:
@@ -1108,7 +1111,7 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
                     printf("    int stk_addr = cpu_ctx->state.reg.r[15] - count;\n");
                     printf("    if (RA + count > 15) /* R15 will be inserted */\n");
                     printf("        cpu_ctx->state.reg.r[15] -= RA + count - 15;\n");
-                    printf("    ok = 0 == store_data_words_reg(cpu_ctx, stk_addr, count, RA);\n");
+                    printf("    /* ok = 0 == */ store_data_words_reg(cpu_ctx, stk_addr, count, RA);\n");
                     /* set R15 value*/
                     printf("    cpu_ctx->state.reg.r[15] = stk_addr;\n");
                     printf("    cpu_ctx->state.total_cycles += CLK_CYC_PSHM(count);\n");
@@ -1126,7 +1129,7 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
                     
                     /* Fetch all data words into registers. 
                        If R15 is in the list, it gets temporarily overwritten here... */
-                    printf("    ok = 0 == fetch_data_words_reg(cpu_ctx, stk_addr, count, RA);\n");
+                    printf("    /* ok = 0 == */ fetch_data_words_reg(cpu_ctx, stk_addr, count, RA);\n");
                     
                     /* ...but the manual states R15 is effectively ignored as a destination. 
                        We fix it by unconditionally advancing the stack pointer by the total count! */
@@ -1196,16 +1199,17 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
                 printf("        uint16_t io_cmd;\n");
                 printf("        uint16_t vector_select;\n");
                 printf("    } vio;\n");
-                printf("    fetch_data_words(cpu_ctx, DO_ADDR, 2, (int16_t *)&vio);\n");
+                printf("    fetch_data_words(cpu_ctx, DO_ADDR, 2, (uint16_t *)&vio);\n");
                 printf("    uint16_t vector = vio.vector_select;\n");
                 printf("    uint16_t cmd_inc = cpu_ctx->state.reg.r[RA];\n");
                 printf("    uint16_t current_cmd = vio.io_cmd;\n");
                 printf("    int n = 0;\n");
                 printf("    for (int i = 0; i < 16; i++) {\n");
                 printf("        if (vector & (0x8000 >> i)) {\n");
-                printf("            ushort* ptr = get_address_data(cpu_ctx, DO_ADDR+2+n);\n");
-                printf("            if (ptr == NULL) { break; }\n");
-                printf("            process_xio(cpu_ctx, current_cmd, ptr);\n");
+                printf("            ushort data;\n");
+                printf("            if (!fetch_data_word(cpu_ctx, DO_ADDR+2+n, &data)) { break; }\n");
+                printf("            process_xio(cpu_ctx, current_cmd, &data);\n");
+                printf("            if (current_cmd & 0x8000) { store_data_word(cpu_ctx, DO_ADDR+2+n, data); }\n");
                 printf("            n++;\n");
                 printf("        }\n");
                 printf("        current_cmd += cmd_inc;\n");

@@ -127,6 +127,12 @@ static const struct {
        "If the optional address argument is not supplied, then execution\n"
        "starts at the current Instruction Counter location and in the\n"
        "current Address State." },
+       // instead of mnemonic ss for single step for new backend, we use something catchy and slangy like jiggle
+   { "jiggle [n_instructions]",     si_snglstp_new,  "single step (new backend)",
+       "If the optional n_instructions argument is not supplied, then step\n"
+       "for just one instruction." },
+   { "jiggle *",                    si_snglstp_new,  "step over subroutine call (new backend)",
+       "" },
    { "go [address]",            si_go,       "start or continue execution",
        "If the optional address argument is not supplied, then execution\n"
        "starts at the current Instruction Counter location and in the\n"
@@ -141,6 +147,12 @@ static const struct {
                                 "\tcpu list\n\tcpu create <name> [memory_pages]\n\tcpu select <id>\n\tcpu rename <name>\n\tcpu mem <pages>\n" },
    { "break <address>",        si_brkset,   "set breakpoint",
        "Set breakpoint at the given address. For the syntax of the address\n"
+       "expression, see the help info on the TR command. Additionally,\n"
+       "a symbolic label name may be given for the <address> if the load\n"
+       "format last used supports them, and the file last loaded contains\n"
+       "such symbolic labels." },
+   { "watch <address>",        si_wtchset,   "set watchpoint",
+       "Set watchpoint at the given address. For the syntax of the address\n"
        "expression, see the help info on the TR command. Additionally,\n"
        "a symbolic label name may be given for the <address> if the load\n"
        "format last used supports them, and the file last loaded contains\n"

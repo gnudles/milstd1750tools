@@ -63,9 +63,9 @@ execute_without_breakpt (struct cpu_context *cpu_ctx)
   int bpi = cpu_ctx->bpindex;
 
   cpu_ctx->bpindex = -1;
-  set_inactive (cpu_ctx, bpi);
+  //set_bp_inactive (cpu_ctx, bpi);
   status = execute (cpu_ctx);
-  set_active (cpu_ctx, bpi);
+  //set_bp_active (cpu_ctx, bpi);
   return status;
 }
 
@@ -84,6 +84,84 @@ int si_jit_scan (int argc, char *argv[])
   scan_instructions_from_address(sim_cpu_ctx, next);
   return OKAY;
 }
+// function to set halt to NO_HALT after debug conditions, so that we can continue execution. we also need to clear watchpoint hits, otherwise we will keep hitting the same watchpoint and never continue execution. we can not just set the watchpoint to inactive, because we want to keep track of it and show it in the watchpoint list, and step over BPT special instruction by incrementing IC, otherwise we will keep hitting the same BPT and never continue execution.
+void clear_debug_halt(struct cpu_context *cpu_ctx)
+{
+  if (cpu_ctx->state.halt == DBG_WATCHPOINT 
+    || cpu_ctx->state.halt == DBG_BREAKPOINT 
+    || cpu_ctx->state.halt == INST_BPT)
+  {
+    if (cpu_ctx->state.halt == DBG_WATCHPOINT)
+    {
+      clear_all_wp_hits(cpu_ctx);
+    }
+    else if (cpu_ctx->state.halt == INST_BPT)
+    {
+      cpu_ctx->state.reg.ic++;
+    }
+    cpu_ctx->state.halt = NO_HALT;
+  }
+}
+
+void print_halt_reason(struct cpu_context *cpu_ctx)
+{
+  if (cpu_ctx->state.halt == NO_HALT)
+    return;
+  if (cpu_ctx->state.halt == DBG_BREAKPOINT)
+  {
+    lprintf("Hit breakpoint at address 0x%04X : %s\n", cpu_ctx->state.reg.ic, disassemble(&cpu_ctx->state));
+    // now print label and info  from cpu_ctx->breakpt[cpu_ctx->bpindex]
+    lprintf("Breakpoint %d: physical address 0x%05X, label: %s\n", cpu_ctx->bpindex, cpu_ctx->breakpt[cpu_ctx->bpindex].addr,
+            cpu_ctx->breakpt[cpu_ctx->bpindex].label ? cpu_ctx->breakpt[cpu_ctx->bpindex].label : "N/A");
+  }
+  else if (cpu_ctx->state.halt == DBG_WATCHPOINT)
+  {
+    // loop over all watch points and find all that are hit, and print them out.
+    lprintf("Hit watchpoint at physical address 0x%05X : %s, ic after: 0x%04X \n", cpu_ctx->last_phys_ic , disassemble(&cpu_ctx->state), cpu_ctx->state.reg.ic);
+    for (int i = 0; i < cpu_ctx->n_watchpts; i++)
+    {
+        if (cpu_ctx->watchpt[i].is_active && cpu_ctx->watchpt[i].hitted)
+        {
+            lprintf("Watchpoint %d: address 0x%04X, type: %s, label: %s\n", i, cpu_ctx->watchpt[i].addr,
+                    cpu_ctx->watchpt[i].type == READ ? "READ" : (cpu_ctx->watchpt[i].type == WRITE ? "WRITE" : "READ/WRITE"),
+                    cpu_ctx->watchpt[i].label ? cpu_ctx->watchpt[i].label : "N/A");
+            if (cpu_ctx->watchpt[i].type == READ)
+                lprintf("    Old value: 0x%04X\n", cpu_ctx->watchpt[i].old_value);
+            else if (cpu_ctx->watchpt[i].type == WRITE)
+              lprintf("    Old value: 0x%04X, New value: 0x%04X\n", cpu_ctx->watchpt[i].old_value, cpu_ctx->watchpt[i].new_value);
+        }
+      }
+  }
+  else
+  {
+    lprintf("CPU halted. Reason: ");
+    switch (cpu_ctx->state.halt)
+    {
+        case HALT_ILL_INST:
+            lprintf("Illegal Instruction");
+            break;
+
+        case INST_BPT:
+            lprintf("Instruction Breakpoint at address 0x%04X : %s", cpu_ctx->state.reg.ic, disassemble(&cpu_ctx->state));
+            break;
+        case HALT_ILL_MEM:
+            lprintf("Illegal Memory Access");
+            break;
+        case HALT_NON_EXEC:
+            lprintf("Execution of Non-Executable Memory");
+            break;
+        case HALT_URS_EMPTY_STACK:
+            lprintf("URS called with empty stack");
+            break;
+        case HALT_INF_LOOP:
+            lprintf("Infinite Loop");
+            break;
+        default:
+            lprintf("Unknown reason");
+    }
+    lprintf("\n");
+  }
+}
 
 int
 si_go_new (int argc, char *argv[])
@@ -96,17 +174,69 @@ si_go_new (int argc, char *argv[])
       sim_cpu_ctx->state.reg.ic = (ushort) next;
     }
   start = clock();  
+  // if we continue after hitting a watchpoint, we need to call clear_all_wp_hits, and also set halt to NO_HALT, otherwise we will keep hitting the same watchpoint and never continue execution. We can not just set the watchpoint to inactive, because we want to keep track of it and show it in the watchpoint list, and also we want to be able to hit it again if the same address is accessed again.
+  clear_debug_halt(sim_cpu_ctx);
+
   while (1)
     {
       if (sys_int (1))
-	return INTERRUPT;
+	      return INTERRUPT;
       cpu_mainloop (sim_cpu_ctx, sim_cpu_ctx->state.total_cycles + 1000);
       if (sim_cpu_ctx->state.halt)
+      {
+        print_halt_reason(sim_cpu_ctx);
         break;
+      }
     }
   end = clock();
   printf("\nkick took:  %f seconds\n", ((double) (end - start)) / CLOCKS_PER_SEC);
   return OKAY;
+}
+const char* get_interrupt_name(ushort intnum);
+int
+si_snglstp_new (int argc, char *argv[])
+{
+  int    count = 0;
+  bool   step_over = FALSE;
+  ushort target_addr;
+
+  if (argc > 1)
+    {
+      if (*argv[1] == '*')
+	{
+	  step_over = TRUE;
+	  target_addr = sim_cpu_ctx->state.reg.ic + 2;
+    
+	}
+      else
+	sscanf (argv[1], "%d", &count);
+    }
+  else
+  {
+    count = 1;
+  }
+
+  clear_debug_halt(sim_cpu_ctx);
+
+  while ((step_over && sim_cpu_ctx->state.reg.ic != target_addr) || (!step_over && count > 0))
+  {
+	  if (sys_int (1))
+	    return (INTERRUPT);
+      int old_interrupt_counter = sim_cpu_ctx->interrupt_counter;
+    cpu_mainloop (sim_cpu_ctx, sim_cpu_ctx->state.total_cycles + 1); // at least one cycle will drive it to do exactly one instruction, but if there are pending interrupts, it will also process them, so we might execute more than one instruction, but that is fine for single step.
+      if (sim_cpu_ctx->state.halt)
+      {
+        print_halt_reason(sim_cpu_ctx);
+        break;
+      }
+      if (sim_cpu_ctx->interrupt_counter != old_interrupt_counter)
+      {
+        lprintf("Processing pending interrupt %s\n", get_interrupt_name(sim_cpu_ctx->last_processed_interrupt));
+      }
+      info ("\tStep at %04hX : %s", sim_cpu_ctx->state.reg.ic, disassemble (&sim_cpu_ctx->state));
+  }
+
+  return (OKAY);
 }
 
 int

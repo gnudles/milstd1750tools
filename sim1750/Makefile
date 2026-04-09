@@ -12,7 +12,7 @@ CC=      gcc
 # CFLAGS= -D__STDC__=0 -DSTRNDUP -DSTRNCASECMP # -DGNU_READLINE
 
 # CFLAGS for Linux and hopefully other Unixes
-CFLAGS = -O3 -I./src -Wall -DSTRNDUP -DSTRNCASECMP -DHAVE_UTYPES # -DGNU_READLINE
+CFLAGS = -O3 -I./src -Wall -DSTRNDUP -DSTRNCASECMP -DHAVE_UTYPES -Werror=implicit-function-declaration # -DGNU_READLINE
 
 
 PROJ_DIR=.
@@ -20,6 +20,7 @@ SRC=$(PROJ_DIR)/src
 OBJ=$(PROJ_DIR)/obj
 
 OBJECTS= $(OBJ)/arith.o		\
+	 $(OBJ)/bpt.o		\
 	 $(OBJ)/break.o		\
 	 $(OBJ)/cmd.o		\
 	 $(OBJ)/cpu.o		\
@@ -43,8 +44,8 @@ OBJECTS= $(OBJ)/arith.o		\
 	 $(OBJ)/xiodef.o \
 	 $(OBJ)/jit.o \
 	 $(OBJ)/m1750_def.o \
-     $(OBJ)/new_cpu.o \
-	 $(OBJ)/sljitLir.o
+     $(OBJ)/new_cpu.o
+
 
 
 SOURCES= $(OBJECTS:$(OBJ)/%.o=$(SRC)/%.c)
@@ -58,8 +59,8 @@ interp_gen: $(OBJ)/m1750_def.o $(OBJ)/interp_gen.o
 	$(CC) $(CFLAGS) -o $(PROJ_DIR)/interp_gen $(OBJ)/m1750_def.o $(OBJ)/interp_gen.o
 $(SRC)/generated_cpu.h: interp_gen
 	./interp_gen > $(SRC)/generated_cpu.h
-test_inst: $(SRC)/test_instructions.c $(SRC)/generated_cpu.h $(SRC)/cpu_helpers.h $(OBJ)/m1750_def.o
-	gcc -fsanitize=undefined -g $(SRC)/test_instructions.c $(OBJ)/m1750_def.o -o test_inst
+test_inst: $(SRC)/test_instructions.c $(SRC)/generated_cpu.h $(SRC)/cpu_helpers.h $(OBJ)/m1750_def.o $(OBJ)/bpt.o 
+	gcc -fsanitize=undefined -O1 -g $(SRC)/test_instructions.c $(OBJ)/m1750_def.o $(OBJ)/bpt.o -o test_inst
 	./test_inst
 $(OBJ):
 	mkdir -p $@
@@ -85,6 +86,10 @@ $(OBJ)/arith.o: $(SRC)/arch.h $(SRC)/status.h $(SRC)/flt1750.h $(SRC)/arith.c
 $(OBJ)/break.o: $(SRC)/arch.h $(SRC)/status.h $(SRC)/utils.h \
 	  $(SRC)/break.h $(SRC)/type.h $(SRC)/break.c
 	$(CC) -c $(CFLAGS) $(SRC)/break.c	-o $(OBJ)/break.o
+
+$(OBJ)/bpt.o: $(SRC)/arch.h $(SRC)/status.h $(SRC)/utils.h \
+	  $(SRC)/bpt.h $(SRC)/type.h $(SRC)/bpt.c
+	$(CC) -c $(CFLAGS) $(SRC)/bpt.c	-o $(OBJ)/bpt.o
 
 $(OBJ)/cmd.o: $(SRC)/utils.h $(SRC)/status.h \
 	  $(SRC)/loadfile.h $(SRC)/tekops.h $(SRC)/phys_mem.h $(SRC)/break.h \
@@ -160,5 +165,3 @@ $(OBJ)/interp_gen.o: $(SRC)/m1750.h $(SRC)/interp_gen.c
 	$(CC) -c $(CFLAGS) $(SRC)/interp_gen.c	-o $(OBJ)/interp_gen.o
 $(OBJ)/new_cpu.o: $(SRC)/generated_cpu.h $(SRC)/cpu_helpers.h $(SRC)/new_cpu.c
 	$(CC) -c $(CFLAGS) $(SRC)/new_cpu.c	-o $(OBJ)/new_cpu.o
-$(OBJ)/sljitLir.o: $(SRC)/sljit/sljit_src/sljitLir.c $(SRC)/sljit/sljit_src/sljitLir.h
-	$(CC) -c $(CFLAGS) $(SRC)/sljit/sljit_src/sljitLir.c	-o $(OBJ)/sljitLir.o

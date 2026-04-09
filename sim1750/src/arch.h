@@ -165,13 +165,13 @@ enum halt_t
   NO_HALT,
   HALT_ILL_INST,
   DBG_BREAKPOINT,
+  DBG_WATCHPOINT,
   INST_BPT,
   HALT_ILL_MEM,
   HALT_NON_EXEC,
   HALT_URS_EMPTY_STACK, /* happens when running functions as programs. the function is calling URS, but the stack is empty*/
-  HALT_INF_LOOP, /* some programs choose to terminate by inf loop */
-  HALT_WP_READ,
-  HALT_WP_WRITE
+  HALT_INF_LOOP /* some programs choose to terminate by inf loop */
+
 };
 
 
@@ -189,7 +189,9 @@ struct regs
     ushort mk_sw_ic[3];
     };
     ushort pir;
-    ushort pir_update;    
+    ushort pir_update;
+    ushort last_pir;
+    ushort check_pir; /* whenever this value is not zero, we need to check if we have interrupts */
     ushort ft;
     ushort timer[2]; 
     ushort timer_reset_val[2]; // timers will reset to this value after roll over

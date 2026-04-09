@@ -125,8 +125,6 @@ void run_ldm_test(const char *fname) {
 
     // Let the main loop handle interrupts via process_interrupt().
     // We just need to give it enough cycles.
-    // Important: we must request more cycles than `next_scheduled_timer_calc_cycles`
-    // to allow the internal loop to calculate and evaluate timers.
     clock_t start, end;
 
     start = clock();
@@ -137,7 +135,7 @@ void run_ldm_test(const char *fname) {
     }
 
     end = clock();
-    printf("\ntest took:  %f seconds\n", ((double) (end - start)) / CLOCKS_PER_SEC);
+    printf("\ntest took:  %f seconds, %ld cycles, nanosec per cycle: %f\n", ((double) (end - start)) / CLOCKS_PER_SEC, ctx.state.total_cycles, ((double) (end - start)) / CLOCKS_PER_SEC / ctx.state.total_cycles * 1e9);
 
     uint16_t status = read_phys_memory(&ctx.state, 0x2000);
     if (status == 0xAAAA) {

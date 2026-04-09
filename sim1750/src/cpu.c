@@ -51,7 +51,7 @@
 //int   execute (void);
 //uint instcnt;		     /* Total number of instructions executed */
 //struct regs simreg;	     /* The 1750 register file */
-int   bpindex = -1;	     /* Index of breakpoint when hitting one */
+
 			     /* (unused in BSVC) */
 
 /* Total execution time in uSec since go command */
@@ -291,8 +291,38 @@ get_word (struct cpu_context *cpu_ctx, int bank, ushort address, short *data)
   phys_address = get_phys_address (&cpu_ctx->state, bank, as, address);
 #ifndef BSVC
   /* Check for breakpoint */
-  if ((bpindex = find_breakpt (cpu_ctx, READ, phys_address)) >= 0)
-    return BREAKPT;
+  if ((bank == CODE && (cpu_ctx->bpindex = find_breakpt (cpu_ctx, phys_address)) >= 0)
+      || (bank == DATA && (cpu_ctx->wpindex = find_watchpt (cpu_ctx, READ, phys_address)) >= 0))
+    {
+      if (bank == CODE)
+      {
+        if (cpu_ctx->breakpt[cpu_ctx->bpindex].hitted)
+        {
+          cpu_ctx->breakpt[cpu_ctx->bpindex].hitted = false;
+          cpu_ctx->bpindex = -1;
+        }
+        else
+        {
+          cpu_ctx->breakpt[cpu_ctx->bpindex].hitted = true;
+          return BREAKPT;
+        }
+      }
+      else
+      {
+        if (cpu_ctx->watchpt[cpu_ctx->wpindex].hitted)
+        {
+          cpu_ctx->watchpt[cpu_ctx->wpindex].hitted = false;
+          cpu_ctx->wpindex = -1;
+        }
+        else
+        {
+          cpu_ctx->watchpt[cpu_ctx->wpindex].hitted = true;
+          return BREAKPT;
+        }
+      }
+      
+      return BREAKPT;
+    }
 #endif
   if (peek (&cpu_ctx->state, phys_address, (ushort *) data) == 0)
     {
@@ -334,8 +364,19 @@ store_word_data(struct cpu_context *cpu_ctx, ushort address, ushort data)
   phys_address = get_phys_address (&cpu_ctx->state, DATA, as, address);
 #ifndef BSVC
   /* Check for breakpoint */
-  if ((bpindex = find_breakpt (cpu_ctx, WRITE, phys_address)) >= 0)
-    return BREAKPT;
+  if ((cpu_ctx->wpindex = find_watchpt (cpu_ctx, WRITE, phys_address)) >= 0)
+  {
+    if (cpu_ctx->watchpt[cpu_ctx->wpindex].hitted)
+    {
+      cpu_ctx->watchpt[cpu_ctx->wpindex].hitted = false;
+      cpu_ctx->wpindex = -1;
+    }
+    else
+    {
+      cpu_ctx->watchpt[cpu_ctx->wpindex].hitted = true;
+      return BREAKPT;
+    }
+  }
 #endif
   poke (&cpu_ctx->state, phys_address, data);
   return OKAY;

@@ -48,7 +48,7 @@ bool update_pir = TRUE;  /* evaluated in function arith() */
 void
 update_cs (struct cpu_state *cpu, short *operand, datatype data_type)
 {
-  bool is_zero;
+  bool is_zero = false;
   ushort sw_save = cpu->reg.sw & 0x0FFF; // reset carry bit, it will be set by arith() if needed
 
   switch (data_type)

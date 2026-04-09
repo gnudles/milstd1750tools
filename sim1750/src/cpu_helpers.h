@@ -8,6 +8,18 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#if defined(__GNUC__) && (__GNUC__ >= 3)
+#ifndef likely
+#define likely(x) __builtin_expect(!!(x), 1)
+#endif
+#ifndef unlikely
+#define unlikely(x) __builtin_expect(!!(x), 0)
+#endif
+#else
+#define likely(x)		(x)
+#define unlikely(x)	(x)
+#endif
+
 /* about memory layout.
     there are two kinds of pages: page (4096 words) and qpage (quarter page - 1024 words)
     1750a supports up to 256 pages (which is equivalent to 1024 qpages)
@@ -17,6 +29,33 @@ static inline ushort* access_memory(struct cpu_state *cpu, uint16_t phys_page)
 {
     return cpu->mem[phys_page]->word;
 }
+
+extern int  find_watchpt (struct cpu_context *cpu_ctx, watchtype type, uint phys_address);
+extern int  find_breakpt (struct cpu_context *cpu_ctx, uint phys_address);
+
+
+static void mark_wp_write_hit(struct cpu_context *cpu_ctx, uint phys_address, uint16_t new_value) {
+    int idx = find_watchpt(cpu_ctx, WRITE, phys_address);
+    if (idx >= 0)
+    {
+        cpu_ctx->state.halt = DBG_WATCHPOINT;
+        cpu_ctx->watchpt[idx].hitted = true;
+        cpu_ctx->watchpt[idx].old_value = access_memory(&cpu_ctx->state, phys_address >> 12)[phys_address & 0xFFF];
+        cpu_ctx->watchpt[idx].new_value = new_value;
+    }
+}
+static void mark_wp_read_hit(struct cpu_context *cpu_ctx, uint phys_address) {
+
+    int idx = find_watchpt(cpu_ctx, READ, phys_address);
+    if (idx >= 0)
+    {
+        cpu_ctx->state.halt = DBG_WATCHPOINT;
+        cpu_ctx->watchpt[idx].hitted = true;
+        cpu_ctx->watchpt[idx].old_value = access_memory(&cpu_ctx->state, phys_address >> 12)[phys_address & 0xFFF];
+    }
+}
+
+
 
 static inline void write_phys_memory(struct cpu_state *cpu, uint32_t phys_addr, uint16_t value)
 {
@@ -59,14 +98,9 @@ static inline uint16_t popcount16(uint16_t v) {
     /* 4. Multiply to sum the 8-bit fields into the top byte, then shift down */
     return (v * 0x0101) >> 8;
 }
-
-static inline uint get_quarter_page_address_write_data(struct cpu_state *cpu, uint16_t logical_qpage)
+static uint calc_quarter_page_address_write_data(struct cpu_state *cpu, uint16_t logical_qpage)
 {
     uint16_t logical_page = logical_qpage >> 2;
-    if (cpu->data_write_cache.valid & (0x8000000000000000ULL >> logical_qpage))
-    {
-        return (uint)cpu->data_write_cache.page[logical_page];
-    }
     ushort as =  cpu->reg.sw & 0xF; /* Address State */
     ushort akc = (cpu->reg.sw >> 4) & 0xF; /* access key code */
 
@@ -120,12 +154,17 @@ static inline uint get_quarter_page_address_write_data(struct cpu_state *cpu, ui
     //printf("get_quarter_page_address_write_data: translated 0x%05X to 0x%05X\n", logical_qpage<<10, phys_page<<12);
     return phys_page;
 }
-static inline uint get_page_address_read_data(struct cpu_state *cpu, uint16_t logical_page)
+static inline uint get_quarter_page_address_write_data(struct cpu_state *cpu, uint16_t logical_qpage)
 {
-    if (cpu->data_read_cache.valid & (0x8000U >> logical_page))
+    uint16_t logical_page = logical_qpage >> 2;
+    if (cpu->data_write_cache.valid & (0x8000000000000000ULL >> logical_qpage))
     {
-        return (uint)cpu->data_read_cache.page[logical_page];
+        return (uint)cpu->data_write_cache.page[logical_page];
     }
+    return calc_quarter_page_address_write_data(cpu, logical_qpage);
+}
+static uint calc_page_address_read_data(struct cpu_state *cpu, uint16_t logical_page)
+{
     ushort akc = (cpu->reg.sw >> 4) & 0xF; /* access key code */
     ushort as =  cpu->reg.sw & 0xF; /* Address State */
 
@@ -206,15 +245,18 @@ static inline uint get_page_address_read_data(struct cpu_state *cpu, uint16_t lo
     return phys_page;
 }
 
-
-
-static inline uint get_page_address_read_data_intr(struct cpu_state *cpu, uint16_t logical_page)
+static inline uint get_page_address_read_data(struct cpu_state *cpu, uint16_t logical_page)
 {
-    if (cpu->data_read_cache_intr.valid & (0x8000U >> logical_page))
+    if (cpu->data_read_cache.valid & (0x8000U >> logical_page))
     {
-        return (uint)cpu->data_read_cache_intr.page[logical_page];
+        return (uint)cpu->data_read_cache.page[logical_page];
     }
-    
+    return calc_page_address_read_data(cpu, logical_page);
+}
+
+
+static uint calc_page_address_read_data_intr(struct cpu_state *cpu, uint16_t logical_page)
+{
     uint phys_page = cpu->pagereg[DATA][0][logical_page].ppa;
     if (cpu->num_phys_mem_pages <= phys_page)
     {
@@ -239,12 +281,16 @@ static inline uint get_page_address_read_data_intr(struct cpu_state *cpu, uint16
     return phys_page;
 }
 
-static inline uint get_page_address_read_code(struct cpu_state *cpu, uint16_t logical_page)
+static inline uint get_page_address_read_data_intr(struct cpu_state *cpu, uint16_t logical_page)
 {
-    if (cpu->code_read_cache.valid & (0x8000U >> logical_page))
+    if (cpu->data_read_cache_intr.valid & (0x8000U >> logical_page))
     {
-        return (uint)cpu->code_read_cache.page[logical_page];
+        return (uint)cpu->data_read_cache_intr.page[logical_page];
     }
+    return calc_page_address_read_data_intr(cpu, logical_page);
+}
+static uint calc_page_address_read_code(struct cpu_state *cpu, uint16_t logical_page)
+{
     ushort as =  cpu->reg.sw & 0xF; /* Address State */
     ushort akc = (cpu->reg.sw >> 4) & 0xF; /* access key code */
     if (cpu->pagereg[CODE][as][logical_page].e_w != 0)
@@ -292,7 +338,15 @@ static inline uint get_page_address_read_code(struct cpu_state *cpu, uint16_t lo
     cpu->code_read_cache.page[logical_page] = phys_page;
     return phys_page;
 }
-
+static inline uint get_page_address_read_code(struct cpu_state *cpu, uint16_t logical_page)
+{
+    if (cpu->code_read_cache.valid & (0x8000U >> logical_page))
+    {
+        return (uint)cpu->code_read_cache.page[logical_page];
+    }
+    return calc_page_address_read_code(cpu, logical_page);
+}
+// use it on dma access, and in move_words. in rest of the places we fetch 3 words at most, so it is not profitable to use this function.
 static inline int first_set_bp_bit(uint64_t bitmap, uint64_t flat_bitmaps[64], int from, int count) {
     if (count <= 0) return -1;
     
@@ -337,23 +391,16 @@ uint16_t fetch_data_words(struct cpu_context *cpu_ctx, uint16_t addr, uint16_t c
     {
         uint phys_page = get_page_address_read_data(&cpu_ctx->state, addr >> 12);
         if (phys_page == 0xFFFFFFFF) return count;
-        
-        uint remaining = 4096 - (addr  & 0xFFF);
+        uint16_t addr_low12 = (addr  & 0xFFF);
+        uint remaining = 4096 - addr_low12;
         if (remaining > count) remaining = count;
-        
-        // Fast Read Watchpoint Check
-
-        if (cpu_ctx->state.mem[phys_page] && cpu_ctx->state.mem[phys_page]->read_exec_bp_summary) {
-            for (uint i = 0; i < remaining; i++) {
-                uint offset = (addr + i) & 0xFFF;
-                if (cpu_ctx->state.mem[phys_page]->read_exec_bp[offset >> 6] & (1ULL << (offset & 63))) {
-                    cpu_ctx->state.halt = HALT_WP_READ;
-                }
-            }
-        }
 
         for (uint i = 0; i < remaining; i++) {
-            data[i] = access_memory(&cpu_ctx->state, phys_page)[(addr + i) & 0xFFF];
+            uint16_t offset = addr_low12 + i; /* addr_low12 +i won't overflow 4096 */
+            if (unlikely(cpu_ctx->state.mem[phys_page]->read_exec_bp[offset >> 6] & (1ULL << (offset & 63)))) {
+                mark_wp_read_hit(cpu_ctx, (phys_page << 12) | offset);
+            }
+            data[i] = access_memory(&cpu_ctx->state, phys_page)[offset]; 
         }
         count -= remaining;
         addr += remaining;
@@ -368,12 +415,16 @@ uint16_t fetch_data_words_intr(struct cpu_context *cpu_ctx, uint16_t addr, uint1
     {
         uint phys_page = get_page_address_read_data_intr(&cpu_ctx->state, addr >> 12);
         if (phys_page == 0xFFFFFFFF) return count;
-        
-        uint remaining = 4096 - (addr  & 0xFFF);
+        uint16_t addr_low12 = (addr  & 0xFFF);
+        uint remaining = 4096 - addr_low12;
         if (remaining > count) remaining = count;
-        
+
         for (uint i = 0; i < remaining; i++) {
-            data[i] = access_memory(&cpu_ctx->state, phys_page)[(addr + i) & 0xFFF];
+            uint16_t offset = addr_low12 + i; /* addr_low12 +i won't overflow 4096 */
+            if (unlikely(cpu_ctx->state.mem[phys_page]->read_exec_bp[offset >> 6] & (1ULL << (offset & 63)))) {
+                mark_wp_read_hit(cpu_ctx, (phys_page << 12) | offset);
+            }
+            data[i] = access_memory(&cpu_ctx->state, phys_page)[offset]; 
         }
         count -= remaining;
         addr += remaining;
@@ -389,21 +440,16 @@ uint16_t fetch_data_words_reg(struct cpu_context *cpu_ctx, uint16_t addr, uint16
         uint phys_page = get_page_address_read_data(&cpu_ctx->state, addr >> 12);
         if (phys_page == 0xFFFFFFFF) return count;
         
-        uint remaining = 4096 - (addr  & 0xFFF);
+        uint16_t addr_low12 = (addr  & 0xFFF);
+        uint remaining = 4096 - addr_low12;
         if (remaining > count) remaining = count;
-        
-        // Fast Read Watchpoint Check
-        if (cpu_ctx->state.mem[phys_page] && cpu_ctx->state.mem[phys_page]->read_exec_bp_summary) {
-            for (uint i = 0; i < remaining; i++) {
-                uint offset = (addr + i) & 0xFFF;
-                if (cpu_ctx->state.mem[phys_page]->read_exec_bp[offset >> 6] & (1ULL << (offset & 63))) {
-                    cpu_ctx->state.halt = HALT_WP_READ;
-                }
-            }
-        }
 
         for (uint i = 0; i < remaining; i++) {
-            cpu_ctx->state.reg.r[(RA+i)&0xF] = access_memory(&cpu_ctx->state, phys_page)[(addr + i) & 0xFFF];
+            uint16_t offset = addr_low12 + i; /* addr_low12 +i won't overflow 4096 */
+            if (unlikely(cpu_ctx->state.mem[phys_page]->read_exec_bp[offset >> 6] & (1ULL << (offset & 63)))) {
+                mark_wp_read_hit(cpu_ctx, (phys_page << 12) | offset);
+            }
+            cpu_ctx->state.reg.r[(RA+i)&0xF] = access_memory(&cpu_ctx->state, phys_page)[offset];
         }
         count -= remaining;
         addr += remaining;
@@ -412,68 +458,25 @@ uint16_t fetch_data_words_reg(struct cpu_context *cpu_ctx, uint16_t addr, uint16
     return 0;
 }
 
-bool fetch_data_word(struct cpu_context *cpu_ctx, uint16_t addr, uint16_t *data) {
+static inline bool fetch_data_word(struct cpu_context *cpu_ctx, uint16_t addr, uint16_t *data) {
 
     uint phys_page = get_page_address_read_data(&cpu_ctx->state, addr >> 12);
-    if (phys_page == 0xFFFFFFFF) return false;
+    if (phys_page == 0xFFFFFFFF)
+    {
+        *data = 0;
+        return false;
+    }
 
     uint offset = addr & 0xFFF;
 
-    if (__builtin_expect(cpu_ctx->state.mem[phys_page]->read_exec_bp[offset >> 6] & (1ULL << (offset & 63)), 0)) {
-        cpu_ctx->state.halt = HALT_WP_READ;
+    if (unlikely(cpu_ctx->state.mem[phys_page]->read_exec_bp[offset >> 6] & (1ULL << (offset & 63)))) {
+        mark_wp_read_hit(cpu_ctx, (phys_page << 12) | offset);
     }
-    
-
     *data = access_memory(&cpu_ctx->state, phys_page)[offset];
 
     return true;
 }
-ushort* get_address_data(struct cpu_context *cpu_ctx, uint16_t addr) {
-    uint phys_page = get_quarter_page_address_write_data(&cpu_ctx->state, addr >> 10);
-    if (phys_page == 0xFFFFFFFF) return NULL;
 
-    uint offset = addr & 0xFFF;
-
-
-    if ((cpu_ctx->state.mem[phys_page]->read_exec_bp[offset >> 6] & (1ULL << (offset & 63))) ||
-        (cpu_ctx->state.mem[phys_page]->write_bp[offset >> 6] & (1ULL << (offset & 63)))) {
-        cpu_ctx->state.halt = HALT_WP_READ;
-    }
-
-
-    return &access_memory(&cpu_ctx->state, phys_page)[offset];
-}
-/* get multiple address*/
-uint16_t get_addresses_data(struct cpu_context *cpu_ctx, uint16_t addr, uint16_t count, uint16_t **pointers) {
-
-    while (count)
-    {
-        uint phys_page = get_quarter_page_address_write_data(&cpu_ctx->state, addr >> 10);
-        if (phys_page == 0xFFFFFFFF) return count;
-        
-        uint remaining = 1024 - (addr  & 0x3FF);
-        if (remaining > count) remaining = count;
-        
-        // Fast Read/Write Watchpoint Check (Treating pointer fetch as a potential access)
-        if ((cpu_ctx->state.mem[phys_page]->read_exec_bp_summary || cpu_ctx->state.mem[phys_page]->write_bp_summary)) {
-            for (uint i = 0; i < remaining; i++) {
-                uint offset = (addr + i) & 0xFFF;
-                if ((cpu_ctx->state.mem[phys_page]->read_exec_bp[offset >> 6] & (1ULL << (offset & 63))) ||
-                    (cpu_ctx->state.mem[phys_page]->write_bp[offset >> 6] & (1ULL << (offset & 63)))) {
-                    cpu_ctx->state.halt = HALT_WP_READ; // Halt on pointer load if restricted
-                }
-            }
-        }
-
-        for (uint i = 0; i < remaining; i++) {
-            pointers[i] = &access_memory(&cpu_ctx->state, phys_page)[(addr + i) & 0xFFF];
-        }
-        count -= remaining;
-        addr += remaining;
-        pointers += remaining;
-    }
-    return 0;
-}
 
 uint16_t store_data_words(struct cpu_context *cpu_ctx, uint16_t addr, uint16_t count, uint16_t *data) {
 
@@ -485,18 +488,12 @@ uint16_t store_data_words(struct cpu_context *cpu_ctx, uint16_t addr, uint16_t c
         uint remaining = 1024 - (addr  & 0x3FF);
         if (remaining > count) remaining = count;
         
-        // Fast Write Watchpoint Check
-        if (cpu_ctx->state.mem[phys_page]->write_bp_summary) {
-            for (uint i = 0; i < remaining; i++) {
-                uint offset = (addr + i) & 0xFFF;
-                if (cpu_ctx->state.mem[phys_page]->write_bp[offset >> 6] & (1ULL << (offset & 63))) {
-                    cpu_ctx->state.halt = HALT_WP_WRITE;
-                }
-            }
-        }
-
         for (uint i = 0; i < remaining; i++) {
-            access_memory(&cpu_ctx->state, phys_page)[(addr + i) & 0xFFF] = data[i];
+            uint offset = (addr + i) & 0xFFF;
+            if (unlikely(cpu_ctx->state.mem[phys_page]->write_bp[offset >> 6] & (1ULL << (offset & 63)))) {
+                mark_wp_write_hit(cpu_ctx, (phys_page << 12) | offset, data[i]);
+            }
+            access_memory(&cpu_ctx->state, phys_page)[offset] = data[i];
         }
         count -= remaining;
         addr += remaining;
@@ -520,7 +517,7 @@ uint16_t store_data_words_reg(struct cpu_context *cpu_ctx, uint16_t addr, uint16
             for (uint i = 0; i < remaining; i++) {
                 uint offset = (addr + i) & 0xFFF;
                 if (cpu_ctx->state.mem[phys_page]->write_bp[offset >> 6] & (1ULL << (offset & 63))) {
-                    cpu_ctx->state.halt = HALT_WP_WRITE;
+                    mark_wp_write_hit(cpu_ctx, (phys_page << 12) | offset, cpu_ctx->state.reg.r[(RA+i)&0xF]);
                 }
             }
         }
@@ -535,16 +532,15 @@ uint16_t store_data_words_reg(struct cpu_context *cpu_ctx, uint16_t addr, uint16
     return 0;
 }
 
-bool store_data_word(struct cpu_context *cpu_ctx, uint16_t addr, uint16_t data) {
+static inline bool store_data_word(struct cpu_context *cpu_ctx, uint16_t addr, uint16_t data) {
 
     uint phys_page = get_quarter_page_address_write_data(&cpu_ctx->state, addr >> 10);
     if (phys_page == 0xFFFFFFFF) return false;
 
     uint offset = addr & 0xFFF;
-    if (cpu_ctx->state.mem[phys_page] && (cpu_ctx->state.mem[phys_page]->write_bp_summary & (1ULL << (offset >> 6)))) {
-        if (cpu_ctx->state.mem[phys_page]->write_bp[offset >> 6] & (1ULL << (offset & 63))) {
-            cpu_ctx->state.halt = HALT_WP_WRITE;
-        }
+    
+    if (unlikely(cpu_ctx->state.mem[phys_page]->write_bp[offset >> 6] & (1ULL << (offset & 63)))) {
+        mark_wp_write_hit(cpu_ctx, (phys_page << 12) | offset, data);
     }
 
     access_memory(&cpu_ctx->state, phys_page)[offset] = data;
@@ -585,14 +581,22 @@ uint16_t move_words(struct cpu_context *cpu_ctx, uint16_t from_addr, uint16_t to
         if (remaining > count) remaining = count;
         
         // Fast Read/Write Watchpoint Check
-        if ((cpu_ctx->state.mem[from_phys_page]->read_exec_bp_summary) ||
+        if ((cpu_ctx->state.mem[from_phys_page]->read_bp_summary) ||
             (cpu_ctx->state.mem[to_phys_page]->write_bp_summary)) {
-            for (uint i = 0; i < remaining; i++) {
-                uint from_offset = (from_addr + i) & 0xFFF;
-                uint to_offset = (to_addr + i) & 0xFFF;
-                if ((cpu_ctx->state.mem[from_phys_page]->read_exec_bp[from_offset >> 6] & (1ULL << (from_offset & 63))) ||
-                    (cpu_ctx->state.mem[to_phys_page]->write_bp[to_offset >> 6] & (1ULL << (to_offset & 63)))) {
-                    cpu_ctx->state.halt = HALT_WP_READ; // Or HALT_WP_WRITE, defaulting to READ
+            if (cpu_ctx->state.mem[from_phys_page]->read_bp_summary) {
+                // we will use first_set_bp_bit. we need to mark as hit all watch points in the range.
+                int hit_from = from_addr & 0xFFF;
+                while ((hit_from  = first_set_bp_bit(cpu_ctx->state.mem[from_phys_page]->read_bp_summary, cpu_ctx->state.mem[from_phys_page]->read_exec_bp, hit_from, remaining - (hit_from - (from_addr & 0xFFF )))) >= 0) {
+                    mark_wp_read_hit(cpu_ctx, (from_phys_page << 12) | hit_from);
+                    hit_from++; /* continue searching for next set bit */
+                }
+            }
+            // same for write watchpoints on the destination page
+            if (cpu_ctx->state.mem[to_phys_page]->write_bp_summary) {
+                int hit_to = to_addr & 0xFFF;
+                while ((hit_to  = first_set_bp_bit(cpu_ctx->state.mem[to_phys_page]->write_bp_summary, cpu_ctx->state.mem[to_phys_page]->write_bp, hit_to, remaining - (hit_to - (to_addr & 0xFFF )))) >= 0) {
+                    mark_wp_write_hit(cpu_ctx, (to_phys_page << 12) | hit_to, access_memory(&cpu_ctx->state, from_phys_page)[(from_addr & 0xFFF) + (hit_to - (to_addr & 0xFFF))]);
+                    hit_to++; /* continue searching for next set bit */
                 }
             }
         }
@@ -1034,14 +1038,17 @@ A00D RMFS	Read Memory Fault Status:  This command transfers the 16-bit
     switch(xio_address)
     {
         case XIO_SMK_2000: /*set interrupt mask*/
+            cpu_ctx->state.reg.check_pir |= cpu_ctx->state.reg.mk ^ *transfer;
             cpu_ctx->state.reg.mk = *transfer;
             break;
         case XIO_CLIR_2001: /*clear interrupt request*/
             cpu_ctx->state.reg.pir = 0;
-            cpu_ctx->state.reg.ft = 0;
+            cpu_ctx->state.reg.ft = 0; 
+            /* no need to turn on 'check_pir' */
             break;
         case XIO_ENBL_2002: /*enable interrupts*/
             cpu_ctx->state.reg.sys_update |= SYS_INT;
+            /* no need to turn on 'check_pir', it will be turned on by 'apply_updates' */
             break;
         case XIO_DSBL_2003: /*disable interrupts*/
             cpu_ctx->state.reg.sys &= ~(SYS_INT);
@@ -1053,6 +1060,7 @@ A00D RMFS	Read Memory Fault Status:  This command transfers the 16-bit
             break;
         case XIO_SPI_2005: /*set pending interrupt register*/
             cpu_ctx->state.reg.pir_update |= *transfer;
+            /* no need to turn on 'check_pir', it will be turned on by 'apply_updates' */
             break;
         case XIO_WSW_200E: /*write status word*/
 			if ((cpu_ctx->state.reg.sw ^ *transfer)& 0x00FF)
@@ -1424,15 +1432,22 @@ static inline bool has_pending_interrupt(struct cpu_context *cpu_ctx)
   return false;
 
 }
-
-void process_interrupt(struct cpu_context *cpu_ctx)
-{
-    ushort intnum, pirmask;
-    static char *intr_name[] =
+static char *intr_name[] =
         { "Power-Down", "Machine-Error", "User-0", "Floating-Overflow",
         "Integer-Overflow", "Executive-Call", "Floating-Underflow", "Timer-A",
         "User-1", "Timer-B", "User-2", "User-3",
         "IO-Level-1", "User-4", "IO-Level-2", "User-5" };
+const char* get_interrupt_name(ushort intnum)
+{
+    if (intnum < 16)
+        return intr_name[intnum];
+    else
+        return "Unknown";
+}
+void process_interrupt(struct cpu_context *cpu_ctx)
+{
+    ushort intnum, pirmask;
+
 
 
   uint16_t unmaskable = cpu_ctx->state.reg.pir & 0x8400;
@@ -1442,9 +1457,11 @@ void process_interrupt(struct cpu_context *cpu_ctx)
 
   if (active_interrupts == 0)
     return;
-
+  
   intnum = count_leading_zeros(active_interrupts);
   pirmask = 0x8000U >> intnum;
+  cpu_ctx->last_processed_interrupt = intnum;
+  cpu_ctx->interrupt_counter ++;
   //printf("Processing interrupt: %s (intnum = %d)\n", intr_name[intnum], intnum);
   cpu_ctx->state.reg.pir &= ~pirmask;
   cpu_ctx->state.reg.sys &= ~(SYS_INT);  /* clear the Master Interrupt Enable */
@@ -1487,8 +1504,10 @@ static inline void process_instruction(struct cpu_context *cpu_ctx, uint16_t opc
 
 static inline void apply_updates(struct cpu_state * cpu)
 {
+
     cpu->reg.pir |= cpu->reg.pir_update;
     cpu->reg.pir_update = 0;
+    cpu->reg.check_pir |= cpu->reg.sys ^ cpu->reg.sys_update;
     cpu->reg.sys |= cpu->reg.sys_update;
     cpu->reg.sys_update = 0;
 }
@@ -1513,6 +1532,8 @@ const char* get_instruction_name(uint16_t opcode)
 {
     return getOpcodeDef(opcode)->name;
 }
+
+
 
 void print_cpu_state(struct cpu_context *cpu_ctx)
 {
@@ -1541,17 +1562,17 @@ int cpu_mainloop(struct cpu_context *cpu_ctx, uint64_t up_to_cycles)
 {
     cpu_ctx->state.nearest_cycles_stop = up_to_cycles > cpu_ctx->state.next_scheduled_timer_calc_cycles ? cpu_ctx->state.next_scheduled_timer_calc_cycles: up_to_cycles;
     bool continue_loop = true;
-    uint phys_page;
-    ushort opcode;
-    ushort immediate;
-    if (__builtin_expect(cpu_ctx->state.need_to_process_intr_after_watchpoint, 0))
+
+    if (unlikely(cpu_ctx->state.need_to_process_intr_after_watchpoint))
     {
         cpu_ctx->state.need_to_process_intr_after_watchpoint = false;
         if (has_pending_interrupt(cpu_ctx))
             process_interrupt(cpu_ctx);
     }
     while (continue_loop && cpu_ctx->state.halt == NO_HALT)
-    {   
+    {
+        ushort opcode;
+        ushort immediate;
         uint phys_page = get_page_address_read_code(&cpu_ctx->state, cpu_ctx->state.reg.ic >> 12);
         if (phys_page == 0xFFFFFFFF)
         {
@@ -1560,13 +1581,29 @@ int cpu_mainloop(struct cpu_context *cpu_ctx, uint64_t up_to_cycles)
         }
 
         uint offset = cpu_ctx->state.reg.ic & 0xFFF;
-        if (__builtin_expect(cpu_ctx->state.mem[phys_page]->read_exec_bp[offset >> 6] & (1ULL << (offset & 63)), 0)) {
-            cpu_ctx->state.halt = DBG_BREAKPOINT;
-            calculate_timers(cpu_ctx);
-            break;
+        if (unlikely(cpu_ctx->state.mem[phys_page]->read_exec_bp[offset >> 6] & (1ULL << (offset & 63)))) {
+            int bp_index = find_breakpt(cpu_ctx, (phys_page << 12) | offset);
+            if (bp_index >= 0)
+            {
+                if (cpu_ctx->breakpt[bp_index].hitted) // we already hit this breakpoint in the last execution, so we should ignore it this time and let the program continue. we will hit it again in the next execution, and only then we will break.
+                {
+                    cpu_ctx->breakpt[bp_index].hitted = false;
+                    cpu_ctx->bpindex = -1;
+                }
+                else
+                {
+                    cpu_ctx->breakpt[bp_index].hitted = true;
+                    cpu_ctx->state.halt = DBG_BREAKPOINT;
+                    cpu_ctx->bpindex = bp_index;
+                    calculate_timers(cpu_ctx);
+                    break;
+                }
+            }
+            
         }
 
         opcode = access_memory(&cpu_ctx->state, phys_page)[offset];
+        cpu_ctx->last_phys_ic = (phys_page << 12) | offset;
         if ((cpu_ctx->state.reg.ic & 0x0FFF) == 0x0FFF)
         {
             phys_page = get_page_address_read_code(&cpu_ctx->state, (cpu_ctx->state.reg.ic + 1) >> 12);
@@ -1594,20 +1631,32 @@ int cpu_mainloop(struct cpu_context *cpu_ctx, uint64_t up_to_cycles)
                 continue_loop = false;
             }
         }
-        if (has_pending_interrupt(cpu_ctx))
+        cpu_ctx->state.reg.check_pir |= cpu_ctx->state.reg.last_pir ^ cpu_ctx->state.reg.pir;
+        cpu_ctx->state.reg.last_pir = cpu_ctx->state.reg.pir;
+        if (cpu_ctx->state.reg.check_pir )
         {
-            if (cpu_ctx->state.halt != HALT_WP_READ && cpu_ctx->state.halt != HALT_WP_WRITE) /* do not process interrupts after watch points */
+           
+            if (has_pending_interrupt(cpu_ctx))
             {
-                cpu_ctx->state.need_to_process_intr_after_watchpoint = true;
-                break;
+                /* check if we hit a watchpoint */
+                if (cpu_ctx->state.halt != DBG_WATCHPOINT) /* do not process interrupts after watch points */
+                {
+                    cpu_ctx->state.need_to_process_intr_after_watchpoint = true;
+                    break;
+                }
+                process_interrupt(cpu_ctx);
             }
-            process_interrupt(cpu_ctx);
+            else /* as long as there are pending interrupts, we need to check for more. only when we are done, we can turn off the check*/
+            {
+                cpu_ctx->state.reg.check_pir = 0;
+            }
         }
 
     }
     if (cpu_ctx->state.halt != NO_HALT)
     {
         calculate_timers(cpu_ctx);
+        cpu_ctx->state.reg.check_pir = 1;
     }
     return 0;
 }
