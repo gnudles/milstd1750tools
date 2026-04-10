@@ -1328,7 +1328,7 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
             printf("        break;\n");
             printf("      case 0xFF:  /* BPT */\n");
             printf("        cpu_ctx->state.halt = INST_BPT;\n");
-            printf("        cpu_ctx->state.reg.ic += 1;\n");
+            printf("        // ic will be incremented by clear_debug_halt\n");
             printf("        cpu_ctx->state.total_cycles += CLK_CYC_BPT;\n");
             printf("        break;\n");
             printf("      default:\n");

@@ -1,5 +1,6 @@
 
 #include "cpu_ctx.h"
+#include <stdlib.h>
 
 /* Return breakpoint index if breakpoint found for given
    type/bank/address_state/logical_address, or -1 if no breakpoint found. */
@@ -66,11 +67,16 @@ set_wp_active (struct cpu_context *cpu_ctx, int wp_index)
   if (wp_index < 0)
     return;
   cpu_ctx->watchpt[wp_index].is_active = TRUE;
+  cpu_ctx->watchpt[wp_index].hitted = FALSE;
 
   uint addr = cpu_ctx->watchpt[wp_index].addr;
   watchtype type = cpu_ctx->watchpt[wp_index].type;
   uint page = addr >> 12;
   uint offset = addr & 0xFFF;
+  if (cpu_ctx->state.mem[page] == MNULL) {
+    // Allocate the page manually
+    cpu_ctx->state.mem[page] = (mem_t *) calloc (1, sizeof (mem_t));
+  }
   if (cpu_ctx->state.mem[page] != MNULL) {
       if (type == READ_WRITE || type == READ) {
           cpu_ctx->state.mem[page]->read_bp_summary |= (1ULL << (offset >> 6));
@@ -105,9 +111,14 @@ void set_bp_active(struct cpu_context *cpu_ctx, int bp_index)
     if (bp_index < 0)
         return;
     cpu_ctx->breakpt[bp_index].is_active = TRUE;
+    cpu_ctx->breakpt[bp_index].hitted = FALSE;
     uint addr = cpu_ctx->breakpt[bp_index].addr;
     uint page = addr >> 12;
     uint offset = addr & 0xFFF;
+    if (cpu_ctx->state.mem[page] == MNULL) {
+      // Allocate the page manually
+      cpu_ctx->state.mem[page] = (mem_t *) calloc (1, sizeof (mem_t));
+    }
     if (cpu_ctx->state.mem[page] != MNULL) {
         cpu_ctx->state.mem[page]->exec_bp[offset >> 6] |= (1ULL << (offset & 63));
         cpu_ctx->state.mem[page]->read_exec_bp[offset >> 6] = cpu_ctx->state.mem[page]->read_bp[offset >> 6]

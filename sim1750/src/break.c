@@ -73,26 +73,12 @@ si_brkset (int argc, char **argv)
 
   if (find_breakpt (sim_cpu_ctx, address) >= 0)
     return error ("breakpoint already set");
+  int bp_index = sim_cpu_ctx->n_breakpts;
   if (label)
-    sim_cpu_ctx->breakpt[sim_cpu_ctx->n_breakpts].label = strdup(label);
-  sim_cpu_ctx->breakpt[sim_cpu_ctx->n_breakpts].addr = address;
-  sim_cpu_ctx->breakpt[sim_cpu_ctx->n_breakpts].is_active = TRUE;
-  sim_cpu_ctx->breakpt[sim_cpu_ctx->n_breakpts].hitted = FALSE;
+    sim_cpu_ctx->breakpt[bp_index].label = strdup(label);
+  sim_cpu_ctx->breakpt[bp_index].addr = address;
   sim_cpu_ctx->n_breakpts++;
-
-  /* Register O(1) Execution/Watchpoint Breakpoints */
-  uint page = address >> 12;
-  uint offset = address & 0xFFF;
-  if (sim_cpu_ctx->state.mem[page] == MNULL) {
-      // Allocate the page manually
-      sim_cpu_ctx->state.mem[page] = (mem_t *) calloc (1, sizeof (mem_t));
-  }
-  if (sim_cpu_ctx->state.mem[page] != MNULL) {
-    sim_cpu_ctx->state.mem[page]->exec_bp[offset >> 6] |= (1ULL << (offset & 63));
-    sim_cpu_ctx->state.mem[page]->read_exec_bp[offset >> 6] = sim_cpu_ctx->state.mem[page]->read_bp[offset >> 6]
-          | sim_cpu_ctx->state.mem[page]->exec_bp[offset >> 6];
-  }
-
+  set_bp_active(sim_cpu_ctx, bp_index);
   return OKAY;
 }
 
@@ -138,34 +124,13 @@ si_wtchset (int argc, char **argv)
     }
   if (find_watchpt (sim_cpu_ctx, READ_WRITE, address) >= 0)
     return error ("watchpoint already set");
-  sim_cpu_ctx->watchpt[sim_cpu_ctx->n_watchpts].type = type;
-  sim_cpu_ctx->watchpt[sim_cpu_ctx->n_watchpts].addr = address;
-  sim_cpu_ctx->watchpt[sim_cpu_ctx->n_watchpts].is_active = TRUE;
-  sim_cpu_ctx->watchpt[sim_cpu_ctx->n_watchpts].hitted = FALSE;
+  int wp_index = sim_cpu_ctx->n_watchpts;
+  sim_cpu_ctx->watchpt[wp_index].type = type;
+  sim_cpu_ctx->watchpt[wp_index].addr = address;
   if (label)
-    sim_cpu_ctx->watchpt[sim_cpu_ctx->n_watchpts].label = strdup(label);
+    sim_cpu_ctx->watchpt[wp_index].label = strdup(label);
   sim_cpu_ctx->n_watchpts++;
-
-  /* Register O(1) Watchpoint Breakpoints */
-  uint page = address >> 12;
-  uint offset = address & 0xFFF;
-  if (sim_cpu_ctx->state.mem[page] == MNULL) {
-      // Allocate the page manually
-      sim_cpu_ctx->state.mem[page] = (mem_t *) calloc (1, sizeof (mem_t));
-  }
-  if (sim_cpu_ctx->state.mem[page] != MNULL) {
-      if (type == READ_WRITE || type == READ) {
-          sim_cpu_ctx->state.mem[page]->read_bp_summary |= (1ULL << (offset >> 6));
-          sim_cpu_ctx->state.mem[page]->read_bp[offset >> 6] |= (1ULL << (offset & 63));
-          sim_cpu_ctx->state.mem[page]->read_exec_bp[offset >> 6] = sim_cpu_ctx->state.mem[page]->read_bp[offset >> 6]
-          | sim_cpu_ctx->state.mem[page]->exec_bp[offset >> 6];
-      }
-      if (type == READ_WRITE || type == WRITE) {
-          sim_cpu_ctx->state.mem[page]->write_bp_summary |= (1ULL << (offset >> 6));
-          sim_cpu_ctx->state.mem[page]->write_bp[offset >> 6] |= (1ULL << (offset & 63));
-      }
-  }
-
+  set_wp_active(sim_cpu_ctx, wp_index);
   return OKAY;
 }
 
