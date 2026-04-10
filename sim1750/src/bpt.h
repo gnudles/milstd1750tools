@@ -39,4 +39,7 @@ void set_bp_inactive (struct cpu_context *cpu_ctx, int bp_index);
 void set_bp_active   (struct cpu_context *cpu_ctx, int bp_index);
 void clear_all_wp_hits(struct cpu_context *cpu_ctx);
 
+int add_breakpoint(struct cpu_context *cpu_ctx, uint phys_address);
+int add_watchpoint(struct cpu_context *cpu_ctx, uint phys_address, watchtype type);
+
 #endif // _BPT_H

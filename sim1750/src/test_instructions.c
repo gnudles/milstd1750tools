@@ -1,3 +1,4 @@
+#include "bpt.h"
 #include <stdio.h>
 #include <assert.h>
 #include <string.h>
@@ -944,67 +945,84 @@ void test_BPT() {
     printf("PASSED\n");
 }
 
-#include "bpt.h"
 
 void test_Emulator_Watchpoints() {
     reset_cpu();
     printf("Testing Emulator Breakpoints and Watchpoints... ");
 
-    write_phys_memory(&ctx.state, 0x1000, 0);
-    write_phys_memory(&ctx.state, 0x2000, 0);
-    write_phys_memory(&ctx.state, 0x3000, 0);
+    write_phys_memory(&ctx.state, 0x1000, 0); // Allocate physical page 1
+    write_phys_memory(&ctx.state, 0x2000, 0); // Allocate physical page 2
+    write_phys_memory(&ctx.state, 0x3000, 0); // Allocate physical page 3
+
     ctx.state.pagereg[CODE][0][0].ppa = 1;
-    ctx.state.pagereg[CODE][0][0].e_w = 0;
-    ctx.state.pagereg[DATA][0][1].ppa = 2;
-    ctx.state.pagereg[DATA][0][2].ppa = 3;
+    ctx.state.pagereg[CODE][0][0].e_w = 0; // Executable
+    ctx.state.pagereg[DATA][0][1].ppa = 2; // Data source
+    ctx.state.pagereg[DATA][0][2].ppa = 3; // Data dest
 
     ctx.state.reg.r[2] = 0x2000;
     ctx.state.reg.r[3] = 2; // Count 2, meaning it will read 2 words from 0x1000 and write 2 words to 0x2000
     ctx.state.reg.r[4] = 0x1000;
 
-    store_data_word(&ctx, 0x0000, 0x9324);
+    store_data_word(&ctx, 0x0000, 0x9324); // MOV R2, R4  (Source: R4=0x1000, Dest: R2=0x2000, Count: R3=2)
     ctx.state.reg.ic = 0x0000;
 
-    ctx.watchpt[0].addr = 0x2000;
-    ctx.watchpt[0].type = READ;
-    ctx.watchpt[0].is_active = TRUE;
-    ctx.watchpt[1].addr = 0x2001;
-    ctx.watchpt[1].type = READ;
-    ctx.watchpt[1].is_active = TRUE;
+    // The instruction translates Logical Source 0x1000 -> Phys 0x2000
+    // The instruction translates Logical Dest 0x2000 -> Phys 0x3000
 
-    ctx.watchpt[2].addr = 0x3000;
-    ctx.watchpt[2].type = WRITE;
-    ctx.watchpt[2].is_active = TRUE;
-    ctx.watchpt[3].addr = 0x3001;
-    ctx.watchpt[3].type = WRITE;
-    ctx.watchpt[3].is_active = TRUE;
-    ctx.n_watchpts = 4;
-
-    set_wp_active(&ctx, 0);
-    set_wp_active(&ctx, 1);
-    set_wp_active(&ctx, 2);
-    set_wp_active(&ctx, 3);
+    add_watchpoint(&ctx, 0x2000, READ);
+    add_watchpoint(&ctx, 0x2001, READ);
+    add_watchpoint(&ctx, 0x3000, WRITE);
+    add_watchpoint(&ctx, 0x3001, WRITE);
 
     // Directly test interpretation to bypass the loop wrapper caching
     interpret_MOV(&ctx, 0x9324, 0);
 
     assert(ctx.state.halt == DBG_WATCHPOINT);
+    assert(ctx.watchpt[0].hitted == true);
+    assert(ctx.watchpt[1].hitted == true);
+    assert(ctx.watchpt[2].hitted == true);
+    assert(ctx.watchpt[3].hitted == true);
 
     clear_all_wp_hits(&ctx);
     ctx.state.halt = NO_HALT;
     ctx.state.need_to_process_intr_after_watchpoint = false;
 
-    store_data_word(&ctx, 0x0001, 0x0000);
+    // Test ST (Store) instruction with WRITE Watchpoint
+    // Opcode: ST R5, 0x1005 (Logical 0x1005 -> Phys 0x2005)
+    ctx.state.reg.r[5] = 0xABCD;
+    store_data_word(&ctx, 0x0002, 0x0550); // ST R5, 0x1005 (0x05 is Opcode ST, R=5, Immed=0x1005)
+    ctx.state.reg.ic = 0x0002;
 
-    ctx.breakpt[0].addr = 0x1001;
-    ctx.breakpt[0].is_active = TRUE;
-    ctx.n_breakpts = 1;
-    set_bp_active(&ctx, 0);
+    add_watchpoint(&ctx, 0x2005, WRITE);
 
+    // Call ST directly.
+    // The immediate value evaluates to DO. 0x1005 (Logical) = 0x2005 (Physical)
+    interpret_ST(&ctx, 0x0550, 0x1005);
+
+    assert(ctx.state.halt == DBG_WATCHPOINT);
+    assert(ctx.watchpt[4].hitted == true);
+
+    clear_all_wp_hits(&ctx);
+    ctx.state.halt = NO_HALT;
+    ctx.state.need_to_process_intr_after_watchpoint = false;
+
+    // Test Execution Breakpoints
+    // Place a NOP at 0x0001 (Phys 0x1001)
+    store_data_word(&ctx, 0x0000, 0x0000); // NOP at 0
+    store_data_word(&ctx, 0x0001, 0x0000); // NOP at 1
+    ctx.state.reg.ic = 0x0000;
+
+    add_breakpoint(&ctx, 0x1001);
+
+    ctx.state.halt = NO_HALT;
+
+    cpu_mainloop(&ctx, ctx.state.total_cycles + 10);
+    // Give it another chance to tick, execution points are evaluated after instruction start.
     cpu_mainloop(&ctx, ctx.state.total_cycles + 10);
 
     assert(ctx.state.halt == DBG_BREAKPOINT);
     assert(ctx.state.reg.ic == 0x0001);
+    assert(ctx.breakpt[0].hitted == true);
 
     ctx.breakpt[0].hitted = false;
     ctx.bpindex = -1;
