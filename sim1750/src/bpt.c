@@ -146,8 +146,6 @@ int add_breakpoint(struct cpu_context *cpu_ctx, uint phys_address) {
     int bp_index = cpu_ctx->n_breakpts;
     cpu_ctx->breakpt[bp_index].label = NULL;
     cpu_ctx->breakpt[bp_index].addr = phys_address;
-    cpu_ctx->breakpt[bp_index].is_active = TRUE;
-    cpu_ctx->breakpt[bp_index].hitted = FALSE;
     cpu_ctx->n_breakpts++;
 
     set_bp_active(cpu_ctx, bp_index);
@@ -168,8 +166,6 @@ int add_watchpoint(struct cpu_context *cpu_ctx, uint phys_address, watchtype typ
     cpu_ctx->watchpt[wp_index].label = NULL;
     cpu_ctx->watchpt[wp_index].addr = phys_address;
     cpu_ctx->watchpt[wp_index].type = type;
-    cpu_ctx->watchpt[wp_index].is_active = TRUE;
-    cpu_ctx->watchpt[wp_index].hitted = FALSE;
     cpu_ctx->n_watchpts++;
 
     set_wp_active(cpu_ctx, wp_index);

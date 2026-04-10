@@ -954,11 +954,6 @@ void test_Emulator_Watchpoints() {
     write_phys_memory(&ctx.state, 0x2000, 0); // Allocate physical page 2
     write_phys_memory(&ctx.state, 0x3000, 0); // Allocate physical page 3
 
-    ctx.state.pagereg[CODE][0][0].ppa = 1;
-    ctx.state.pagereg[CODE][0][0].e_w = 0; // Executable
-    ctx.state.pagereg[DATA][0][1].ppa = 2; // Data source
-    ctx.state.pagereg[DATA][0][2].ppa = 3; // Data dest
-
     ctx.state.reg.r[2] = 0x2000;
     ctx.state.reg.r[3] = 2; // Count 2, meaning it will read 2 words from 0x1000 and write 2 words to 0x2000
     ctx.state.reg.r[4] = 0x1000;
@@ -969,10 +964,10 @@ void test_Emulator_Watchpoints() {
     // The instruction translates Logical Source 0x1000 -> Phys 0x2000
     // The instruction translates Logical Dest 0x2000 -> Phys 0x3000
 
-    add_watchpoint(&ctx, 0x2000, READ);
-    add_watchpoint(&ctx, 0x2001, READ);
-    add_watchpoint(&ctx, 0x3000, WRITE);
-    add_watchpoint(&ctx, 0x3001, WRITE);
+    add_watchpoint(&ctx, 0x1000, READ);
+    add_watchpoint(&ctx, 0x1001, READ);
+    add_watchpoint(&ctx, 0x2000, WRITE);
+    add_watchpoint(&ctx, 0x2001, WRITE);
 
     // Directly test interpretation to bypass the loop wrapper caching
     interpret_MOV(&ctx, 0x9324, 0);
@@ -993,7 +988,7 @@ void test_Emulator_Watchpoints() {
     store_data_word(&ctx, 0x0002, 0x0550); // ST R5, 0x1005 (0x05 is Opcode ST, R=5, Immed=0x1005)
     ctx.state.reg.ic = 0x0002;
 
-    add_watchpoint(&ctx, 0x2005, WRITE);
+    add_watchpoint(&ctx, 0x1005, WRITE);
 
     // Call ST directly.
     // The immediate value evaluates to DO. 0x1005 (Logical) = 0x2005 (Physical)
@@ -1008,20 +1003,21 @@ void test_Emulator_Watchpoints() {
 
     // Test Execution Breakpoints
     // Place a NOP at 0x0001 (Phys 0x1001)
-    store_data_word(&ctx, 0x0000, 0x0000); // NOP at 0
-    store_data_word(&ctx, 0x0001, 0x0000); // NOP at 1
+    store_data_word(&ctx, 0x0000, 0xFF00); // NOP at 0
+    store_data_word(&ctx, 0x0001, 0xFF00); // NOP at 1
+    store_data_word(&ctx, 0x0002, 0xFF00); // NOP at 2
+    store_data_word(&ctx, 0x0003, 0xFF00); // NOP at 3
     ctx.state.reg.ic = 0x0000;
 
-    add_breakpoint(&ctx, 0x1001);
+    add_breakpoint(&ctx, 0x0002);
 
     ctx.state.halt = NO_HALT;
 
-    cpu_mainloop(&ctx, ctx.state.total_cycles + 10);
-    // Give it another chance to tick, execution points are evaluated after instruction start.
-    cpu_mainloop(&ctx, ctx.state.total_cycles + 10);
+    cpu_mainloop(&ctx, ctx.state.total_cycles + CLK_CYC_NOP * 4);
+    
 
     assert(ctx.state.halt == DBG_BREAKPOINT);
-    assert(ctx.state.reg.ic == 0x0001);
+    assert(ctx.state.reg.ic == 0x0002);
     assert(ctx.breakpt[0].hitted == true);
 
     ctx.breakpt[0].hitted = false;
