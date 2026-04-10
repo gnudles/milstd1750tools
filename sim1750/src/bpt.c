@@ -1,3 +1,4 @@
+#include <stddef.h>
 
 #include "cpu_ctx.h"
 #include <stdlib.h>
@@ -132,4 +133,46 @@ void clear_all_wp_hits(struct cpu_context *cpu_ctx) {
     for (int i = 0; i < cpu_ctx->n_watchpts; i++) {
         cpu_ctx->watchpt[i].hitted = false;
     }
+}
+int add_breakpoint(struct cpu_context *cpu_ctx, uint phys_address) {
+    if (cpu_ctx->n_breakpts >= MAX_BREAK) {
+        return -1;
+    }
+
+    if (find_breakpt(cpu_ctx, phys_address) >= 0) {
+        return -1; // already exists
+    }
+
+    int bp_index = cpu_ctx->n_breakpts;
+    cpu_ctx->breakpt[bp_index].label = NULL;
+    cpu_ctx->breakpt[bp_index].addr = phys_address;
+    cpu_ctx->breakpt[bp_index].is_active = TRUE;
+    cpu_ctx->breakpt[bp_index].hitted = FALSE;
+    cpu_ctx->n_breakpts++;
+
+    set_bp_active(cpu_ctx, bp_index);
+
+    return bp_index;
+}
+
+int add_watchpoint(struct cpu_context *cpu_ctx, uint phys_address, watchtype type) {
+    if (cpu_ctx->n_watchpts >= MAX_BREAK) {
+        return -1;
+    }
+
+    if (find_watchpt(cpu_ctx, READ_WRITE, phys_address) >= 0) {
+        return -1; // already exists
+    }
+
+    int wp_index = cpu_ctx->n_watchpts;
+    cpu_ctx->watchpt[wp_index].label = NULL;
+    cpu_ctx->watchpt[wp_index].addr = phys_address;
+    cpu_ctx->watchpt[wp_index].type = type;
+    cpu_ctx->watchpt[wp_index].is_active = TRUE;
+    cpu_ctx->watchpt[wp_index].hitted = FALSE;
+    cpu_ctx->n_watchpts++;
+
+    set_wp_active(cpu_ctx, wp_index);
+
+    return wp_index;
 }
