@@ -28,10 +28,12 @@ void emit_shift_instruction (OpcodeDef *def)
         {
             printf("    if (shift < -16 || shift > 16)\n");
         }
-        printf("    {\n        cpu_ctx->state.reg.pir |= INTR_FIXOFL;\n        return;\n    }\n");
-        
-
-    
+        printf("    {\n");
+        printf("        cpu_ctx->state.reg.pir |= INTR_FIXOFL;\n");
+        printf("        cpu_ctx->state.reg.ic += 1;\n");
+        printf("        cpu_ctx->state.total_cycles += CLK_CYC_%s(0);\n", def->name);
+        printf("        return;\n");
+        printf("    }\n");
     }
     enum shift_dir { SHIFT_RIGHT, SHIFT_LEFT, SHIFT_BIDIRECTIONAL} dir = SHIFT_LEFT;
     bool cyclic = false;
@@ -180,7 +182,11 @@ void emit_shift_instruction (OpcodeDef *def)
     }
 
     printf("    cpu_ctx->state.reg.ic += 1;\n");
-    printf("    cpu_ctx->state.total_cycles += CLK_CYC_%s(shift);\n", def->name);
+    if (dir == SHIFT_BIDIRECTIONAL) {
+        printf("    cpu_ctx->state.total_cycles += CLK_CYC_%s(((shift) < 0 ? -(shift) : (shift)));\n", def->name);
+    } else {
+        printf("    cpu_ctx->state.total_cycles += CLK_CYC_%s(shift);\n", def->name);
+    }
     printf("}\n\n");
 }
 /* this file will generate C code for new instruction interpreter */
@@ -834,8 +840,9 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
             printf("    int32_t M_A, M_B; int16_t E_A, E_B;\n");
             printf("    unpack_float32(cpu_ctx->state.reg.r[(RA+0)&0xF], cpu_ctx->state.reg.r[(RA+1)&0xF], &M_A, &E_A);\n");
             printf("    unpack_float32(DO[0], DO[1], &M_B, &E_B);\n");
-            printf("    if (M_B == 0) { cpu_ctx->state.reg.pir |= INTR_FLTOFL; return; }\n");
-            printf("    pack_float32(cpu_ctx, RA, div_mantissa24( M_A,  M_B), E_A - E_B);\n");
+            printf("    if (M_B == 0) { pack_float32_overflow(cpu_ctx, RA, M_A); } else {\n");
+            printf("        pack_float32(cpu_ctx, RA, div_mantissa24( M_A,  M_B), E_A - E_B);\n");
+            printf("    }\n");
             break;
         case OP_ADD_EXFLOAT:
         case OP_SUB_EXFLOAT:
@@ -875,8 +882,9 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
             printf("    int64_t M_A, M_B; int16_t E_A, E_B;\n");
             printf("    unpack_float48(cpu_ctx->state.reg.r[(RA+0)&0xF], cpu_ctx->state.reg.r[(RA+1)&0xF], cpu_ctx->state.reg.r[(RA+2)&0xF], &M_A, &E_A);\n");
             printf("    unpack_float48(DO[0], DO[1], DO[2], &M_B, &E_B);\n");
-            printf("    if (M_B == 0) { cpu_ctx->state.reg.pir |= INTR_FLTOFL; return; }\n");
-            printf("    pack_float48(cpu_ctx, RA, div_mantissa40(M_A, M_B), E_A - E_B);\n");
+            printf("    if (M_B == 0) { pack_float48_overflow(cpu_ctx, RA, M_A); } else {\n");
+            printf("        pack_float48(cpu_ctx, RA, div_mantissa40(M_A, M_B), E_A - E_B);\n");
+            printf("    }\n");
             break;
         case OP_INT16_TO_FLT:
             printf("    pack_float32(cpu_ctx, RA, (uint32_t)((int32_t)cpu_ctx->state.reg.r[(RB+0)&0xF]) << 8 , 15);\n");
@@ -913,12 +921,14 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
             printf("    uint16_t tmp = cpu_ctx->state.reg.r[RA];\n");
             printf("    cpu_ctx->state.reg.r[RA] = cpu_ctx->state.reg.r[RB];\n");
             printf("    cpu_ctx->state.reg.r[RB] = tmp;\n");
+            printf("    calculate_flags_16bit(cpu_ctx, cpu_ctx->state.reg.r[RA]);\n");
             break;
 
         case OP_EXCHANGE_BYTE:
             /* XBR RA - Exchange Byte Register (Swaps high and low bytes of RA) */
             printf("    uint16_t val = cpu_ctx->state.reg.r[RA];\n");
             printf("    cpu_ctx->state.reg.r[RA] = ((val & 0xFF) << 8) | ((val >> 8) & 0xFF);\n");
+            printf("    calculate_flags_16bit(cpu_ctx, cpu_ctx->state.reg.r[RA]);\n");
             break;
         case OP_COMPARE:
             printf("    cpu_ctx->state.reg.sw &= 0x0FFF; /* Destroy Carry, P, Z, N */\n");

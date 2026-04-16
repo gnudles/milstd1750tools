@@ -660,6 +660,18 @@ static inline void unpack_float32(int16_t w1, int16_t w2, int32_t *m, int16_t *e
     *e = (int8_t)(w2 & 0xFF);
 }
 
+static inline void pack_float32_overflow(struct cpu_context *cpu_ctx, uint16_t RA, int32_t M_A) {
+    cpu_ctx->state.reg.pir |= INTR_FLTOFL;
+    if (M_A < 0) {
+        cpu_ctx->state.reg.r[(RA+0)&0xF] = 0x8000;
+        cpu_ctx->state.reg.r[(RA+1)&0xF] = 0x007F;
+    } else {
+        cpu_ctx->state.reg.r[(RA+0)&0xF] = 0x7FFF;
+        cpu_ctx->state.reg.r[(RA+1)&0xF] = 0xFF7F;
+    }
+    calculate_flags_32bit_reg(cpu_ctx, RA);
+}
+
 static inline void pack_float32(struct cpu_context *cpu_ctx, uint16_t RA, int32_t M_res, int32_t E_res) {
     if (M_res == 0) {
         cpu_ctx->state.reg.r[(RA+0)&0xF] = 0;
@@ -674,9 +686,7 @@ static inline void pack_float32(struct cpu_context *cpu_ctx, uint16_t RA, int32_
             else if (shift < 0) { M_res >>= -shift; E_res += -shift; }
         }
         if (E_res > 127) {
-            cpu_ctx->state.reg.pir |= INTR_FLTOFL;
-            if (M_res < 0) { cpu_ctx->state.reg.r[(RA+0)&0xF] = 0x8000; cpu_ctx->state.reg.r[(RA+1)&0xF] = 0x007F; }
-            else { cpu_ctx->state.reg.r[(RA+0)&0xF] = 0x7FFF; cpu_ctx->state.reg.r[(RA+1)&0xF] = 0xFF7F; }
+            pack_float32_overflow(cpu_ctx, RA, M_res); return;
         } else if (E_res < -128) {
             cpu_ctx->state.reg.pir |= INTR_FLTUFL;
             cpu_ctx->state.reg.r[(RA+0)&0xF] = 0;
@@ -695,6 +705,20 @@ static inline void unpack_float48(int16_t w1, int16_t w2, int16_t w3, int64_t *m
     *e = (int8_t)(w2 & 0xFF);
 }
 
+static inline void pack_float48_overflow(struct cpu_context *cpu_ctx, uint16_t RA, int64_t M_A) {
+    cpu_ctx->state.reg.pir |= INTR_FLTOFL;
+    if (M_A < 0) {
+        cpu_ctx->state.reg.r[(RA+0)&0xF] = 0x8000;
+        cpu_ctx->state.reg.r[(RA+1)&0xF] = 0x007F;
+        cpu_ctx->state.reg.r[(RA+2)&0xF] = 0x0000;
+    } else {
+        cpu_ctx->state.reg.r[(RA+0)&0xF] = 0x7FFF;
+        cpu_ctx->state.reg.r[(RA+1)&0xF] = 0xFF7F;
+        cpu_ctx->state.reg.r[(RA+2)&0xF] = 0xFFFF;
+    }
+    calculate_flags_48bit_reg(cpu_ctx, RA);
+}
+
 static inline void pack_float48(struct cpu_context *cpu_ctx, uint16_t RA, int64_t M_res, int32_t E_res) {
     if (M_res == 0) {
         cpu_ctx->state.reg.r[(RA+0)&0xF] = 0; cpu_ctx->state.reg.r[(RA+1)&0xF] = 0; cpu_ctx->state.reg.r[(RA+2)&0xF] = 0;
@@ -708,9 +732,7 @@ static inline void pack_float48(struct cpu_context *cpu_ctx, uint16_t RA, int64_
             else if (shift < 0) { M_res >>= -shift; E_res += -shift; }
         }
         if (E_res > 127) {
-            cpu_ctx->state.reg.pir |= INTR_FLTOFL;
-            if (M_res < 0) { cpu_ctx->state.reg.r[(RA+0)&0xF] = 0x8000; cpu_ctx->state.reg.r[(RA+1)&0xF] = 0x007F; cpu_ctx->state.reg.r[(RA+2)&0xF] = 0x0000; }
-            else { cpu_ctx->state.reg.r[(RA+0)&0xF] = 0x7FFF; cpu_ctx->state.reg.r[(RA+1)&0xF] = 0xFF7F; cpu_ctx->state.reg.r[(RA+2)&0xF] = 0xFFFF; }
+            pack_float48_overflow(cpu_ctx, RA, M_res); return;
         } else if (E_res < -128) {
             cpu_ctx->state.reg.pir |= INTR_FLTUFL;
             cpu_ctx->state.reg.r[(RA+0)&0xF] = 0; cpu_ctx->state.reg.r[(RA+1)&0xF] = 0; cpu_ctx->state.reg.r[(RA+2)&0xF] = 0;
@@ -1507,7 +1529,7 @@ static inline void apply_updates(struct cpu_state * cpu)
 
     cpu->reg.pir |= cpu->reg.pir_update;
     cpu->reg.pir_update = 0;
-    cpu->reg.check_pir |= cpu->reg.sys ^ cpu->reg.sys_update;
+    cpu->reg.check_pir |= (~cpu->reg.sys) & cpu->reg.sys_update;
     cpu->reg.sys |= cpu->reg.sys_update;
     cpu->reg.sys_update = 0;
 }
