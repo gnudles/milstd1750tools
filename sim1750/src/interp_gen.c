@@ -28,10 +28,12 @@ void emit_shift_instruction (OpcodeDef *def)
         {
             printf("    if (shift < -16 || shift > 16)\n");
         }
-        printf("    {\n        cpu_ctx->state.reg.pir |= INTR_FIXOFL;\n        return;\n    }\n");
-        
-
-    
+        printf("    {\n");
+        printf("        cpu_ctx->state.reg.pir |= INTR_FIXOFL;\n");
+        printf("        cpu_ctx->state.reg.ic += 1;\n");
+        printf("        cpu_ctx->state.total_cycles += CLK_CYC_%s(0);\n", def->name);
+        printf("        return;\n");
+        printf("    }\n");
     }
     enum shift_dir { SHIFT_RIGHT, SHIFT_LEFT, SHIFT_BIDIRECTIONAL} dir = SHIFT_LEFT;
     bool cyclic = false;
@@ -180,7 +182,11 @@ void emit_shift_instruction (OpcodeDef *def)
     }
 
     printf("    cpu_ctx->state.reg.ic += 1;\n");
-    printf("    cpu_ctx->state.total_cycles += CLK_CYC_%s(shift);\n", def->name);
+    if (dir == SHIFT_BIDIRECTIONAL) {
+        printf("    cpu_ctx->state.total_cycles += CLK_CYC_%s(((shift) < 0 ? -(shift) : (shift)));\n", def->name);
+    } else {
+        printf("    cpu_ctx->state.total_cycles += CLK_CYC_%s(shift);\n", def->name);
+    }
     printf("}\n\n");
 }
 /* this file will generate C code for new instruction interpreter */
