@@ -915,12 +915,14 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
             printf("    uint16_t tmp = cpu_ctx->state.reg.r[RA];\n");
             printf("    cpu_ctx->state.reg.r[RA] = cpu_ctx->state.reg.r[RB];\n");
             printf("    cpu_ctx->state.reg.r[RB] = tmp;\n");
+            printf("    calculate_flags_16bit(cpu_ctx, cpu_ctx->state.reg.r[RA]);\n");
             break;
 
         case OP_EXCHANGE_BYTE:
             /* XBR RA - Exchange Byte Register (Swaps high and low bytes of RA) */
             printf("    uint16_t val = cpu_ctx->state.reg.r[RA];\n");
             printf("    cpu_ctx->state.reg.r[RA] = ((val & 0xFF) << 8) | ((val >> 8) & 0xFF);\n");
+            printf("    calculate_flags_16bit(cpu_ctx, cpu_ctx->state.reg.r[RA]);\n");
             break;
         case OP_COMPARE:
             printf("    cpu_ctx->state.reg.sw &= 0x0FFF; /* Destroy Carry, P, Z, N */\n");
