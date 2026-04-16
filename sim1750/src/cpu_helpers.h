@@ -1529,7 +1529,7 @@ static inline void apply_updates(struct cpu_state * cpu)
 
     cpu->reg.pir |= cpu->reg.pir_update;
     cpu->reg.pir_update = 0;
-    cpu->reg.check_pir |= cpu->reg.sys ^ cpu->reg.sys_update;
+    cpu->reg.check_pir |= (~cpu->reg.sys) & cpu->reg.sys_update;
     cpu->reg.sys |= cpu->reg.sys_update;
     cpu->reg.sys_update = 0;
 }
