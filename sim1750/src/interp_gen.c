@@ -967,6 +967,12 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
             printf("    cpu_ctx->state.reg.sw &= 0x0FFF; /* Destroy Carry, P, Z, N */\n");
             printf("    if (M_A == 0 && M_B == 0) {\n");
             printf("        cpu_ctx->state.reg.sw |= CS_ZERO;\n");
+            printf("    } else if (M_A == 0) {\n");
+            printf("        if (M_B > 0) cpu_ctx->state.reg.sw |= CS_NEGATIVE;\n");
+            printf("        else cpu_ctx->state.reg.sw |= CS_POSITIVE;\n");
+            printf("    } else if (M_B == 0) {\n");
+            printf("        if (M_A > 0) cpu_ctx->state.reg.sw |= CS_POSITIVE;\n");
+            printf("        else cpu_ctx->state.reg.sw |= CS_NEGATIVE;\n");
             printf("    } else {\n");
             printf("        int diff = E_A - E_B;\n");
             printf("        int64_t m_a_ext = M_A;\n");
@@ -987,6 +993,12 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
             printf("    cpu_ctx->state.reg.sw &= 0x0FFF; /* Destroy Carry, P, Z, N */\n");
             printf("    if (M_A == 0 && M_B == 0) {\n");
             printf("        cpu_ctx->state.reg.sw |= CS_ZERO;\n");
+            printf("    } else if (M_A == 0) {\n");
+            printf("        if (M_B > 0) cpu_ctx->state.reg.sw |= CS_NEGATIVE;\n");
+            printf("        else cpu_ctx->state.reg.sw |= CS_POSITIVE;\n");
+            printf("    } else if (M_B == 0) {\n");
+            printf("        if (M_A > 0) cpu_ctx->state.reg.sw |= CS_POSITIVE;\n");
+            printf("        else cpu_ctx->state.reg.sw |= CS_NEGATIVE;\n");
             printf("    } else {\n");
             printf("        int diff = E_A - E_B;\n");
             printf("        int64_t m_a_ext = M_A;\n");
