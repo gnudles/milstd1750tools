@@ -965,10 +965,9 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
             printf("    unpack_float32(cpu_ctx->state.reg.r[RA], cpu_ctx->state.reg.r[(RA+1)&0xF], &M_A, &E_A);\n");
             printf("    unpack_float32(DO[0], DO[1], &M_B, &E_B);\n");
             printf("    cpu_ctx->state.reg.sw &= 0x0FFF; /* Destroy Carry, P, Z, N */\n");
-            printf("    if (M_A == 0 && M_B == 0) {\n");
-            printf("        cpu_ctx->state.reg.sw |= CS_ZERO;\n");
-            printf("    } else if (M_A == 0) {\n");
-            printf("        if (M_B > 0) cpu_ctx->state.reg.sw |= CS_NEGATIVE;\n");
+            printf("    if (M_A == 0) {\n");
+            printf("        if (M_B == 0) cpu_ctx->state.reg.sw |= CS_ZERO;\n");
+            printf("        else if (M_B > 0) cpu_ctx->state.reg.sw |= CS_NEGATIVE;\n");
             printf("        else cpu_ctx->state.reg.sw |= CS_POSITIVE;\n");
             printf("    } else if (M_B == 0) {\n");
             printf("        if (M_A > 0) cpu_ctx->state.reg.sw |= CS_POSITIVE;\n");
@@ -991,10 +990,9 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
             printf("    unpack_float48(cpu_ctx->state.reg.r[(RA+0)&0xF], cpu_ctx->state.reg.r[(RA+1)&0xF], cpu_ctx->state.reg.r[(RA+2)&0xF], &M_A, &E_A);\n");
             printf("    unpack_float48(DO[0], DO[1], DO[2], &M_B, &E_B);\n");
             printf("    cpu_ctx->state.reg.sw &= 0x0FFF; /* Destroy Carry, P, Z, N */\n");
-            printf("    if (M_A == 0 && M_B == 0) {\n");
-            printf("        cpu_ctx->state.reg.sw |= CS_ZERO;\n");
-            printf("    } else if (M_A == 0) {\n");
-            printf("        if (M_B > 0) cpu_ctx->state.reg.sw |= CS_NEGATIVE;\n");
+            printf("    if (M_A == 0) {\n");
+            printf("        if (M_B == 0) cpu_ctx->state.reg.sw |= CS_ZERO;\n");
+            printf("        else if (M_B > 0) cpu_ctx->state.reg.sw |= CS_NEGATIVE;\n");
             printf("        else cpu_ctx->state.reg.sw |= CS_POSITIVE;\n");
             printf("    } else if (M_B == 0) {\n");
             printf("        if (M_A > 0) cpu_ctx->state.reg.sw |= CS_POSITIVE;\n");
