@@ -807,25 +807,20 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
             printf("    int32_t M_A, M_B; int16_t E_A, E_B;\n");
             printf("    unpack_float32(cpu_ctx->state.reg.r[(RA+0)&0xF], cpu_ctx->state.reg.r[(RA+1)&0xF], &M_A, &E_A);\n");
             printf("    unpack_float32(DO[0], DO[1], &M_B, &E_B);\n");
-            if (def->op_type == OP_SUB_FLOAT)
-            {
-                /*
-                 * Negating the mantissa via 2's complement handles all cases natively.
-                 * The specific edge cases (such as exactly -1 or -0.5) are inherently
-                 * managed by the normalization and bitwise shifts applied within pack_float32.
-                 */
-                printf("    M_B = -M_B;\n");
-            }
             printf("    int32_t E_res;\n");
             printf("    if (M_A == 0) { E_res = E_B; }\n");
             printf("    else if (M_B == 0) { E_res = E_A; }\n");
             printf("    else {\n");
             printf("        int diff = E_A - E_B;\n");
-            printf("        if (diff > 0) { if (diff > 24) M_B = 0; else M_B >>= diff; E_res = E_A; }\n");
-            printf("        else if (diff < 0) { if (-diff > 24) M_A = 0; else M_A >>= -diff; E_res = E_B; }\n");
+            printf("        if (diff > 0) { if (diff > 24) M_B >>= 24; else M_B >>= diff; E_res = E_A; }\n");
+            printf("        else if (diff < 0) { if (-diff > 24) M_A >>= 24; else M_A >>= -diff; E_res = E_B; }\n");
             printf("        else { E_res = E_A; }\n");
             printf("    }\n");
-            printf("    pack_float32(cpu_ctx, RA, M_A + M_B, E_res);\n");
+            if (def->op_type == OP_ADD_FLOAT) {
+                printf("    pack_float32(cpu_ctx, RA, M_A + M_B, E_res);\n");
+            } else {
+                printf("    pack_float32(cpu_ctx, RA, M_A - M_B, E_res);\n");
+            }
             break;
 
         case OP_MULT_FLOAT:
@@ -849,25 +844,20 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
             printf("    int64_t M_A, M_B; int16_t E_A, E_B;\n");
             printf("    unpack_float48(cpu_ctx->state.reg.r[(RA+0)&0xF], cpu_ctx->state.reg.r[(RA+1)&0xF], cpu_ctx->state.reg.r[(RA+2)&0xF], &M_A, &E_A);\n");
             printf("    unpack_float48(DO[0], DO[1], DO[2], &M_B, &E_B);\n");
-            if (def->op_type == OP_SUB_EXFLOAT)
-            {
-                /*
-                 * Negating the mantissa via 2's complement handles all cases natively.
-                 * The specific edge cases (such as exactly -1 or -0.5) are inherently
-                 * managed by the normalization and bitwise shifts applied within pack_float48.
-                 */
-                printf("    M_B = -M_B;\n");
-            }
             printf("    int32_t E_res;\n");
             printf("    if (M_A == 0) { E_res = E_B; }\n");
             printf("    else if (M_B == 0) { E_res = E_A; }\n");
             printf("    else {\n");
             printf("        int diff = E_A - E_B;\n");
-            printf("        if (diff > 0) { if (diff > 40) M_B = 0; else M_B >>= diff; E_res = E_A; }\n");
-            printf("        else if (diff < 0) { if (-diff > 40) M_A = 0; else M_A >>= -diff; E_res = E_B; }\n");
+            printf("        if (diff > 0) { if (diff > 40) M_B >>= 40; else M_B >>= diff; E_res = E_A; }\n");
+            printf("        else if (diff < 0) { if (-diff > 40) M_A >>= 40; else M_A >>= -diff; E_res = E_B; }\n");
             printf("        else { E_res = E_A; }\n");
             printf("    }\n");
-            printf("    pack_float48(cpu_ctx, RA, M_A + M_B, E_res);\n");
+            if (def->op_type == OP_ADD_EXFLOAT) {
+                printf("    pack_float48(cpu_ctx, RA, M_A + M_B, E_res);\n");
+            } else {
+                printf("    pack_float48(cpu_ctx, RA, M_A - M_B, E_res);\n");
+            }
             break;
 
         case OP_MULT_EXFLOAT:
@@ -981,8 +971,8 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
             printf("        int diff = E_A - E_B;\n");
             printf("        int64_t m_a_ext = M_A;\n");
             printf("        int64_t m_b_ext = M_B;\n");
-            printf("        if (diff > 0) { if (diff > 24) m_b_ext = 0; else m_b_ext >>= diff; }\n");
-            printf("        else if (diff < 0) { if (-diff > 24) m_a_ext = 0; else m_a_ext >>= -diff; }\n");
+            printf("        if (diff > 0) { if (diff > 24) m_b_ext >>= 24; else m_b_ext >>= diff; }\n");
+            printf("        else if (diff < 0) { if (-diff > 24) m_a_ext >>= 24; else m_a_ext >>= -diff; }\n");
             printf("        int64_t res = m_a_ext - m_b_ext;\n");
             printf("        if (res == 0) cpu_ctx->state.reg.sw |= CS_ZERO;\n");
             printf("        else if (res > 0) cpu_ctx->state.reg.sw |= CS_POSITIVE;\n");
@@ -1001,8 +991,8 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
             printf("        int diff = E_A - E_B;\n");
             printf("        int64_t m_a_ext = M_A;\n");
             printf("        int64_t m_b_ext = M_B;\n");
-            printf("        if (diff > 0) { if (diff > 40) m_b_ext = 0; else m_b_ext >>= diff; }\n");
-            printf("        else if (diff < 0) { if (-diff > 40) m_a_ext = 0; else m_a_ext >>= -diff; }\n");
+            printf("        if (diff > 0) { if (diff > 40) m_b_ext >>= 40; else m_b_ext >>= diff; }\n");
+            printf("        else if (diff < 0) { if (-diff > 40) m_a_ext >>= 40; else m_a_ext >>= -diff; }\n");
             printf("        int64_t res = m_a_ext - m_b_ext;\n");
             printf("        if (res == 0) cpu_ctx->state.reg.sw |= CS_ZERO;\n");
             printf("        else if (res > 0) cpu_ctx->state.reg.sw |= CS_POSITIVE;\n");
