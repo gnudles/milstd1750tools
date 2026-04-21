@@ -1661,7 +1661,7 @@ int cpu_mainloop(struct cpu_context *cpu_ctx, uint64_t up_to_cycles)
             if (has_pending_interrupt(cpu_ctx))
             {
                 /* check if we hit a watchpoint */
-                if (cpu_ctx->state.halt != DBG_WATCHPOINT) /* do not process interrupts after watch points */
+                if (cpu_ctx->state.halt == DBG_WATCHPOINT) /* do not process interrupts after watch points */
                 {
                     cpu_ctx->state.need_to_process_intr_after_watchpoint = true;
                     break;

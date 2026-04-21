@@ -1218,13 +1218,12 @@ si_dispflt (int argc, char *argv[])
 
   if (argc > 1)
     {
-      if (*argv[1] == 'r')
+      int n;
+      if (argc == 2 && sscanf (argv[1], "r%d", &n) == 1 && n >= 0 && n <= 15)
 	{
-	  int n;
-	  sscanf (argv[1] + 1, "%d", &n);
-	  if (n < 0 || n > 14)
-	    return error ("invalid register number");
-	  lprintf ("%.7g\n", from_1750flt (&sim_cpu_ctx->state.reg.r[n]));
+    fltwords[0] = sim_cpu_ctx->state.reg.r[n&0xF];
+    fltwords[1] = sim_cpu_ctx->state.reg.r[(n+1)&0xF];
+	  lprintf ("%.7g\n", from_1750flt (fltwords));
 	  return OKAY;
 	}
       if (parse_address (sim_cpu_ctx, argv[1], &address) != OKAY)
@@ -1269,6 +1268,15 @@ si_dispeflt (int argc, char *argv[])
 
   if (argc > 1)
     {
+      int n;
+      if (argc == 2 && sscanf (argv[1], "r%d", &n) == 1 && n >= 0 && n <= 15)
+	    {
+        fltwords[0] = sim_cpu_ctx->state.reg.r[n&0xF];
+        fltwords[1] = sim_cpu_ctx->state.reg.r[(n+1)&0xF];
+        fltwords[2] = sim_cpu_ctx->state.reg.r[(n+2)&0xF];
+        lprintf ("%.11g\n", from_1750eflt (fltwords));
+        return(OKAY);
+      }
       if (parse_address (sim_cpu_ctx, argv[1], &address) != OKAY)
 	return error ("invalid address syntax");
       if (argc > 2)

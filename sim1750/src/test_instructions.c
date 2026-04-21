@@ -826,8 +826,10 @@ int main() {
     run_ldm_test("automated_tests/simple_logic.ldm");
     run_ldm_test("automated_tests/cmp_test.ldm");
     run_ldm_test("automated_tests/e_calc.ldm");
+    run_ldm_test("automated_tests/e_calc_fast.ldm");
     run_ldm_test("automated_tests/pi_calc.ldm");
     run_ldm_test("automated_tests/timer_test.ldm");
+    run_ldm_test("automated_tests/general_test.ldm");
 
     return 0;
 }

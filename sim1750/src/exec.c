@@ -218,7 +218,7 @@ si_snglstp_new (int argc, char *argv[])
 
   clear_debug_halt(sim_cpu_ctx);
 
-  while ((step_over && sim_cpu_ctx->state.reg.ic != target_addr) || (!step_over && count > 0))
+  while ((step_over && sim_cpu_ctx->state.reg.ic != target_addr) || (!step_over && count-- > 0))
   {
 	  if (sys_int (1))
 	    return (INTERRUPT);
