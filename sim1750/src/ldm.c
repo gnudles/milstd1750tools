@@ -33,10 +33,10 @@
 
 #include "status.h"
 #include "peekpoke.h"
-#include "arch.h"
+#include "cpu_ctx.h"
 #include "utils.h"
 #include "loadfile.h"
-
+extern struct cpu_context *sim_cpu_ctx;
 
 static int linecnt;
 
@@ -160,8 +160,8 @@ load_tldline (char *line)
   switch (cmd)
     {
     case 'A':
-      simreg.sw &= 0xFFF0;
-      simreg.sw |= (ushort) get_word (line + DATASTART) & 0x000F;
+      sim_cpu_ctx->state.reg.sw &= 0xFFF0;
+      sim_cpu_ctx->state.reg.sw |= (ushort) get_word (line + DATASTART) & 0x000F;
       break;
     case 'I':
     case 'O':
@@ -176,7 +176,7 @@ load_tldline (char *line)
 	if ((address = get_nibbles (line + TLDADDR + 2, 3)) == -1)
 	  return error ("line %d: /%c error in logical address",
 			linecnt, cmd);
-	address |= (int) pagereg[bank][as][logaddr_hinibble].ppa << 12;
+	address |= (int) sim_cpu_ctx->state.pagereg[bank][as][logaddr_hinibble].ppa << 12;
 	if ((datacnt = xtoi (line[COUNT])) == -1)
 	  return error ("line %d: /%c error in data count", linecnt, cmd);
 	for (i = 0; i < datacnt; i++)
@@ -184,7 +184,7 @@ load_tldline (char *line)
 	    int word = get_word (line + DATASTART + (4 * i));
 	    if (word == -1)
 	      return error ("line %d: /%c data error", linecnt, cmd);
-	    poke (address++, (ushort) word);
+	    poke (&sim_cpu_ctx->state, address++, (ushort) word);
 	  }
       }
       break;
@@ -211,7 +211,7 @@ load_tldline (char *line)
 	    pagereg_contents = get_nibbles (line + DATASTART + (4 * i) + 1, 3);
 	    if (pagereg_contents == -1 || pagereg_contents > 0xFF)
 	      return error ("line %d: /L pagereg contents error", linecnt);
-	    pagereg[bank][as][pagereg_number].ppa = (ushort) pagereg_contents;
+	    sim_cpu_ctx->state.pagereg[bank][as][pagereg_number].ppa = (ushort) pagereg_contents;
 	    if (++pagereg_number > 0xF)
 	      break;
 	  }
@@ -232,7 +232,7 @@ load_tldline (char *line)
 	    int word = get_word (line + DATASTART + (4 * i));
 	    if (word == -1)
 	      return error ("line %d: /M data error", linecnt);
-	    poke (address++, (ushort) word);
+	    poke (&sim_cpu_ctx->state, address++, (ushort) word);
 	  }
       }
       break;
@@ -251,7 +251,7 @@ load_tldline (char *line)
 	  {
 	    const int as = (int) address >> 4;
 	    const int pagenum = (int) address & 0xF;
-	    ushort *entire_pagereg = (ushort *) & pagereg[bank][as][pagenum];
+	    ushort *entire_pagereg = (ushort *) & sim_cpu_ctx->state.pagereg[bank][as][pagenum];
 	    int word = get_word (line + DATASTART + (4 * i));
 	    if (word == -1)
 	      return error ("line %d: /%c data error", linecnt, cmd);
@@ -263,7 +263,7 @@ load_tldline (char *line)
     case 'T':
       if ((address = get_nibbles (line + TLDADDR, 5)) == -1)
 	return error ("TLD LDM: numeric syntax error in transfer address");
-      simreg.ic = (ushort) address;
+      sim_cpu_ctx->state.reg.ic = (ushort) address;
       if (address > 0xFFFF)
 	return error ("TLD LDM: cannot handle transfer address (too high)");
       break;
@@ -366,7 +366,7 @@ load_xtcline (char *line)
     case 'I':		/* Instruction/Operand memory */
     case 'O':
       {
-        int bank = (cmd == 'I') ? CODE : DATA, as = simreg.sw & 0xF;
+        int bank = (cmd == 'I') ? CODE : DATA, as = sim_cpu_ctx->state.reg.sw & 0xF;
 	int logaddr_hinibble = xtoi (line[XTCADDR]), i;
 	if (logaddr_hinibble == -1)
 	  return error ("line %d: /%c error in logical address MS-nibble",
@@ -374,7 +374,7 @@ load_xtcline (char *line)
 	if ((address = get_nibbles (line + XTCADDR + 1, 3)) == -1)
 	  return error ("line %d: /%c error in logical address",
 			linecnt, cmd);
-	address |= (int) pagereg[bank][as][logaddr_hinibble].ppa << 12;
+	address |= (int) sim_cpu_ctx->state.pagereg[bank][as][logaddr_hinibble].ppa << 12;
 	if ((datacnt = xtoi (line[COUNT])) == -1)
 	  return error ("line %d: /%c error in data count", linecnt, cmd);
 	for (i = 0; i < datacnt; i++)
@@ -382,14 +382,14 @@ load_xtcline (char *line)
 	    int word = get_word (line + DATASTART + (4 * i));
 	    if (word == -1)
 	      return error ("line %d: /%c data error", linecnt, cmd);
-	    poke (address++, (ushort) word);
+	    poke (&sim_cpu_ctx->state, address++, (ushort) word);
 	  }
       }
       break;
     case 'T':		/* Transfer address */
       if ((address = get_nibbles (line + XTCADDR, 4)) == -1)
 	return error ("XTC LDM: numeric syntax error in transfer address");
-      simreg.ic = (ushort) address;
+      sim_cpu_ctx->state.reg.ic = (ushort) address;
       break;
     default:
       warning ("XTC LDM: unimplemented command type '%c' (ignored)", cmd);

@@ -4,6 +4,8 @@
 #define _TYPE_H
 
 #include <sys/types.h>
+#include <stdint.h>
+
 
 /* If you get "undefined type" errors about uint / ushort
    then remove -DHAVE_UTYPES from CFLAGS in the Makefile.      */
@@ -22,9 +24,7 @@
 #ifndef byte
 #define byte    unsigned char
 #endif
-#ifndef bool
-#define bool	char
-#endif
+#include <stdbool.h>
 #ifndef FALSE
 #define FALSE	0
 #define TRUE	(!FALSE)

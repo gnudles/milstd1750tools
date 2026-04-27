@@ -4,9 +4,9 @@
 #define _PHYS_MEM_H
 
 #include "type.h"
-
-extern void   init_mem ();
-extern bool   was_written (uint phys_address);
+struct cpu_state;  /* forward declaration to avoid circularity with cpu.h */
+extern void   init_mem (struct cpu_state *cpu);
+extern bool   was_written (struct cpu_state *cpu, uint phys_address);
 /* simulation memory allocator */
 extern void  *xalloc (uint number, uint size);
 extern uint allocated;  /* total amount allocated by xalloc() */
@@ -17,14 +17,25 @@ extern uint allocated;  /* total amount allocated by xalloc() */
    Hence, read operations on uninitialized memory locations can be signalled.
  */
 
+#include <stdint.h>
+
 typedef struct
   {
     ushort word[4096];
     uint  was_written[128];  /* bit-packed, one bit per address */
+
+    /* 2-Level Execution and Read Breakpoint / Watchpoint O(1) Mask */
+    uint64_t read_bp_summary; /* L1: 1 bit per 64-word block */
+    uint64_t write_bp_summary;     /* L1: 1 bit per 64-word block */
+    
+    uint64_t read_exec_bp[64];     /* L2: 1 bit per word */ /* bitwise or of read_bp and exec_bp, to save cache space */
+    uint64_t write_bp[64];         /* L2: 1 bit per word */
+    uint64_t read_bp[64];     /* L2: 1 bit per word */
+    uint64_t exec_bp[64];     /* L2: 1 bit per word */
   } mem_t;
 
 #define N_PAGES   256  /* 1 Mword address space */
-extern mem_t *mem[N_PAGES];
+/* extern mem_t *mem[N_PAGES]; */
 
 #define MNULL  (mem_t *) 0
 

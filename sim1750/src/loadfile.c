@@ -33,14 +33,14 @@
 
 #include "status.h"
 #include "phys_mem.h"
-#include "arch.h"
+#include "cpu_ctx.h"
 #include "utils.h"
 #include "tekops.h"
 #include "coffops.h"
 #include "loadfile.h"
 #include "peekpoke.h"
 
-
+extern struct cpu_context *sim_cpu_ctx;
 /* Put a binary 16-bit word in high byte, low byte order to a file.
    Return 0 for success, EOF on error. */
 int
@@ -150,7 +150,7 @@ si_prolo (int argc, char *argv[])
   verbose = FALSE;  /* avoid info messages from poke() */
   while (get_hilo16 (&word, loadfile) != EOF)
     {
-      poke (abs_addr, word);
+      poke (&sim_cpu_ctx->state, abs_addr, word);
       abs_addr++;
     }
   fclose (loadfile);
@@ -211,7 +211,7 @@ si_pslo (int argc, char *argv[])
 	      status = error ("pslo: unexpected EOF while reading data");
 	      break;
 	    }
-	  poke (abs_addr++, word);
+	  poke (&sim_cpu_ctx->state, abs_addr++, word);
 	}
       if (status == ERROR)
 	break;

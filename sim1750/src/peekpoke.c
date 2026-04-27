@@ -30,6 +30,7 @@
 #include <stdio.h>
 
 #include "phys_mem.h"
+#include "cpu.h"
 #include "status.h"
 #include "utils.h"  /* for problem() */
 
@@ -37,20 +38,24 @@
 /* peek() returns FALSE on reading an uninitialized location. */
 
 bool
-peek (uint phys_address, ushort *value)
+peek (struct cpu_state *cpu, uint phys_address, ushort *value)
 {
   unsigned page     = (unsigned) (phys_address >> 12);
   unsigned log_addr = (unsigned) (phys_address & 0x0FFF);
   mem_t *memptr;
   uint was_written;
 
-  if (page > 0xFF)
-    problem ("peek: absolute memory address too large");
-  if ((memptr = mem[page]) == MNULL)
+  if (page >= cpu->num_phys_mem_pages)
+    {
+      cpu->reg.pir |= INTR_MACHERR;
+	    cpu->reg.ft |= FT_ILL_ADDR;
+      problem ("peek: absolute memory address too large");
+    }
+  if ((memptr = cpu->mem[page]) == MNULL)
     {
       if (verbose)
         lprintf ("peek: dynamically allocating page %02X\n", page);
-      if ((memptr = mem[page] = (mem_t *) xalloc (1, sizeof (mem_t))) == MNULL)
+      if ((memptr = cpu->mem[page] = (mem_t *) xalloc (1, sizeof (mem_t))) == MNULL)
 	problem ("peek: memory allocation request refused by OS\n");
     }
   *value = memptr->word[log_addr];
@@ -60,19 +65,23 @@ peek (uint phys_address, ushort *value)
 
 
 void
-poke (uint phys_address, ushort value)
+poke (struct cpu_state *cpu, uint phys_address, ushort value)
 {
   unsigned page = (unsigned) (phys_address >> 12);
   unsigned log_addr = (unsigned) (phys_address & 0x0FFF);
   mem_t *memptr;
 
-  if (page > 0xFF)
-    problem ("poke: absolute memory address too large");
-  if ((memptr = mem[page]) == MNULL)
+  if (page >= cpu->num_phys_mem_pages)
+    {
+      cpu->reg.pir |= INTR_MACHERR;
+	    cpu->reg.ft |= FT_ILL_ADDR;
+      problem ("poke: absolute memory address too large");
+    }
+  if ((memptr = cpu->mem[page]) == MNULL)
     {
       if (verbose)
         lprintf ("poke: dynamically allocating page %02X\n", page);
-      if ((memptr = mem[page] = (mem_t *) xalloc (1, sizeof (mem_t))) == MNULL)
+      if ((memptr = cpu->mem[page] = (mem_t *) xalloc (1, sizeof (mem_t))) == MNULL)
 	problem ("poke: dynamic memory exhausted");
     }
   memptr->word[log_addr] = value;

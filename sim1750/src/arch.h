@@ -31,7 +31,7 @@
 #define _ARCH_H
 
 #include "type.h"
-#include <stdint.h>
+#include "phys_mem.h"
 
 /* condition status bit masks (within Status Register) */
 #define  CS_CARRY     0x8000
@@ -40,13 +40,64 @@
 #define  CS_NEGATIVE  0x1000
 #define  CS_ERROR     0x0000
 
+#define MP_PROC 0 /* mem protect for processor */
+#define MP_DMA 1 /* mem protect for dma */
 /* mask for simreg.sys */
 #define  SYS_INT   0x1
-#define  SYS_DMA   0x2
+#define  SYS_DMA   0x2 /* DMA Enabled*/
 #define  SYS_TA    0x4
 #define  SYS_TB    0x8
+#define  SYS_MEM_PROT   0x10 /* Mem Protect Enabled*/
+#define  SYS_SUROM    0x20 /* currently SUROM is not implemented */
+#define  SYS_PWRUP 0x40
+
+
 
 /* mask for simreg.ft */
+
+/*
+Bit 0:		CPU Memory Protection Fault.  The CPU has encountered an access
+		fault, write protect fault, or execute protect fault.
+
+Bit 1:		DMA Memory Protection Fault.  A DMA device has encountered an 
+		access fault or a write protect fault.
+
+Bit 2:		Memory Parity Fault.
+
+Bit 3:		PIO Channel Parity Fault.
+
+Bit 4: 	 	DMA Channel Parity Fault.
+
+Bit 5:  	Illegal I/O Command Fault.  An attempt has been made to execute
+		an unimplemented or reserved I/O command.
+
+Bit 6:  	PIO Transmission Fault.  Other I/O error checking devices, if 
+		used, may be ORed into this bit to indicate an error.
+
+Bit 7:  	Spare.
+
+Bit 8:  	Illegal Address Fault.  A memory location has been addressed 
+		which is not physically present.
+
+Bit 9:  	Illegal Instruction Fault.  An attempt has been made to execute
+		a reserved code.
+
+Bit 10:		Privileged Instruction Fault.  An attempt has been made to 
+		execute a privileged instruction with PS != 0.
+
+Bit 11: 	Address State Fault.  An attempt has been made to establish an
+		AS value for an unimplemented page register set.
+
+Bit 12: 	Reserved.
+
+Bit 13: 	Built-in Test Fault.  Hardware built-in test equipment (BITE) 
+		error has been detected.
+
+Bit 14-15:	Spare BITE.  These bits are for use by the designer for future
+		defining (coding, etc.) the BITE error which is detected.  This
+		can be used with Bit 13 to give a more complete error description.
+
+*/
 #define  FT_MEMPROT	0x8000   /* CPU memory protection error */
 #define  FT_ILL_IO	0x0400   /* illegal XIO address */
 #define  FT_SYSFAULT0	0x0100   /* sysfault 0 watchdog (F9450/MODUS) */
@@ -106,34 +157,121 @@ static inline int count_leading_zeros(uint16_t x) {
     return n;
 #endif
 }
+enum
+{TIM_A = 0, TIM_B = 1};
+
+enum halt_t
+{
+  NO_HALT,
+  HALT_ILL_INST,
+  DBG_BREAKPOINT,
+  DBG_WATCHPOINT,
+  INST_BPT,
+  HALT_ILL_MEM,
+  HALT_NON_EXEC,
+  HALT_URS_EMPTY_STACK, /* happens when running functions as programs. the function is calling URS, but the stack is empty*/
+  HALT_INF_LOOP /* some programs choose to terminate by inf loop */
+
+};
+
+
 
 /* Simulator register file */
 struct regs
   {
     short  r[16];  /* 0..15 */
-    ushort pir;    /* 16 */
-    ushort mk;     /* 17 */
-    ushort ft;     /* 18 */
-    ushort ic;     /* 19 */
-    ushort sw;     /* 20 */
-    ushort ta;     /* 21 */
-    ushort tb;     /* 22 */
+    union{
+    struct { /* These 3 are one unit in this specific order */
+    ushort mk;     /* 16 */
+    ushort sw;     /* 17 */
+    ushort ic;     /* 18 */
+    };
+    ushort mk_sw_ic[3];
+    };
+    ushort pir;
+    ushort pir_update;
+    ushort last_pir;
+    ushort check_pir; /* whenever this value is not zero, we need to check if we have interrupts */
+    ushort ft;
+    ushort timer[2]; 
+    ushort timer_reset_val[2]; // timers will reset to this value after roll over
     ushort go;     /* not a real register but handled like TA/TB */
+    ushort timer_go_reset_val; // when issuing timer go reset, it will reset to this value
     ushort sys;    /* system configuration register */
+    ushort sys_update; /* when interrupts are being enabled, the change only take effect after next instruction*/
+    ushort ioic1; /* ioic level 1 */
+    ushort ioic2; /* ioic level 2 */
+    ushort dsctout; /* discretes output */
+    ushort dsctin; /* discretes input */
+    int64_t accumulator; /*used in PACE1750AE (48bit accumulator) */
   };
 
-extern struct regs simreg;  /* defined in cpu.c */
+/* extern struct regs simreg; defined in cpu.c */
 
 /* MMU related */
 struct mmureg
   {
-    ushort ppa      : 8;
-    ushort reserved : 3;
-    ushort e_w      : 1;
-    ushort al       : 4;
+    union
+      {
+        struct /*swap if simulator runs on big endian system*/
+          {
+          ushort ppa      : 8;
+          ushort reserved : 3;
+          ushort e_w      : 1;
+          ushort al       : 4;
+          };
+          ushort word;
+      };
   };
+  /* will allow us to skip checks*/
+struct mem_access_cache_r
+{
+  uint8_t page[16]; /* maps logical to physical*/
+  uint16_t valid; /*one bit per page*/
+};
+struct mem_access_cache_w
+{
+  uint8_t page[16]; /* maps logical to physical*/
+  uint64_t valid; /*one bit per qpage*/
+};
+/* extern struct mmureg pagereg[2][16][16]; defined in cpu.c */
+struct cpu_state {
+  mem_t *mem[N_PAGES];
+  ushort mem_protect[2][64]; // write protection. first for cpu, second for dma.
+  struct mmureg pagereg[2][16][16];
+  struct mem_access_cache_r data_read_cache;
+  struct mem_access_cache_r data_read_cache_intr;
+  struct mem_access_cache_r code_read_cache;
+  struct mem_access_cache_w data_write_cache;
+  struct regs reg;
 
-extern struct mmureg pagereg[2][16][16];  /* defined in cpu.c */
+  /* A quickie for communication between workout_interrupts() and ex_bex() */ 
+
+  uint num_phys_mem_pages; // size of installed memory, in pages (4096 words per page)
+  uint instcnt;
+
+  uint64_t total_cycles;
+  uint64_t next_scheduled_timer_calc_cycles;
+  uint64_t nearest_cycles_stop; // for main loop to stop at, either because of timer check or because of up_to_cycles
+  uint64_t total_cycles_timers_snap;
+  uint64_t timer_ns_remainder;
+  uint32_t global_10usec_timer_clock;
+  uint32_t timer_a_global_snap;
+  uint32_t timer_b_global_snap;
+  uint32_t timer_go_global_snap;
+
+
+  enum halt_t halt;
+  ushort bex_index;
+  bool need_to_process_intr_after_watchpoint;
+  bool disable_timers;
+  /*old timing mechanism */
+  struct {
+    ushort one_tatick_in_ns, one_tbtick_in_tatix;
+    ushort one_gotick_in_10usec;
+  } timers;
+  int32_t  quantum_left; /* cycles left in current quantum, used for sequential execution of multiple cpus, every cpu gets to execute for a fixed number of cycles */
+};
 
 #endif
 
