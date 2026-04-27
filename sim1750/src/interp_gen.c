@@ -828,7 +828,7 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
             printf("    unpack_float32(cpu_ctx->state.reg.r[(RA+0)&0xF], cpu_ctx->state.reg.r[(RA+1)&0xF], &M_A, &E_A);\n");
             printf("    unpack_float32(DO[0], DO[1], &M_B, &E_B);\n");
             printf("    int64_t P = (int64_t)M_A * (int64_t)M_B;\n");
-            printf("    pack_float32(cpu_ctx, RA, (int32_t)(P >> 23), E_A + E_B);\n");
+            printf("    pack_float32(cpu_ctx, RA, (int32_t)(P >> 22), E_A + E_B - 1);\n");
             break;
 
         case OP_DIV_FLOAT:
