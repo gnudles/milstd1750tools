@@ -443,7 +443,7 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
             if (def->code == OPC_BR)
             {
                 printf("    if (displacement == 0) {\n"); // infinite loop
-                printf("        cpu_ctx->state.halt = HALT_INF_LOOP;\n");
+                printf("        cpu_ctx->state.halt |= HALT_INF_LOOP;\n");
                 printf("    }\n");
                 printf("    cpu_ctx->state.reg.ic += displacement;\n");
                 printf("    cpu_ctx->state.total_cycles += CLK_CYC_BR;\n");
@@ -1071,7 +1071,7 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
             break;
         case OP_RET_SUBRTN:
             printf("    if (cpu_ctx->state.reg.r[RA] == 0) {\n"); // we should halt
-            printf("        cpu_ctx->state.halt = HALT_URS_EMPTY_STACK;\n");
+            printf("        cpu_ctx->state.halt |= HALT_URS_EMPTY_STACK;\n");
             printf("    }\n");
             printf("    /* ok = */fetch_data_word(cpu_ctx, cpu_ctx->state.reg.r[RA], &cpu_ctx->state.reg.ic);\n");
             printf("    cpu_ctx->state.reg.r[RA] += 1;\n");
@@ -1079,7 +1079,6 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
         case OP_LOAD_STATUS:
             /* DO[0] -> Status Word, DO[1] -> Mask Register */
             printf("    if ((DO[1] ^ cpu_ctx->state.reg.sw) & 0xFF ) { invalidate_mem_cache(cpu_ctx); }\n");
-            printf("    cpu_ctx->state.reg.check_pir |= cpu_ctx->state.reg.mk ^ DO[0];\n"); /* interrupt mask changed */
             printf("    cpu_ctx->state.reg.mk = DO[0];\n");
             printf("    cpu_ctx->state.reg.sw = DO[1];\n");
             printf("    cpu_ctx->state.reg.ic = DO[2];\n");
@@ -1337,7 +1336,7 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
             printf("        cpu_ctx->state.total_cycles += CLK_CYC_NOP;\n");
             printf("        break;\n");
             printf("      case 0xFF:  /* BPT */\n");
-            printf("        cpu_ctx->state.halt = INST_BPT;\n");
+            printf("        cpu_ctx->state.halt |= INST_BPT;\n");
             printf("        // ic will be incremented by clear_debug_halt\n");
             printf("        cpu_ctx->state.total_cycles += CLK_CYC_BPT;\n");
             printf("        break;\n");

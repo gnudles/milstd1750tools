@@ -87,19 +87,24 @@ int si_jit_scan (int argc, char *argv[])
 // function to set halt to NO_HALT after debug conditions, so that we can continue execution. we also need to clear watchpoint hits, otherwise we will keep hitting the same watchpoint and never continue execution. we can not just set the watchpoint to inactive, because we want to keep track of it and show it in the watchpoint list, and step over BPT special instruction by incrementing IC, otherwise we will keep hitting the same BPT and never continue execution.
 void clear_debug_halt(struct cpu_context *cpu_ctx)
 {
-  if (cpu_ctx->state.halt == DBG_WATCHPOINT 
-    || cpu_ctx->state.halt == DBG_BREAKPOINT 
-    || cpu_ctx->state.halt == INST_BPT)
+  if (cpu_ctx->state.halt & DBG_WATCHPOINT
+    || cpu_ctx->state.halt & DBG_BREAKPOINT
+    || cpu_ctx->state.halt & INST_BPT)
   {
-    if (cpu_ctx->state.halt == DBG_WATCHPOINT)
+    if (cpu_ctx->state.halt & DBG_WATCHPOINT)
     {
       clear_all_wp_hits(cpu_ctx);
+      cpu_ctx->state.halt &= ~DBG_WATCHPOINT;
     }
-    else if (cpu_ctx->state.halt == INST_BPT)
+    if (cpu_ctx->state.halt & INST_BPT)
     {
       cpu_ctx->state.reg.ic++;
+      cpu_ctx->state.halt &= ~INST_BPT;
     }
-    cpu_ctx->state.halt = NO_HALT;
+    if (cpu_ctx->state.halt & DBG_BREAKPOINT)
+    {
+      cpu_ctx->state.halt &= ~DBG_BREAKPOINT;
+    }
   }
 }
 
@@ -107,14 +112,14 @@ void print_halt_reason(struct cpu_context *cpu_ctx)
 {
   if (cpu_ctx->state.halt == NO_HALT)
     return;
-  if (cpu_ctx->state.halt == DBG_BREAKPOINT)
+  if (cpu_ctx->state.halt & DBG_BREAKPOINT)
   {
     lprintf("Hit breakpoint at address 0x%04X : %s\n", cpu_ctx->state.reg.ic, disassemble(&cpu_ctx->state));
     // now print label and info  from cpu_ctx->breakpt[cpu_ctx->bpindex]
     lprintf("Breakpoint %d: physical address 0x%05X, label: %s\n", cpu_ctx->bpindex, cpu_ctx->breakpt[cpu_ctx->bpindex].addr,
             cpu_ctx->breakpt[cpu_ctx->bpindex].label ? cpu_ctx->breakpt[cpu_ctx->bpindex].label : "N/A");
   }
-  else if (cpu_ctx->state.halt == DBG_WATCHPOINT)
+  if (cpu_ctx->state.halt & DBG_WATCHPOINT)
   {
     // loop over all watch points and find all that are hit, and print them out.
     lprintf("Hit watchpoint at physical address 0x%05X : %s, ic after: 0x%04X \n", cpu_ctx->last_phys_ic , disassemble(&cpu_ctx->state), cpu_ctx->state.reg.ic);

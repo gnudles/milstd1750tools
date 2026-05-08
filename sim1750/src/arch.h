@@ -162,15 +162,15 @@ enum
 
 enum halt_t
 {
-  NO_HALT,
-  HALT_ILL_INST,
-  DBG_BREAKPOINT,
-  DBG_WATCHPOINT,
-  INST_BPT,
-  HALT_ILL_MEM,
-  HALT_NON_EXEC,
-  HALT_URS_EMPTY_STACK, /* happens when running functions as programs. the function is calling URS, but the stack is empty*/
-  HALT_INF_LOOP /* some programs choose to terminate by inf loop */
+  NO_HALT = 0,
+  HALT_ILL_INST = 1 << 0,
+  DBG_BREAKPOINT = 1 << 1,
+  DBG_WATCHPOINT = 1 << 2,
+  INST_BPT = 1 << 3,
+  HALT_ILL_MEM = 1 << 4,
+  HALT_NON_EXEC = 1 << 5,
+  HALT_URS_EMPTY_STACK = 1 << 6, /* happens when running functions as programs. the function is calling URS, but the stack is empty*/
+  HALT_INF_LOOP = 1 << 7 /* some programs choose to terminate by inf loop */
 
 };
 
@@ -191,6 +191,7 @@ struct regs
     ushort pir;
     ushort pir_update;
     ushort last_pir;
+    ushort last_mk;
     ushort check_pir; /* whenever this value is not zero, we need to check if we have interrupts */
     ushort ft;
     ushort timer[2]; 
