@@ -87,9 +87,7 @@ int si_jit_scan (int argc, char *argv[])
 // function to set halt to NO_HALT after debug conditions, so that we can continue execution. we also need to clear watchpoint hits, otherwise we will keep hitting the same watchpoint and never continue execution. we can not just set the watchpoint to inactive, because we want to keep track of it and show it in the watchpoint list, and step over BPT special instruction by incrementing IC, otherwise we will keep hitting the same BPT and never continue execution.
 void clear_debug_halt(struct cpu_context *cpu_ctx)
 {
-  if (cpu_ctx->state.halt & DBG_WATCHPOINT
-    || cpu_ctx->state.halt & DBG_BREAKPOINT
-    || cpu_ctx->state.halt & INST_BPT)
+  if (cpu_ctx->state.halt & (DBG_WATCHPOINT | DBG_BREAKPOINT | INST_BPT))
   {
     if (cpu_ctx->state.halt & DBG_WATCHPOINT)
     {
