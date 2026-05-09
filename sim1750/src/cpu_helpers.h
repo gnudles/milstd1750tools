@@ -1654,7 +1654,7 @@ int cpu_mainloop(struct cpu_context *cpu_ctx, uint64_t up_to_cycles)
         }
         cpu_ctx->state.reg.check_pir |= cpu_ctx->state.reg.last_pir ^ cpu_ctx->state.reg.pir;
         cpu_ctx->state.reg.last_pir = cpu_ctx->state.reg.pir;
-        cpu_ctx->state.reg.check_pir |= cpu_ctx->state.reg.last_mk ^ cpu_ctx->state.reg.mk;
+        cpu_ctx->state.reg.check_pir |= cpu_ctx->state.reg.mk & (~cpu_ctx->state.reg.last_mk);
         cpu_ctx->state.reg.last_mk = cpu_ctx->state.reg.mk;
         if (cpu_ctx->state.reg.check_pir )
         {
