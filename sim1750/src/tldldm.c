@@ -74,7 +74,7 @@ check_ldmline (char *line)
   switch (line[COMMAND])
     {
     case 'M':
-      cmd_m_c_t = TRUE;		/* slides through to following case */
+      cmd_m_c_t = TRUE;		/* fallthrough */
     case 'I':
     case 'O':
       code = 0x9;
@@ -97,13 +97,13 @@ check_ldmline (char *line)
       cmd_m_c_t = TRUE;
       break;
     case 'Z':
-      address_field_used = FALSE;	/* slides through to following case */
+      address_field_used = FALSE;	/* fallthrough */
     case 'G':
     case 'H':
       code = 0x8;
       break;
     case 'C':
-      cmd_m_c_t = TRUE;		/* slides through to following case */
+      cmd_m_c_t = TRUE;		/* fallthrough */
     case 'B':
     case 'P':
       code = 0xE;
