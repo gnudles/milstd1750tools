@@ -38,7 +38,7 @@ static void mark_wp_write_hit(struct cpu_context *cpu_ctx, uint phys_address, ui
     int idx = find_watchpt(cpu_ctx, WRITE, phys_address);
     if (idx >= 0)
     {
-        cpu_ctx->state.halt = DBG_WATCHPOINT;
+        cpu_ctx->state.halt |= DBG_WATCHPOINT;
         cpu_ctx->watchpt[idx].hitted = true;
         cpu_ctx->watchpt[idx].old_value = access_memory(&cpu_ctx->state, phys_address >> 12)[phys_address & 0xFFF];
         cpu_ctx->watchpt[idx].new_value = new_value;
@@ -49,7 +49,7 @@ static void mark_wp_read_hit(struct cpu_context *cpu_ctx, uint phys_address) {
     int idx = find_watchpt(cpu_ctx, READ, phys_address);
     if (idx >= 0)
     {
-        cpu_ctx->state.halt = DBG_WATCHPOINT;
+        cpu_ctx->state.halt |= DBG_WATCHPOINT;
         cpu_ctx->watchpt[idx].hitted = true;
         cpu_ctx->watchpt[idx].old_value = access_memory(&cpu_ctx->state, phys_address >> 12)[phys_address & 0xFFF];
     }
@@ -128,7 +128,7 @@ static uint calc_quarter_page_address_write_data(struct cpu_state *cpu, uint16_t
     {
         cpu->reg.pir |= INTR_MACHERR;
         cpu->reg.ft |= FT_ILL_ADDR;
-        cpu->halt = HALT_ILL_MEM;
+        cpu->halt |= HALT_ILL_MEM;
         return 0xFFFFFFFF;
     }
     uint phys_qpage = (phys_page << 2) | (logical_qpage & 0x3);
@@ -226,7 +226,7 @@ static uint calc_page_address_read_data(struct cpu_state *cpu, uint16_t logical_
     {
         cpu->reg.pir |= INTR_MACHERR;
         cpu->reg.ft |= FT_ILL_ADDR;
-        cpu->halt = HALT_ILL_MEM;
+        cpu->halt |= HALT_ILL_MEM;
         fprintf(stderr, "Accessing non existing page!\n");
         return 0xFFFFFFFF;
     }
@@ -262,7 +262,7 @@ static uint calc_page_address_read_data_intr(struct cpu_state *cpu, uint16_t log
     {
         cpu->reg.pir |= INTR_MACHERR;
         cpu->reg.ft |= FT_ILL_ADDR;
-        cpu->halt = HALT_ILL_MEM;
+        cpu->halt |= HALT_ILL_MEM;
         fprintf(stderr, "Accessing non existing page!\n");
         return 0xFFFFFFFF;
     }
@@ -297,7 +297,7 @@ static uint calc_page_address_read_code(struct cpu_state *cpu, uint16_t logical_
     {
         cpu->reg.pir |= INTR_MACHERR;
         cpu->reg.ft |= FT_MEMPROT;
-        cpu->halt = HALT_NON_EXEC;
+        cpu->halt |= HALT_NON_EXEC;
         return 0xFFFFFFFF;
     }
 
@@ -317,7 +317,7 @@ static uint calc_page_address_read_code(struct cpu_state *cpu, uint16_t logical_
     {
         cpu->reg.pir |= INTR_MACHERR;
         cpu->reg.ft |= FT_ILL_ADDR;
-        cpu->halt = HALT_ILL_MEM;
+        cpu->halt |= HALT_ILL_MEM;
         fprintf(stderr, "Accessing non existing page!\n");
         return 0xFFFFFFFF;
     }
@@ -331,7 +331,7 @@ static uint calc_page_address_read_code(struct cpu_state *cpu, uint16_t logical_
         }
         fprintf(stderr, "get_page_address_read_code: cannot execute unallocated page!\n");
 
-        cpu->halt = HALT_NON_EXEC;
+        cpu->halt |= HALT_NON_EXEC;
 
     }
     cpu->code_read_cache.valid |= 0x8000U >> (logical_page);
@@ -1060,7 +1060,6 @@ A00D RMFS	Read Memory Fault Status:  This command transfers the 16-bit
     switch(xio_address)
     {
         case XIO_SMK_2000: /*set interrupt mask*/
-            cpu_ctx->state.reg.check_pir |= cpu_ctx->state.reg.mk ^ *transfer;
             cpu_ctx->state.reg.mk = *transfer;
             break;
         case XIO_CLIR_2001: /*clear interrupt request*/
@@ -1615,7 +1614,7 @@ int cpu_mainloop(struct cpu_context *cpu_ctx, uint64_t up_to_cycles)
                 else
                 {
                     cpu_ctx->breakpt[bp_index].hitted = true;
-                    cpu_ctx->state.halt = DBG_BREAKPOINT;
+                    cpu_ctx->state.halt |= DBG_BREAKPOINT;
                     cpu_ctx->bpindex = bp_index;
                     calculate_timers(cpu_ctx);
                     break;
@@ -1655,13 +1654,15 @@ int cpu_mainloop(struct cpu_context *cpu_ctx, uint64_t up_to_cycles)
         }
         cpu_ctx->state.reg.check_pir |= cpu_ctx->state.reg.last_pir ^ cpu_ctx->state.reg.pir;
         cpu_ctx->state.reg.last_pir = cpu_ctx->state.reg.pir;
+        cpu_ctx->state.reg.check_pir |= cpu_ctx->state.reg.mk & (~cpu_ctx->state.reg.last_mk);
+        cpu_ctx->state.reg.last_mk = cpu_ctx->state.reg.mk;
         if (cpu_ctx->state.reg.check_pir )
         {
            
             if (has_pending_interrupt(cpu_ctx))
             {
                 /* check if we hit a watchpoint */
-                if (cpu_ctx->state.halt == DBG_WATCHPOINT) /* do not process interrupts after watch points */
+                if (cpu_ctx->state.halt & DBG_WATCHPOINT) /* do not process interrupts after watch points */
                 {
                     cpu_ctx->state.need_to_process_intr_after_watchpoint = true;
                     break;
@@ -1685,7 +1686,7 @@ int cpu_mainloop(struct cpu_context *cpu_ctx, uint64_t up_to_cycles)
 void interpret_ILLEGAL(struct cpu_context *cpu_ctx, uint16_t opcode, uint16_t /*imm_value*/) {
     cpu_ctx->state.reg.pir |= INTR_MACHERR;
     cpu_ctx->state.reg.ft |= FT_ILL_INSTR;
-    cpu_ctx->state.halt = HALT_ILL_INST;
+    cpu_ctx->state.halt |= HALT_ILL_INST;
     fprintf(stderr,"encountered illegal instruction\n");
 }
 extern void process_xio(struct cpu_context *cpu_ctx, ushort io_addr, ushort *transfer);
