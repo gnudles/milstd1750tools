@@ -95,7 +95,7 @@ void emit_shift_instruction (OpcodeDef *def)
                 printf("    val = (int32_t)(((uint32_t)val << shift) | ((uint32_t)val >> (32 - shift)));\n");
             }
             else
-                printf("    val <<= shift;\n");
+                printf("    val = (uint32_t)val << shift;\n");
             
         } else if (dir == SHIFT_RIGHT) {
             if (cyclic)
@@ -258,7 +258,7 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
     }
 
     
-    if (def->format == IF_REG_REG) {
+    else if (def->format == IF_REG_REG) {
         printf("    uint16_t RA = (opcode & 0x00F0) >> 4;\n");
         printf("    uint16_t RB = opcode & 0x000F;\n");
         /* if not in     OP_FLT_TO_INT16, OP_INT16_TO_FLT, OP_EFLT_TO_INT32,    OP_INT32_TO_EFLT    */
@@ -271,7 +271,7 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
             }
         }
     }
-    if (def->format == IF_REG_CONST) {
+    else if (def->format == IF_REG_CONST) {
         printf("    uint16_t RA = (opcode & 0x00F0) >> 4;\n");
         if (def->addr_mode == AM_IMM_SHRT_POS_ISP || def->addr_mode == AM_IMM_SHRT_NEG_ISN)
             printf("    int16_t DO[1];\n");
@@ -325,9 +325,7 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
         printf("    uint16_t N = (opcode & 0x00F0) >> 4;\n");
         printf("    uint16_t RB = opcode & 0x000F;\n");
     }
-    else {
-        printf("    /* TODO: Implement logic for instruction format %d and addressing mode %d */\n", def->format, def->addr_mode);
-    }
+    
     if (has_DO_ADDR)
     {
         if (def->op_type != OP_STORE && def->op_type != OP_STORE_EFFECTIVE && def->op_type != OP_LOAD_EFFECTIVE && def->op_type != OP_JUMP_COND && def->op_type != OP_JUMP_SUBRTN
@@ -595,8 +593,8 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
             else if (DO_SIZE == 2)
             {
                 /* 32-bit values spread across two 16-bit registers */
-                printf("    int32_t a = ((int32_t)cpu_ctx->state.reg.r[(RA+0)&0xF] << 16) | (uint16_t)cpu_ctx->state.reg.r[(RA+1)&0xF];\n");
-                printf("    int32_t b = ((int32_t)DO[0] << 16) | (uint16_t)DO[1];\n");
+                printf("    int32_t a = ((uint32_t)(uint16_t)cpu_ctx->state.reg.r[(RA+0)&0xF] << 16) | (uint16_t)cpu_ctx->state.reg.r[(RA+1)&0xF];\n");
+                printf("    int32_t b = ((uint32_t)(uint16_t)DO[0] << 16) | (uint16_t)DO[1];\n");
                 
                 if (def->op_type == OP_ADD) {
                     printf("    int64_t res = (int64_t)a + (int64_t)b;\n");
@@ -651,7 +649,7 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
                 printf("    cpu_ctx->state.total_cycles += CLK_CYC_ABS(val < 0);\n");
                 /* Carry is unconditionally cleared by calculate_flags_16bit, which is correct for ABS */
             } else if (DO_SIZE == 2) {
-                printf("    int32_t val = ((int32_t)DO[0] << 16) | (uint16_t)DO[1];\n");
+                printf("    int32_t val = ((uint32_t)(uint16_t)DO[0] << 16) | (uint16_t)DO[1];\n");
                 printf("    if (val == (int32_t)0x80000000) cpu_ctx->state.reg.pir |= INTR_FIXOFL;\n");
                 printf("    int32_t res = (val < 0) ? -val : val;\n");
                 printf("    cpu_ctx->state.reg.r[(RA+0)&0xF] = (uint16_t)(res >> 16);\n");
