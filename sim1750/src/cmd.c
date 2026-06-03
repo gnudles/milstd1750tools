@@ -656,12 +656,16 @@ co_sh (int argc, char *argv[])
 #endif
   else
     {
-      strcpy (commandline, "");
+      char *ptr = commandline;
+      *ptr = '\0';
       for (i = 1; i < argc; i++)
 	{
+	  int len;
 	  if (i > 1)
-	    strcat (commandline, " ");
-	  strcat (commandline, argv[i]);
+	    *ptr++ = ' ';
+	  len = strlen (argv[i]);
+	  memcpy (ptr, argv[i], len + 1);
+	  ptr += len;
 	}
     }
   retval = system (commandline);
