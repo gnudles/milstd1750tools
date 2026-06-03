@@ -42,7 +42,7 @@ lprintf (char *layout, ...)
 
   va_start (vargu, layout);
 
-  vsprintf (output_line, layout, vargu);
+  vsnprintf (output_line, sizeof(output_line), layout, vargu);
   printf ("%s", output_line);
 
   if (logfile != (FILE *) 0)
@@ -70,7 +70,7 @@ info (char *layout, ...)
     return INFO;
 
   va_start (vargu, layout);
-  vsprintf (global_message, layout, vargu);
+  vsnprintf (global_message, sizeof(global_message), layout, vargu);
   va_end (vargu);
 
   lprintf ("%s\n", global_message);
@@ -84,7 +84,7 @@ warning (char *layout, ...)
   va_list vargu;
 
   va_start (vargu, layout);
-  vsprintf (global_message, layout, vargu);
+  vsnprintf (global_message, sizeof(global_message), layout, vargu);
   va_end (vargu);
 
   lprintf ("%s\n", global_message);
@@ -98,7 +98,7 @@ error (char *layout, ...)
   va_list vargu;
 
   va_start (vargu, layout);
-  vsprintf (global_message, layout, vargu);
+  vsnprintf (global_message, sizeof(global_message), layout, vargu);
   va_end (vargu);
 
   lprintf ("%s\n", global_message);
