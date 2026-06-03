@@ -313,10 +313,28 @@ get_line (char *buffer)
 #ifdef GNU_READLINE
   if (actinfile == 0)
     {
-      strcpy (buffer, readline (prompt));
-      if (strlen (buffer) > 0)
-	add_history (buffer);
-      return 0;
+      char *rl_buf;
+      while (1)
+	{
+	  rl_buf = readline (prompt);
+	  if (rl_buf == NULL)
+	    {
+	      leave = QUIT;
+	      buffer[0] = '\0';
+	      return (-1);
+	    }
+	  if (strlen (rl_buf) >= 256)
+	    {
+	      lprintf ("Input too long, please try again.\n");
+	      free (rl_buf);
+	      continue;
+	    }
+	  strcpy (buffer, rl_buf);
+	  if (strlen (buffer) > 0)
+	    add_history (buffer);
+	  free (rl_buf);
+	  return 0;
+	}
     }
 #endif
 
@@ -363,7 +381,7 @@ interpreter (char *startup_batchfile)
   char buffer[256];
   bool have_args;
   int f_argc;
-  char *f_argv[MAXCOMARGS + 1], *keyword, *p;
+  char *f_argv[MAXCOMARGS + 2], *keyword, *p;
   int i, comindex;
 
   if (startup_batchfile != NULL)
@@ -374,11 +392,6 @@ interpreter (char *startup_batchfile)
       else
         error ("could not open startup batchfile %s", startup_batchfile);
     }
-
-  f_argv[0] = (char *) calloc (1, 128);
-  for (i = 1; i <= MAXCOMARGS; i++)
-    if ((f_argv[i] = (char *) calloc (1, 64)) == NULL)
-      problem ("interpreter: could not allocate cmd string space");
 
   while (1)
     {
@@ -428,7 +441,8 @@ interpreter (char *startup_batchfile)
 	}
       if (have_args)
 	*p = ' ';
-      strcpy (f_argv[0], keyword);
+
+      f_argv[0] = keyword;
       f_argc = 1;
       if (have_args)
 	{
@@ -438,13 +452,17 @@ interpreter (char *startup_batchfile)
 		p++;
 	      if (*p == '\0')
 		break;
-	      i = 0;
+	      f_argv[f_argc++] = p;
 	      while (*p && ! isspace (*p))
-		  *(f_argv[f_argc] + i++) = *p++;
-	      *(f_argv[f_argc++] + i) = '\0';
+		p++;
+	      if (*p != '\0')
+	        {
+	          *p++ = '\0';
+	        }
+	      if (f_argc >= MAXCOMARGS) break;
 	    }
 	}
-      *f_argv[f_argc] = '\0';
+      f_argv[f_argc] = NULL;
 
       (*comtab[comindex].function) (f_argc, f_argv);
 
