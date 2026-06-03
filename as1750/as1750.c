@@ -36,7 +36,7 @@ error (char *layout,...)	/*  Return the ERROR status code. */
   char output_line[132];
 
   va_start (vargu, layout);
-  vsprintf (output_line, layout, vargu);
+  vsnprintf (output_line, sizeof(output_line), layout, vargu);
   fprintf (stderr, "%s line%5d: %s\n", nopath (file[curr_file].name),
 	   file[curr_file].line_number, output_line);
   va_end (vargu);
