@@ -602,18 +602,22 @@ co_batch (int argc, char *argv[])
 static int
 co_logopen (int argc, char *argv[])
 {
+  if (logfile != (FILE *) 0)
+    {
+      sprintf (global_message, "logfile >> %s << already open", logfilename);
+      return (1);
+    }
   if (argc >= 2)
     {
-      if (logfile != (FILE *) 0)
-	{
-	  sprintf (global_message, "logfile >> %s << already open", logfilename);
-	  return (1);
-	}
-      strcpy (logfilename, argv[1]);
+      strncpy (logfilename, argv[1], sizeof(logfilename) - 1);
+      logfilename[sizeof(logfilename) - 1] = '\0';
     }
   else
-    strcpy (logfilename, "sim1750.log");
-  if ((logfile = fopen (argv[1], "a")) == NULL)
+    {
+      strncpy (logfilename, "sim1750.log", sizeof(logfilename) - 1);
+      logfilename[sizeof(logfilename) - 1] = '\0';
+    }
+  if ((logfile = fopen (logfilename, "a")) == NULL)
     {
       sprintf (global_message, "can't open logfile  %s", logfilename);
       return (1);
