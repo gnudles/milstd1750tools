@@ -24,6 +24,7 @@ OBJECTS= $(OBJ)/arith.o		\
 	 $(OBJ)/break.o		\
 	 $(OBJ)/cmd.o		\
 	 $(OBJ)/cpu.o		\
+	 $(OBJ)/dap.o		\
 	 $(OBJ)/dism1750.o	\
 	 $(OBJ)/do_xio.o	\
 	 $(OBJ)/exec.o		\
@@ -54,7 +55,7 @@ all: sim1750 interp_gen test_inst
 
 sim1750: $(OBJ) $(OBJECTS)
 	# $(CC) $(CFLAGS) -o $(PROJ_DIR)/sim1750 $(OBJECTS) -lm -ltermcap
-	$(CC) $(CFLAGS) -o $(PROJ_DIR)/sim1750 $(OBJECTS) -lm -lreadline
+	$(CC) $(CFLAGS) -o $(PROJ_DIR)/sim1750 $(OBJECTS) -lm -lreadline -ljson-c
 interp_gen: $(OBJ)/m1750_def.o $(OBJ)/interp_gen.o
 	$(CC) $(CFLAGS) -o $(PROJ_DIR)/interp_gen $(OBJ)/m1750_def.o $(OBJ)/interp_gen.o
 $(SRC)/generated_cpu.h: interp_gen
@@ -95,6 +96,9 @@ $(OBJ)/cmd.o: $(SRC)/utils.h $(SRC)/status.h \
 	  $(SRC)/loadfile.h $(SRC)/tekops.h $(SRC)/phys_mem.h $(SRC)/break.h \
 	  $(SRC)/exec.h $(SRC)/cmd.c
 	$(CC) -c $(CFLAGS) $(SRC)/cmd.c	-o $(OBJ)/cmd.o
+
+$(OBJ)/dap.o: $(SRC)/dap.h $(SRC)/dap.c
+	$(CC) -c $(CFLAGS) $(SRC)/dap.c	-o $(OBJ)/dap.o
 
 $(OBJ)/cpu.o: $(SRC)/xiodef.h $(SRC)/status.h \
 	  $(SRC)/stime.h $(SRC)/flt1750.h $(SRC)/phys_mem.h $(SRC)/break.h \

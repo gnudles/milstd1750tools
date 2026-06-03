@@ -60,6 +60,7 @@
 #include "tekops.h"
 #include "utils.h"
 #include "stime.h"
+#include "dap.h"
 
 /* imports not mentioned in includefiles */
 
@@ -96,6 +97,7 @@ static int co_batch P, co_logopen P, co_logclose P, co_sh P, co_exit P;
 static int co_echo P, co_help P, co_info P, co_speed P, co_timers P;
 static int co_version P, co_shoc P, co_war P;
 static int co_cpu P;
+static int co_dap P;
 static int si_dispreg P, si_disasm P, si_dispmem P, si_dispflt P;
 static int si_dispeflt P, si_dispchar P, si_changemem P, si_changereg P;
 static int si_init P, si_reset P, si_tr P, si_page P, si_fill P;
@@ -330,6 +332,11 @@ static const struct {
        "" },
    { "exit",                   co_exit,     "synonym for 'quit'",
        "" },
+   { "dap [port]",             co_dap,      "start DAP server",
+       "Starts the Debug Adapter Protocol server on the specified port.\n"
+       "If no port is given, it defaults to 4711. The simulator will\n"
+       "block waiting for a connection, and will take over until the\n"
+       "client disconnects." },
 /*
    { "echo <text>",            co_echo,     "echo text to stdout",
        "" },
@@ -909,6 +916,15 @@ co_war (int argc, char *argv[])
   return (0);
 }
 
+static int
+co_dap (int argc, char *argv[])
+{
+  int port = 4711;
+  if (argc > 1)
+    port = atoi (argv[1]);
+  dap_server_start (port);
+  return (0);
+}
 
 
 #define DUMPLEN		8	/* line length of memory dump function */
