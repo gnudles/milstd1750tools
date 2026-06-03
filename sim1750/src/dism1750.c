@@ -81,7 +81,7 @@ dsprintf (char *string, char *layout, ...)
 
   va_start (vargu, layout);
 /*  layout = va_arg (vargu, char *); */
-  vsprintf (output_line, layout, vargu);
+  vsnprintf (output_line, sizeof(output_line), layout, vargu);
   va_end (vargu);
 
   strcat (string, output_line);
