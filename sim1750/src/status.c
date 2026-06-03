@@ -42,7 +42,7 @@ lprintf (char *layout, ...)
 
   va_start (vargu, layout);
 
-  vsprintf (output_line, layout, vargu);
+  vsnprintf (output_line, sizeof(output_line), layout, vargu);
   printf ("%s", output_line);
 
   if (logfile != (FILE *) 0)
