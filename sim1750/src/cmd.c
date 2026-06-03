@@ -559,7 +559,7 @@ sys_int (int val)
 	}
       int_count = 0;
       retval++;
-      sprintf (global_message, "%d Level(s) interrupted (%d)", retval, val);
+      snprintf (global_message, GLOBAL_MESSAGE_SIZE, "%d Level(s) interrupted (%d)", retval, val);
     }
 
   return (retval);
@@ -578,12 +578,12 @@ co_batch (int argc, char *argv[])
     {
       if (actinfile >= MAXINFILES - 1)
 	{
-	  sprintf (global_message, "maximal batch level exceeded");
+	  snprintf (global_message, GLOBAL_MESSAGE_SIZE, "maximal batch level exceeded");
 	  retval = 1;
 	}
       else if ((helpfp = fopen (argv[1], "r")) == NULL)
 	{
-	  sprintf (global_message, "can't open batchfile  %s", argv[1]);
+	  snprintf (global_message, GLOBAL_MESSAGE_SIZE, "can't open batchfile  %s", argv[1]);
 	  retval = 1;
 	}
       else
@@ -593,7 +593,7 @@ co_batch (int argc, char *argv[])
     }
   else
     {
-      sprintf (global_message, "argument missing (filename)");
+      snprintf (global_message, GLOBAL_MESSAGE_SIZE, "argument missing (filename)");
       retval = 1;
     }
   return (retval);
@@ -606,7 +606,7 @@ co_logopen (int argc, char *argv[])
     {
       if (logfile != (FILE *) 0)
 	{
-	  sprintf (global_message, "logfile >> %s << already open", logfilename);
+	  snprintf (global_message, GLOBAL_MESSAGE_SIZE, "logfile >> %s << already open", logfilename);
 	  return (1);
 	}
       strcpy (logfilename, argv[1]);
@@ -615,7 +615,7 @@ co_logopen (int argc, char *argv[])
     strcpy (logfilename, "sim1750.log");
   if ((logfile = fopen (argv[1], "a")) == NULL)
     {
-      sprintf (global_message, "can't open logfile  %s", logfilename);
+      snprintf (global_message, GLOBAL_MESSAGE_SIZE, "can't open logfile  %s", logfilename);
       return (1);
     }
   return (0);
@@ -629,7 +629,7 @@ co_logclose (int argc, char *argv[])
 
   if (logfile == (FILE *) 0)
     {
-      sprintf (global_message, "no logfile open");
+      snprintf (global_message, GLOBAL_MESSAGE_SIZE, "no logfile open");
       retval = 1;
     }
   else

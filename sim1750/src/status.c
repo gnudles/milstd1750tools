@@ -42,7 +42,7 @@ lprintf (char *layout, ...)
 
   va_start (vargu, layout);
 
-  vsprintf (output_line, layout, vargu);
+  vsnprintf (output_line, sizeof(output_line), layout, vargu);
   printf ("%s", output_line);
 
   if (logfile != (FILE *) 0)
@@ -54,7 +54,7 @@ lprintf (char *layout, ...)
 }
 
 
-char global_message[1024];
+char global_message[GLOBAL_MESSAGE_SIZE];
 
 /* The below functions fill the global_message buffer, and return
    a status value that is apppropriate for the message class
@@ -70,7 +70,7 @@ info (char *layout, ...)
     return INFO;
 
   va_start (vargu, layout);
-  vsprintf (global_message, layout, vargu);
+  vsnprintf (global_message, GLOBAL_MESSAGE_SIZE, layout, vargu);
   va_end (vargu);
 
   lprintf ("%s\n", global_message);
@@ -84,7 +84,7 @@ warning (char *layout, ...)
   va_list vargu;
 
   va_start (vargu, layout);
-  vsprintf (global_message, layout, vargu);
+  vsnprintf (global_message, GLOBAL_MESSAGE_SIZE, layout, vargu);
   va_end (vargu);
 
   lprintf ("%s\n", global_message);
@@ -98,7 +98,7 @@ error (char *layout, ...)
   va_list vargu;
 
   va_start (vargu, layout);
-  vsprintf (global_message, layout, vargu);
+  vsnprintf (global_message, GLOBAL_MESSAGE_SIZE, layout, vargu);
   va_end (vargu);
 
   lprintf ("%s\n", global_message);

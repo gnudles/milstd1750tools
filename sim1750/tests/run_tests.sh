@@ -1,5 +1,5 @@
 #!/bin/bash
-cd sim1750
+cd .
 for f in tests/*.ldm; do
   echo "Testing $f"
   # Just load and run a simple test for sanity

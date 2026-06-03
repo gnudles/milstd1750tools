@@ -14,13 +14,15 @@
 #define INTERRUPT   1704  /* returnvalue if function has been interrupted */
 #define QUIT        -999
 
+#define GLOBAL_MESSAGE_SIZE 1024
+
 /* exports */
 extern FILE  *logfile;
 extern void  lprintf (char *layout, ...);   /* printf with logfile output */
 extern int   info (char *layout, ...);
 extern int   warning (char *layout, ...);
 extern int   error (char *layout, ...);
-extern char  global_message[];
+extern char  global_message[GLOBAL_MESSAGE_SIZE];
 
 /* command line switches of global relevance (defined in main.c) */
 extern bool verbose;
