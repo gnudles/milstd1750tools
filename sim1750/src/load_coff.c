@@ -869,6 +869,7 @@ load_coff (char *filename)
   /* char lline [strlen (filename) + 5]; */
   char * lline;
   int retval;
+  size_t filename_len = strlen(filename);
 
   /* remove any previous COFF info */
   if (syms != NULL)
@@ -878,11 +879,11 @@ load_coff (char *filename)
     free (str_tab);
 
   /* get space for extended file name */
-  lline = (char *)malloc(strlen(filename) + 5);
+  lline = (char *)malloc(filename_len + 5);
   if (lline == (char *) NULL)
     {
-      return error("Cannot malloc %d characters", strlen(filename)
-                 + 5);
+      return error("Cannot malloc %d characters", (int)(filename_len
+                 + 5));
     }
 
   if ((loadfile = fopen (filename, "rb")) == (FILE *) 0)
