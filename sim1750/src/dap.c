@@ -51,6 +51,42 @@ static void handle_request(int client_sock, struct json_object *req) {
         json_object_object_add(resp, "body", body);
     } else if (strcmp(command, "disconnect") == 0) {
         // Just send success
+    } else if (strcmp(command, "launch") == 0 || strcmp(command, "attach") == 0) {
+        // Just send success
+    } else if (strcmp(command, "setBreakpoints") == 0) {
+        struct json_object *body = json_object_new_object();
+        json_object_object_add(body, "breakpoints", json_object_new_array());
+        json_object_object_add(resp, "body", body);
+    } else if (strcmp(command, "threads") == 0) {
+        struct json_object *body = json_object_new_object();
+        json_object_object_add(body, "threads", json_object_new_array());
+        json_object_object_add(resp, "body", body);
+    } else if (strcmp(command, "stackTrace") == 0) {
+        struct json_object *body = json_object_new_object();
+        json_object_object_add(body, "stackFrames", json_object_new_array());
+        json_object_object_add(body, "totalFrames", json_object_new_int(0));
+        json_object_object_add(resp, "body", body);
+    } else if (strcmp(command, "scopes") == 0) {
+        struct json_object *body = json_object_new_object();
+        json_object_object_add(body, "scopes", json_object_new_array());
+        json_object_object_add(resp, "body", body);
+    } else if (strcmp(command, "variables") == 0) {
+        struct json_object *body = json_object_new_object();
+        json_object_object_add(body, "variables", json_object_new_array());
+        json_object_object_add(resp, "body", body);
+    } else if (strcmp(command, "stepIn") == 0 || strcmp(command, "stepOut") == 0 ||
+               strcmp(command, "next") == 0 || strcmp(command, "continue") == 0) {
+        // Just send success
+    } else if (strcmp(command, "evaluate") == 0) {
+        struct json_object *body = json_object_new_object();
+        json_object_object_add(body, "result", json_object_new_string(""));
+        json_object_object_add(body, "variablesReference", json_object_new_int(0));
+        json_object_object_add(resp, "body", body);
+    } else if (strcmp(command, "readMemory") == 0) {
+        struct json_object *body = json_object_new_object();
+        json_object_object_add(body, "address", json_object_new_string("0"));
+        json_object_object_add(body, "data", json_object_new_string(""));
+        json_object_object_add(resp, "body", body);
     } else {
         // Stub for all other requests
         json_object_object_add(resp, "success", json_object_new_boolean(0));
