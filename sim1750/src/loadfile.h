@@ -2,10 +2,11 @@
 
 #ifndef _LOADFILE_H
 #define _LOADFILE_H
-
-extern char *find_labelname (unsigned int address);
-extern int  find_address (char *labelname);
-extern void init_load_formats ();
+#include "cpu_ctx.h"
+extern char *find_labelname (struct cpu_context *ctx, unsigned int address);
+extern int  find_address (struct cpu_context *ctx, const char *labelname);
+extern void free_symtab (struct cpu_context *ctx);
+extern void init_load_formats (struct cpu_context *ctx);
 extern int  si_dispsym (int argc, char *argv[]);
 extern int  si_prolo (int argc, char *argv[]);
 extern int  si_pslo  (int argc, char *argv[]);
@@ -20,4 +21,3 @@ typedef enum { TLD_LDM, XTC_LDM, TEK_HEX, COFF, NONE} loadfile_t;
 extern loadfile_t loadfile_type;
 
 #endif
-

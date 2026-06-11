@@ -40,7 +40,7 @@
 
 /* Imports */
 
-extern void  dis_reg ();	/* cmd.c */
+extern void  dis_reg (struct cpu_context *);	/* cmd.c */
 extern int   sys_int (int);	/* cmd.c */
 extern char *disassemble (struct cpu_state *cpu);	/* sdisasm.c */
 extern int scan_instructions_from_address(struct cpu_context *cpu_ctx, ushort address); /* jit.c */
@@ -283,7 +283,7 @@ si_go (int argc, char *argv[])
 }
 
 void
-dis_reg (struct cpu_state *cpu);
+dis_reg (struct cpu_context *cpu);
 int
 si_snglstp (int argc, char *argv[])
 {
@@ -340,7 +340,7 @@ si_snglstp (int argc, char *argv[])
     {
       while (count-- > 0)
 	{
-    dis_reg(&sim_cpu_ctx->state);
+    dis_reg(sim_cpu_ctx);
 	  if (sys_int (1))
 	    return (INTERRUPT);
 	  if (at_bpt_instruction (&sim_cpu_ctx->state))
@@ -440,5 +440,3 @@ si_bt (int argc, char *argv[])
 
   return (OKAY);
 }
-
-

@@ -53,7 +53,7 @@ put_hilo16 (ushort word, FILE *fp)
   return 0;
 }
 
-/* Get a binary 16-bit word in high byte, low byte order from file. 
+/* Get a binary 16-bit word in high byte, low byte order from file.
    Return 0 for success, or EOF on end-of-file. */
 int
 get_hilo16 (ushort *wordpointer, FILE *fp)
@@ -68,50 +68,55 @@ get_hilo16 (ushort *wordpointer, FILE *fp)
 
 
 void
-init_load_formats ()
+init_load_formats (struct cpu_context *ctx)
 {
   loadfile_type = NONE;
-
-  init_tekops();
+  free_symtab(ctx);
   /* insert further loadfile specific initialization calls if needed */
 }
 
 
 loadfile_t loadfile_type = NONE;
-
 char *
-find_labelname (uint address)
+find_labelname (struct cpu_context *ctx, uint address)
 {
   switch (loadfile_type)
     {
     case TEK_HEX:
       return find_tek_label (address);
 
-    /* other load formats To Be Done */
 
-    default:
-      return NULL;
-    }
+
+char *find_labelname(struct cpu_context *ctx, uint address) {
+    if (ctx->symtab.ops && ctx->symtab.ops->find_label)
+        return ctx->symtab.ops->find_label(ctx->symtab.data, address);
+    return NULL;
 }
 
 
-int
-find_address (char *labelname)
-{
-  switch (loadfile_type)
-    {
-    case TEK_HEX:
-      return find_tek_address (labelname);
-    case COFF:
-      return find_coff_address (labelname);
-    default:
-      return -1;
+int find_address(struct cpu_context *ctx, const char *labelname) {
+    if (ctx->symtab.ops && ctx->symtab.ops->find_address)
+        return ctx->symtab.ops->find_address(ctx->symtab.data, labelname);
+    return -1;
+}
+
+void free_symtab(struct cpu_context *ctx) {
+    if (ctx->symtab.ops && ctx->symtab.ops->free_data) {
+        ctx->symtab.ops->free_data(ctx->symtab.data);
+        ctx->symtab.data = NULL;
+        ctx->symtab.ops = NULL;
     }
 }
 
 
 /* display symbols from loadfile last loaded */
 
+int si_dispsym(int argc, char *argv[]) {
+    if (sim_cpu_ctx->symtab.ops && sim_cpu_ctx->symtab.ops->display_symbols)
+        return sim_cpu_ctx->symtab.ops->display_symbols(sim_cpu_ctx->symtab.data);
+    return OKAY;
+}
+#if 0
 int
 si_dispsym (int argc, char *argv[])
 {
@@ -125,6 +130,7 @@ si_dispsym (int argc, char *argv[])
       return OKAY;
     }
 }
+#endif
 
 
 /* load absolute binary PROM image file */
@@ -224,5 +230,3 @@ si_pslo (int argc, char *argv[])
   verbose = verbose_save;
   return (status);
 }
-
-

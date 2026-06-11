@@ -33,7 +33,7 @@
 /* If the macro symbol HAVE_SYMBOLS is defined, then instruction and
    operand addresses are displayed with their symbolic names if possible.
    In order to do this, the external function
-       char *find_label (struct cpu_state *cpu, int bank, unsigned short address);
+       char *find_label (struct cpu_context *cpu, int bank, unsigned short address);
    must be supplied. The 'bank' argument is 0 for instruction-page addresses
    and 1 for operand-page addresses. The function returns the label string
    if found at the logical address given, or NULL if there is no label at
@@ -45,18 +45,18 @@
 #include <string.h>
 #include <stdarg.h>
 
-#include "arch.h"
+#include "cpu_ctx.h"
 #include "targsys.h"
 #include "xiodef.h"
 
 /* Export */
 
-int dism1750 (struct cpu_state *cpu, char *text, ushort *word);
+int dism1750 (struct cpu_context *cpu, char *text, ushort *word);
 
 /* Symbolic display of labels */
 
 #ifdef HAVE_SYMBOLS
-extern char *find_label (struct cpu_state *cpu, int bank, ushort address);
+extern char *find_label (struct cpu_context *cpu, int bank, ushort address);
 #else
 #define find_label(cpu,bank,addr)	NULL
 #endif
@@ -115,8 +115,8 @@ pr_str (char *string)
 #define CODE 0
 #define DATA 1
 
-static void 
-pr_addr (struct cpu_state *cpu, int bank)
+static void
+pr_addr (struct cpu_context *cpu, int bank)
 {
   char *sym = find_label (cpu, bank, dataword);
   if (sym != NULL)
@@ -129,14 +129,14 @@ pr_addr (struct cpu_state *cpu, int bank)
 /***************** Address Mode disassembly functions ******************/
 
 static int
-dis_ill (struct cpu_state *cpu)
+dis_ill (struct cpu_context *cpu)
 {
   dsprintf (msg, "illegal opcode %04hX\n", opcode);
   return 0;
 }
 
 static int
-dis_ra_addr_rx (struct cpu_state *cpu)   /* addr in operand page */
+dis_ra_addr_rx (struct cpu_context *cpu)   /* addr in operand page */
 {
   pr_reg (upper);
   pr_comma ();
@@ -150,7 +150,7 @@ dis_ra_addr_rx (struct cpu_state *cpu)   /* addr in operand page */
 }
 
 static int
-dis_ra_caddr_rx (struct cpu_state *cpu)  /* same as previous, but addr in instruction page */
+dis_ra_caddr_rx (struct cpu_context *cpu)  /* same as previous, but addr in instruction page */
 {
   pr_reg (upper);
   pr_comma ();
@@ -164,7 +164,7 @@ dis_ra_caddr_rx (struct cpu_state *cpu)  /* same as previous, but addr in instru
 }
 
 static int
-dis_n_addr_rx (struct cpu_state *cpu)
+dis_n_addr_rx (struct cpu_context *cpu)
 {
   pr_num (upper);
   pr_comma ();
@@ -178,7 +178,7 @@ dis_n_addr_rx (struct cpu_state *cpu)
 }
 
 static int
-dis_n1_addr_rx (struct cpu_state *cpu)   /* INCM, DECM */
+dis_n1_addr_rx (struct cpu_context *cpu)   /* INCM, DECM */
 {
   pr_num (upper + 1);
   pr_comma ();
@@ -192,7 +192,7 @@ dis_n1_addr_rx (struct cpu_state *cpu)   /* INCM, DECM */
 }
 
 static int
-dis_ra_rb (struct cpu_state *cpu)
+dis_ra_rb (struct cpu_context *cpu)
 {
   pr_reg (upper);
   pr_comma ();
@@ -201,7 +201,7 @@ dis_ra_rb (struct cpu_state *cpu)
 }
 
 static int
-dis_n_rb (struct cpu_state *cpu)
+dis_n_rb (struct cpu_context *cpu)
 {
   pr_num (upper);
   pr_comma ();
@@ -210,7 +210,7 @@ dis_n_rb (struct cpu_state *cpu)
 }
 
 static int
-dis_rb_n1 (struct cpu_state *cpu)    /* shift instructions */
+dis_rb_n1 (struct cpu_context *cpu)    /* shift instructions */
 {
   pr_reg (lower);
   pr_comma ();
@@ -219,7 +219,7 @@ dis_rb_n1 (struct cpu_state *cpu)    /* shift instructions */
 }
 
 static int
-dis_ra_n1 (struct cpu_state *cpu)   /* Immediate Short instructions */
+dis_ra_n1 (struct cpu_context *cpu)   /* Immediate Short instructions */
 {
   pr_reg (upper);
   pr_comma ();
@@ -228,7 +228,7 @@ dis_ra_n1 (struct cpu_state *cpu)   /* Immediate Short instructions */
 }
 
 static int
-dis_icr (struct cpu_state *cpu)   /* Instruction Counter Relative branches */
+dis_icr (struct cpu_context *cpu)   /* Instruction Counter Relative branches */
 {
   int distance = opcode & 0x00ff;
 
@@ -246,7 +246,7 @@ dis_icr (struct cpu_state *cpu)   /* Instruction Counter Relative branches */
 }
 
 static int
-dis_ra_data (struct cpu_state *cpu)  /* Immediate with opcode extension */
+dis_ra_data (struct cpu_context *cpu)  /* Immediate with opcode extension */
 {
   if ((opcode & 0xFF00) != 0xF500)  /* exclude UCIM from legality check */
     {
@@ -267,7 +267,7 @@ dis_ra_data (struct cpu_state *cpu)  /* Immediate with opcode extension */
 }
 
 static int
-dis_br_rx (struct cpu_state *cpu)   /* Base Relative with index register */
+dis_br_rx (struct cpu_context *cpu)   /* Base Relative with index register */
 {
   dsprintf (msg, "B");
   pr_num (((opcode & 0x0300) >> 8) + 12);
@@ -277,7 +277,7 @@ dis_br_rx (struct cpu_state *cpu)   /* Base Relative with index register */
 }
 
 static int
-dis_br_dspl (struct cpu_state *cpu)   /* Base Relative with displacement */
+dis_br_dspl (struct cpu_context *cpu)   /* Base Relative with displacement */
 {
   dsprintf (msg, "B");
   pr_num (((opcode & 0x0300) >> 8) + 12);
@@ -288,7 +288,7 @@ dis_br_dspl (struct cpu_state *cpu)   /* Base Relative with displacement */
 
 
 static int
-dis_ra_cmd_rx (struct cpu_state *cpu)	/* XIO */
+dis_ra_cmd_rx (struct cpu_context *cpu)	/* XIO */
 {
   int i;
 
@@ -310,7 +310,7 @@ dis_ra_cmd_rx (struct cpu_state *cpu)	/* XIO */
 }
 
 static int
-dis_bif (struct cpu_state *cpu)		/* BIF */
+dis_bif (struct cpu_context *cpu)		/* BIF */
 {
   pr_num ((upper & 0x03) + '0');
   pr_comma ();
@@ -329,7 +329,7 @@ dis_bif (struct cpu_state *cpu)		/* BIF */
 }
 
 static int
-dis_c_caddr_rx (struct cpu_state *cpu)	/* JC */
+dis_c_caddr_rx (struct cpu_context *cpu)	/* JC */
 {
   static const char *cond[16] =
     {				/*    CPZN */
@@ -362,7 +362,7 @@ dis_c_caddr_rx (struct cpu_state *cpu)	/* JC */
 }
 
 static int
-dis_n (struct cpu_state *cpu)		/* BEX */
+dis_n (struct cpu_context *cpu)		/* BEX */
 {
   if (upper != 0)
     return dis_ill (cpu);
@@ -371,7 +371,7 @@ dis_n (struct cpu_state *cpu)		/* BEX */
 }
 
 static int
-dis_addr_rx (struct cpu_state *cpu)		/* LST(I) */
+dis_addr_rx (struct cpu_context *cpu)		/* LST(I) */
 {
   if (upper != 0)
     return dis_ill (cpu);
@@ -385,7 +385,7 @@ dis_addr_rx (struct cpu_state *cpu)		/* LST(I) */
 }
 
 static int
-dis_ra (struct cpu_state *cpu)		/* XBR and URS */
+dis_ra (struct cpu_context *cpu)		/* XBR and URS */
 {
   if (lower != 0)
     return dis_ill (cpu);
@@ -398,7 +398,7 @@ dis_ra (struct cpu_state *cpu)		/* XBR and URS */
 static const struct
   { 
     char   *mnemon;
-    int    (*disasm)(struct cpu_state *cpu);
+    int    (*disasm)(struct cpu_context *cpu);
   } mnemonics[256] =
   {
     { "LB",   dis_br_dspl },		/* 00 */
@@ -732,7 +732,7 @@ static const char *start_4a[16] =
 /* Return the number of words disassembled (1 or 2.) */
 
 int
-dism1750 (struct cpu_state *cpu, char *text, ushort *word)
+dism1750 (struct cpu_context *cpu, char *text, ushort *word)
 {
   ushort opc_hibyte;
 
@@ -776,4 +776,3 @@ dism1750 (struct cpu_state *cpu, char *text, ushort *word)
   dsprintf (msg, "%-5s", mnemonics[(unsigned)opc_hibyte].mnemon);
   return (*mnemonics[(unsigned)opc_hibyte].disasm) (cpu);
 }
-
