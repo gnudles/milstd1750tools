@@ -80,7 +80,6 @@ loadfile_t loadfile_type = NONE;
 
 
 
-
 char *find_labelname(struct cpu_context *ctx, uint address) {
     if (ctx->symtab.ops && ctx->symtab.ops->find_label)
         return ctx->symtab.ops->find_label(ctx->symtab.data, address);
