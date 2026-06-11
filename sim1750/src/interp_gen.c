@@ -48,7 +48,7 @@ void emit_shift_instruction (OpcodeDef *def)
         dir = SHIFT_RIGHT;
         logical = true;
     }
-    
+
     else if (def->code == OPC_SRA || def->code == OPC_DSRA)
     {
         dir = SHIFT_RIGHT;
@@ -96,7 +96,7 @@ void emit_shift_instruction (OpcodeDef *def)
             }
             else
                 printf("    val <<= shift;\n");
-            
+
         } else if (dir == SHIFT_RIGHT) {
             if (cyclic)
             {
@@ -257,7 +257,7 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
 
     }
 
-    
+
     if (def->format == IF_REG_REG) {
         printf("    uint16_t RA = (opcode & 0x00F0) >> 4;\n");
         printf("    uint16_t RB = opcode & 0x000F;\n");
@@ -334,7 +334,7 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
              && def->op_type != OP_SUBTR_JUMP && def->op_type != OP_RET_SUBRTN && def->op_type != OP_XIO)
         {
             //if not store operation, we need to fetch derived operand (DO) from memory
-            
+
             printf ("    int16_t DO[%d];\n", DO_SIZE);
             if (DO_SIZE == 1)
             {
@@ -362,7 +362,7 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
         printf("    } else {\n");
     }
 
-    
+
     switch (def->op_type)
     {
         case OP_LOAD_EFFECTIVE:
@@ -405,7 +405,7 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
                 printf ("    cpu_ctx->state.reg.r[RA] = (DO[0] & 0x00FF) | (cpu_ctx->state.reg.r[RA] & 0xFF00);\n");
             }
             printf("    calculate_flags_16bit(cpu_ctx, cpu_ctx->state.reg.r[RA]);\n");
-        
+
             break;
         case OP_STORE:
             /* store contents of RA into DO_ADDR*/
@@ -429,8 +429,8 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
             if (def->code == OPC_STUB || def->code == OPC_SUBI) /* upper */
             {
                 printf ("    DO[0] = (DO[0] & 0x00FF) | ((cpu_ctx->state.reg.r[RA] & 0x00FF) << 8);\n");
-            } 
-            
+            }
+
             else /* lower */
             {
                 printf ("    DO[0] = (DO[0] & 0xFF00) | (cpu_ctx->state.reg.r[RA] & 0x00FF);\n");
@@ -582,13 +582,13 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
                     /* Unsigned subtraction check for Carry (No Borrow) */
                     printf("    bool carry = (uint16_t)a >= (uint16_t)b;\n");
                 }
-                
+
                 /* Check for signed Fixed-Point Overflow */
                 printf("    if (res > 32767 || res < -32768) cpu_ctx->state.reg.pir |= INTR_FIXOFL;\n");
-                
+
                 printf("    cpu_ctx->state.reg.r[(RA+0)&0xF] = (int16_t)res;\n");
                 printf("    calculate_flags_16bit(cpu_ctx, (int16_t)res);\n");
-                
+
                 /* Apply carry bit AFTER calculate_flags wipes the upper nibble */
                 printf("    if (carry) cpu_ctx->state.reg.sw |= CS_CARRY;\n");
             }
@@ -597,7 +597,7 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
                 /* 32-bit values spread across two 16-bit registers */
                 printf("    int32_t a = ((int32_t)cpu_ctx->state.reg.r[(RA+0)&0xF] << 16) | (uint16_t)cpu_ctx->state.reg.r[(RA+1)&0xF];\n");
                 printf("    int32_t b = ((int32_t)DO[0] << 16) | (uint16_t)DO[1];\n");
-                
+
                 if (def->op_type == OP_ADD) {
                     printf("    int64_t res = (int64_t)a + (int64_t)b;\n");
                     printf("    bool carry = ((uint64_t)(uint32_t)a + (uint64_t)(uint32_t)b) > 0xFFFFFFFFULL;\n");
@@ -605,15 +605,15 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
                     printf("    int64_t res = (int64_t)a - (int64_t)b;\n");
                     printf("    bool carry = (uint32_t)a >= (uint32_t)b;\n");
                 }
-                
+
                 /* Check for 32-bit signed Fixed-Point Overflow */
                 printf("    if (res > 2147483647LL || res < -2147483648LL) cpu_ctx->state.reg.pir |= INTR_FIXOFL;\n");
-                
+
                 printf("    cpu_ctx->state.reg.r[(RA+0)&0xF] = (uint16_t)(res >> 16);\n");
                 printf("    cpu_ctx->state.reg.r[(RA+1)&0xF] = (uint16_t)(res & 0xFFFF);\n");
-                
+
                 printf("    calculate_flags_32bit_reg(cpu_ctx, RA);\n");
-                
+
                 /* Apply 32-bit carry out */
                 printf("    if (carry) cpu_ctx->state.reg.sw |= CS_CARRY;\n");
             }
@@ -631,10 +631,10 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
             }
             /* Check for signed Fixed-Point Overflow */
             printf("    if (res > 32767 || res < -32768) cpu_ctx->state.reg.pir |= INTR_FIXOFL;\n");
-            
+
             printf("    DO[0] = (int16_t)res;\n");
             printf("    /* ok = */store_data_word(cpu_ctx, DO_ADDR, DO[0]);\n");
-            
+
             printf("    calculate_flags_16bit(cpu_ctx, DO[0]);\n");
             printf("    if (carry) cpu_ctx->state.reg.sw |= CS_CARRY;\n");
             break;
@@ -667,20 +667,20 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
                 /* Taking the negative of the most negative number causes an overflow */
                 printf("    if (val == (int16_t)0x8000) cpu_ctx->state.reg.pir |= INTR_FIXOFL;\n");
                 printf("    int32_t res = -(int32_t)val;\n");
-                
+
                 printf("    cpu_ctx->state.reg.r[(RA+0)&0xF] = (int16_t)res;\n");
-                
-                /* This function automatically clears the Carry bit to 0, 
+
+                /* This function automatically clears the Carry bit to 0,
                    perfectly satisfying the manual's (CS) <-- 0010 / 0001 / 0100 rules */
                 printf("    calculate_flags_16bit(cpu_ctx, (int16_t)res);\n");
             } else if (DO_SIZE == 2) {
                 printf("    int32_t val = ((int32_t)DO[0] << 16) | (uint16_t)DO[1];\n");
                 printf("    if (val == (int32_t)0x80000000) cpu_ctx->state.reg.pir |= INTR_FIXOFL;\n");
                 printf("    int64_t res = -(int64_t)val;\n");
-                
+
                 printf("    cpu_ctx->state.reg.r[(RA+0)&0xF] = (uint16_t)(res >> 16);\n");
                 printf("    cpu_ctx->state.reg.r[(RA+1)&0xF] = (uint16_t)(res & 0xFFFF);\n");
-                
+
                 printf("    calculate_flags_32bit_reg(cpu_ctx, RA);\n");
             }
             break;
@@ -689,10 +689,10 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
             printf("    int16_t A = (int16_t)cpu_ctx->state.reg.r[(RA+0)&0xF];\n");
             printf("    int16_t B = (int16_t)DO[0];\n");
             printf("    int32_t prod = (int32_t)A * (int32_t)B;\n");
-            
+
             /* If the product exceeds a 16-bit boundary, trigger Overflow */
             printf("    if (prod > 32767 || prod < -32768) cpu_ctx->state.reg.pir |= INTR_FIXOFL;\n");
-            
+
             printf("    cpu_ctx->state.reg.r[(RA+0)&0xF] = (uint16_t)(prod & 0xFFFF);\n");
             printf("    calculate_flags_16bit(cpu_ctx, (int16_t)prod);\n");
             break;
@@ -702,7 +702,7 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
             printf("    int16_t A = (int16_t)cpu_ctx->state.reg.r[(RA+0)&0xF];\n");
             printf("    int16_t B = (int16_t)DO[0];\n");
             printf("    int32_t prod = (int32_t)A * (int32_t)B;\n");
-            
+
             /* Fits perfectly, no overflow possible. Pack into RA (High) and RA+1 (Low) */
             printf("    cpu_ctx->state.reg.r[(RA+0)&0xF] = (uint16_t)((prod >> 16) & 0xFFFF);\n");
             printf("    cpu_ctx->state.reg.r[(RA+1)&0xF] = (uint16_t)(prod & 0xFFFF);\n");
@@ -714,10 +714,10 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
             printf("    int32_t A = (int32_t)(((uint32_t)(uint16_t)cpu_ctx->state.reg.r[(RA+0)&0xF] << 16) | (uint16_t)cpu_ctx->state.reg.r[(RA+1)&0xF]);\n");
             printf("    int32_t B = (int32_t)(((uint32_t)(uint16_t)DO[0] << 16) | (uint16_t)DO[1]);\n");
             printf("    int64_t prod = (int64_t)A * (int64_t)B;\n");
-            
+
             /* Overflow if product exceeds 32-bit bounds */
             printf("    if (prod > 2147483647LL || prod < -2147483648LL) cpu_ctx->state.reg.pir |= INTR_FIXOFL;\n");
-            
+
             printf("    int32_t res = (int32_t)prod;\n");
             printf("    cpu_ctx->state.reg.r[(RA+0)&0xF] = (uint16_t)((res >> 16) & 0xFFFF);\n");
             printf("    cpu_ctx->state.reg.r[(RA+1)&0xF] = (uint16_t)(res & 0xFFFF);\n");
@@ -787,7 +787,7 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
             printf("    int16_t a = cpu_ctx->state.reg.r[(RA+0)&0xF];\n");
             printf("    int16_t b = DO[0];\n");
             printf("    int16_t res;\n");
-            
+
             if (def->op_type == OP_AND) {
                 printf("    res = a & b;\n");
             } else if (def->op_type == OP_OR) {
@@ -797,7 +797,7 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
             } else if (def->op_type == OP_NAND) {
                 printf("    res = ~(a & b);\n");
             }
-            
+
             printf("    cpu_ctx->state.reg.r[(RA+0)&0xF] = res;\n");
             /* calculate_flags_16bit handles evaluating Pos/Neg/Zero and clearing Carry */
             printf("    calculate_flags_16bit(cpu_ctx, res);\n");
@@ -974,11 +974,9 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
             printf("        else cpu_ctx->state.reg.sw |= CS_NEGATIVE;\n");
             printf("    } else {\n");
             printf("        int diff = E_A - E_B;\n");
-            printf("        int64_t m_a_ext = M_A;\n");
-            printf("        int64_t m_b_ext = M_B;\n");
-            printf("        if (diff > 0) { if (diff > 24) m_b_ext >>= 24; else m_b_ext >>= diff; }\n");
-            printf("        else if (diff < 0) { if (-diff > 24) m_a_ext >>= 24; else m_a_ext >>= -diff; }\n");
-            printf("        int64_t res = m_a_ext - m_b_ext;\n");
+            printf("        if (diff > 0) { if (diff > 24) M_B >>= 24; else M_B >>= diff; }\n");
+            printf("        else if (diff < 0) { if (-diff > 24) M_A >>= 24; else M_A >>= -diff; }\n");
+            printf("        int32_t res = M_A - M_B;\n");
             printf("        if (res == 0) cpu_ctx->state.reg.sw |= CS_ZERO;\n");
             printf("        else if (res > 0) cpu_ctx->state.reg.sw |= CS_POSITIVE;\n");
             printf("        else cpu_ctx->state.reg.sw |= CS_NEGATIVE;\n");
@@ -999,11 +997,9 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
             printf("        else cpu_ctx->state.reg.sw |= CS_NEGATIVE;\n");
             printf("    } else {\n");
             printf("        int diff = E_A - E_B;\n");
-            printf("        int64_t m_a_ext = M_A;\n");
-            printf("        int64_t m_b_ext = M_B;\n");
-            printf("        if (diff > 0) { if (diff > 40) m_b_ext >>= 40; else m_b_ext >>= diff; }\n");
-            printf("        else if (diff < 0) { if (-diff > 40) m_a_ext >>= 40; else m_a_ext >>= -diff; }\n");
-            printf("        int64_t res = m_a_ext - m_b_ext;\n");
+            printf("        if (diff > 0) { if (diff > 40) M_B >>= 40; else M_B >>= diff; }\n");
+            printf("        else if (diff < 0) { if (-diff > 40) M_A >>= 40; else M_A >>= -diff; }\n");
+            printf("        int64_t res = M_A - M_B;\n");
             printf("        if (res == 0) cpu_ctx->state.reg.sw |= CS_ZERO;\n");
             printf("        else if (res > 0) cpu_ctx->state.reg.sw |= CS_POSITIVE;\n");
             printf("        else cpu_ctx->state.reg.sw |= CS_NEGATIVE;\n");
@@ -1046,7 +1042,7 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
             printf("    uint16_t val = cpu_ctx->state.reg.r[RA] - 1;\n");
             printf("    cpu_ctx->state.reg.r[RA] = val;\n");
             printf("    calculate_flags_16bit(cpu_ctx, (int16_t)val);\n");
-            
+
             /* If the loop counter hasn't hit 0, jump to the loop start */
             printf("    if (val != 0) {\n");
             printf("        cpu_ctx->state.reg.ic = DO_ADDR;\n");
@@ -1065,7 +1061,7 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
             if (def->code == OPC_JS)
             {
                 printf("    cpu_ctx->state.reg.r[RA] = cpu_ctx->state.reg.ic + 2;\n");
-                
+
             }
             printf("    cpu_ctx->state.reg.ic = DO_ADDR;\n");
             break;
@@ -1106,7 +1102,7 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
                 function.
                 if RA = RB we only push one register
                 int count = RB - RA + 1;
-                
+
                 if (count < 0)
                     count += 16;
                 int addr = r[15] - count;
@@ -1136,12 +1132,12 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
                     printf("    if (count < 0)\n");
                     printf("        count += 16;\n");
                     printf("    int stk_addr = cpu_ctx->state.reg.r[15];\n");
-                    
-                    /* Fetch all data words into registers. 
+
+                    /* Fetch all data words into registers.
                        If R15 is in the list, it gets temporarily overwritten here... */
                     printf("    /* ok = 0 == */ fetch_data_words_reg(cpu_ctx, stk_addr, count, RA);\n");
-                    
-                    /* ...but the manual states R15 is effectively ignored as a destination. 
+
+                    /* ...but the manual states R15 is effectively ignored as a destination.
                        We fix it by unconditionally advancing the stack pointer by the total count! */
                     printf("    cpu_ctx->state.reg.r[15] = stk_addr + count;\n");
                     printf("    cpu_ctx->state.total_cycles += CLK_CYC_POPM(count);\n");
@@ -1155,15 +1151,15 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
             /* RA holds the data. RA+1 holds the mask. */
             printf("    uint16_t data = cpu_ctx->state.reg.r[RA];\n");
             printf("    uint16_t mask = cpu_ctx->state.reg.r[(RA + 1) & 0xF];\n");
-            
-            
+
+
             /* * For each 1 in the mask, use the bit from 'data'.
              * For each 0 in the mask, keep the bit from 'mem_val'.
              */
             printf("    uint16_t new_val = (DO[0] & ~mask) | (data & mask);\n");
-            
+
             /* Store the modified word back to memory */
-            printf("    store_data_word(cpu_ctx, DO_ADDR, new_val);\n"); 
+            printf("    store_data_word(cpu_ctx, DO_ADDR, new_val);\n");
             /* although we've been in this address when we read, we still need to check write permissions */
             break;
         case OP_NEG_FLOAT:
@@ -1264,7 +1260,7 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
                 "    int32_t M; int16_t E;\n"
                 "    unpack_float32(cpu_ctx->state.reg.r[(RA+0)&0xF], cpu_ctx->state.reg.r[(RA+1)&0xF], &M, &E);\n"
 
-    
+
                 "    if (M < 0) {\n"
                 "        /* Square root of a negative number triggers a Fixed Point Overflow trap */\n"
                 "        cpu_ctx->state.reg.pir |= INTR_FIXOFL;\n"
@@ -1272,10 +1268,10 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
                 "        pack_float32(cpu_ctx, RA, 0, 0);\n"
                 "    } else {\n"
                 "        int adj_E = E;\n"
-                    
+
                 "        /* Left-align the 24-bit mantissa to the top of the 64-bit word (bit 62) */\n"
                 "        uint64_t x = (uint64_t)M << 40; \n"
-                    
+
                 "        /* If the exponent is even, we shift the mantissa so it pairs correctly for square root. \n"
                 "           The 1750A mantissa's MSB (excluding sign) represents 0.5. \n"
                 "           Therefore an odd exponent naturally aligns the value to be multiplied by a clean power of 2 during the sqrt iterations */\n"
@@ -1283,7 +1279,7 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
                 "            x <<= 1;\n"
                 "            adj_E -= 1;\n"
                 "        }\n"
-                    
+
                 "        /* 24 iterations generates a 24-bit root (providing 1 guard bit for the normalizer) */\n"
                 "        uint64_t A = sqrt_n_bits(x, 24);\n"
                 "        /* Fixed scaling logic: mathematically equivalent to adj_E/2 - 1 */\n"
@@ -1295,37 +1291,37 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
                 printf(
                 "    int64_t M; int16_t E;\n"
                 "    unpack_float48(cpu_ctx->state.reg.r[(RA+0)&0xF], cpu_ctx->state.reg.r[(RA+1)&0xF], cpu_ctx->state.reg.r[(RA+2)&0xF], &M, &E);\n"
-    
+
                 "    if (M < 0) {\n"
                 "        cpu_ctx->state.reg.pir |= INTR_FIXOFL;\n"
                 "    } else if (M == 0) {\n"
                 "        pack_float48(cpu_ctx, RA, 0, 0);\n"
                 "    } else {\n"
                 "        int adj_E = E;\n"
-                    
+
                 "        /* Left-align the 40-bit mantissa to the top of the 64-bit word (bit 62) */\n"
                 "        uint64_t x = (uint64_t)M << 24; \n"
-                    
+
                 "        if ((adj_E & 1) == 0) {\n"
                 "            x <<= 1;\n"
                 "            adj_E -= 1;\n"
                 "        }\n"
-                    
+
                 "        /* 40 iterations generates a 40-bit root */\n"
                 "        uint64_t A = sqrt_n_bits(x, 40);\n"
-                    
+
                 "        pack_float48(cpu_ctx, RA, (int64_t)A, adj_E >> 1);\n"
                 "    }\n");
-            
+
             }
             break;
         case OP_SFBS:
             printf("    /* Fetch the word to search */\n"
             "    uint16_t val = cpu_ctx->state.reg.r[RA];\n"
-            
+
             "    /* Calculate the number of leading zeros (0 to 16) */\n"
             "    uint16_t zeros = count_leading_zeros(val);\n"
-            
+
             "    /* Store the result into RB */\n"
             "    cpu_ctx->state.reg.r[RB] = zeros;\n"
             "    calculate_flags_16bit(cpu_ctx, (int16_t)val);\n");
@@ -1349,17 +1345,17 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
 
         default:
             printf("    /* TODO: Implement interpretation logic for %s */\n", def->name);
-            break; 
+            break;
     }
     if (priviledged) /* close the brackets of the else */
     {
         printf("    }\n");
     }
-    
+
     if (!complicated_clock_cycles_calc)
         printf("    cpu_ctx->state.total_cycles += CLK_CYC_%s;\n", def->name);
-      
-    if (def->op_type != OP_BRANCH && def->op_type != OP_JUMP_SUBRTN && def->op_type != OP_RET_SUBRTN && def->op_type != OP_LOAD_STATUS 
+
+    if (def->op_type != OP_BRANCH && def->op_type != OP_JUMP_SUBRTN && def->op_type != OP_RET_SUBRTN && def->op_type != OP_LOAD_STATUS
         && def->op_type != OP_EXTENSION && def->op_type != OP_SPECIAL && def->op_type != OP_LOAD_STATUS &&
         def->op_type != OP_MOVE  && def->op_type != OP_SUBTR_JUMP && def->op_type != OP_JUMP_COND)
     {
@@ -1381,7 +1377,7 @@ void emit_instruction (OpcodeDef *def, bool all_inline)
 void generate_interpreter_code(bool use_switch)
 {
     printf("#include \"cpu_helpers.h\"\n");
-    
+
     for (int i = 0; i < 16; i++) {
         OpcodeDef *def = &opcode_defs_6bit[i];
         if (!def->valid) continue;
@@ -1401,20 +1397,20 @@ void generate_interpreter_code(bool use_switch)
     }
 
     for (int i = 9 ; i < 188; i++) {
-        
+
         OpcodeDef *def = &opcode_defs_8bit[i];
         if (!def->valid) continue;
         emit_instruction(def,use_switch);
     }
-    
+
     {
-        
+
     printf("void interpret_BRX(struct cpu_context *cpu_ctx, uint16_t opcode, uint16_t imm_value) {\n");
     printf("    switch ((opcode & 0x00F0) >> 4) {\n");
     for (int i = 0; i < 16; i++) {
         printf("      case 0x%1X:\n", i);
         OpcodeDef *def = &opcode_defs_brx[i];
-        if (!def->valid) 
+        if (!def->valid)
             printf("        interpret_ILLEGAL(cpu_ctx, opcode, imm_value);\n");
         else
             printf("        interpret_%s(cpu_ctx, opcode, imm_value);\n", def->name);
@@ -1433,7 +1429,7 @@ void generate_interpreter_code(bool use_switch)
     for (int i = 0; i < 16; i++) {
         printf("      case 0x%1X:\n", i);
         OpcodeDef *def = &opcode_defs_imm[i];
-        if (!def->valid) 
+        if (!def->valid)
             printf("        interpret_ILLEGAL(cpu_ctx, opcode, imm_value);\n");
         else
             printf("        interpret_%s(cpu_ctx, opcode, imm_value);\n", def->name);
@@ -1454,8 +1450,8 @@ void generate_interpreter_code(bool use_switch)
             OpcodeDef *def = &opcode_defs_6bit[i];
             /* because these are 6 bit opcodes, we print them 4 times to fit 8bit opcodes*/
             for (int j = 0 ; j < 4; j++)
-            {            
-                if (!def->valid) 
+            {
+                if (!def->valid)
                 printf("interpret_ILLEGAL, /* 0x%02X */\n",opcode);
                 else
                 printf("interpret_%s, /* 0x%02X */\n", def->name, opcode);
@@ -1463,9 +1459,9 @@ void generate_interpreter_code(bool use_switch)
             }
         }
         for (int i = 0 ; i < 188; i++) {
-            
+
             OpcodeDef *def = &opcode_defs_8bit[i];
-            if (def->valid == INVALID) 
+            if (def->valid == INVALID)
                 printf("interpret_ILLEGAL, /* 0x%02X */\n",opcode);
             else if (def->valid == VALID_IN_GVSC)
             {
@@ -1498,7 +1494,7 @@ void generate_interpreter_code(bool use_switch)
                 printf("    case 0x%02X:\n", opcode);
                 opcode++;
             }
-            if (!def->valid) 
+            if (!def->valid)
             printf("        interpret_ILLEGAL(cpu_ctx, opcode, imm_value); \n");
             else
             printf("        interpret_%s(cpu_ctx, opcode, imm_value); \n", def->name);
@@ -1507,7 +1503,7 @@ void generate_interpreter_code(bool use_switch)
         for (int i = 0 ; i < 188; i++) {
             printf("    case 0x%02X:\n", opcode);
             OpcodeDef *def = &opcode_defs_8bit[i];
-            if (def->valid == INVALID) 
+            if (def->valid == INVALID)
                 printf("        interpret_ILLEGAL(cpu_ctx, opcode, imm_value); /* 0x%02X */\n",opcode);
             else if (def->valid == VALID_IN_GVSC)
             {

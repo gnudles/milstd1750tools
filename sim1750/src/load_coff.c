@@ -257,7 +257,7 @@ struct internal_syment
   unsigned short e_type;
   char e_sclass;
   char e_numaux;
-} *syms = NULL;
+};
 
 
 #define N_BTMASK  (017)
@@ -314,15 +314,7 @@ union auxent {
 #define AUXESZ 18
 
 
-/* Contents of file header
- */
-static ushort f_magic;
-static ushort f_nscns;
-static int f_timdat;
-static int f_symptr;
-static int f_nsyms;
-static ushort f_opthdr;
-static ushort f_flags;
+
 
 /* Contents of the optional header
  */
@@ -335,10 +327,6 @@ static int entry;
 static int text_start;
 static int data_start;
 
-/* The string table
-*/
-static char *str_tab = NULL;
-static int str_length = 0;
 
 /* Contents of most recent section header
  */
@@ -368,78 +356,96 @@ static uint l_symndx;
 static uint l_paddr;
 static ushort l_lnno;
 
+struct coff_symtab {
+    struct internal_syment *syms;
+    /* Contents of file header
+     */
+    struct {
+     ushort f_magic;
+     ushort f_nscns;
+     int f_timdat;
+     int f_symptr;
+     int f_nsyms;
+     ushort f_opthdr;
+     ushort f_flags;
+    };
+    /* The string table
+    */
+    char *str_tab;
+    int str_length;
+};
 
 static void
-get_file_header ()
+get_file_header (struct coff_symtab * coff)
 {
-  f_magic  = ((ushort) file_header.f_magic  [0] << 8) +
+  coff->f_magic  = ((ushort) file_header.f_magic  [0] << 8) +
               (ushort) file_header.f_magic  [1];
-  f_nscns  = ((ushort) file_header.f_nscns  [0] << 8) +
+  coff->f_nscns  = ((ushort) file_header.f_nscns  [0] << 8) +
               (ushort) file_header.f_nscns  [1];
 
-  f_timdat = ((uint) file_header.f_timdat [0] << 24) +
+  coff->f_timdat = ((uint) file_header.f_timdat [0] << 24) +
              ((uint) file_header.f_timdat [1] << 16) +
              ((uint) file_header.f_timdat [2] << 8) +
              ((uint) file_header.f_timdat [3]);
 
-  f_symptr = ((uint) file_header.f_symptr [0] << 24) +
+  coff->f_symptr = ((uint) file_header.f_symptr [0] << 24) +
              ((uint) file_header.f_symptr [1] << 16) +
              ((uint) file_header.f_symptr [2] << 8) +
              ((uint) file_header.f_symptr [3]);
 
-  f_nsyms  = ((uint) file_header.f_nsyms  [0] << 24) +
+  coff->f_nsyms  = ((uint) file_header.f_nsyms  [0] << 24) +
              ((uint) file_header.f_nsyms  [1] << 16) +
              ((uint) file_header.f_nsyms  [2] << 8) +
              ((uint) file_header.f_nsyms  [3]);
 
-  f_opthdr = ((ushort) file_header.f_opthdr [0] << 8) +
+  coff->f_opthdr = ((ushort) file_header.f_opthdr [0] << 8) +
               (ushort) file_header.f_opthdr [1];
-  f_flags  = ((ushort) file_header.f_flags  [0] << 8) +
+  coff->f_flags  = ((ushort) file_header.f_flags  [0] << 8) +
               (ushort) file_header.f_flags  [1];
 }
 
 static void
-dump_file_header ()
+dump_file_header (struct coff_symtab * coff)
 {
   printf ("----File-Header---------------------------------------------\n");
-  printf ("Magic number (in octal)  = 0%o\n",    f_magic);
-  printf ("Number of sections       = %d\n",     f_nscns);
-  printf ("Time & date stamp        = %s", ctime ((time_t *)&f_timdat));
-  printf ("File pointer to symtab   = 0x%08X\n", f_symptr);
-  printf ("Number of symtab entries = %d\n",     f_nsyms);
-  printf ("Sizeof (optional hdr)    = %d\n",     f_opthdr);
-  printf ("Flags                    = 0x%04X\n", f_flags);
+  printf ("Magic number (in octal)  = 0%o\n",    coff->f_magic);
+  printf ("Number of sections       = %d\n",     coff->f_nscns);
+  printf ("Time & date stamp        = %s", ctime ((time_t *)&coff->f_timdat));
+  printf ("File pointer to symtab   = 0x%08X\n", coff->f_symptr);
+  printf ("Number of symtab entries = %d\n",     coff->f_nsyms);
+  printf ("Sizeof (optional hdr)    = %d\n",     coff->f_opthdr);
+  printf ("Flags                    = 0x%04X\n", coff->f_flags);
 
-  if (f_flags)
+  if (coff->f_flags)
     {
       printf ("Known flags: ");
-      if (f_flags & F_M1750B1)
+      if (coff->f_flags & F_M1750B1)
         printf ("M1750B1 ");
-      if (f_flags & F_M1750B2)
+      if (coff->f_flags & F_M1750B2)
         printf ("M1750B2 ");
-      if (f_flags & F_M1750B3)
+      if (coff->f_flags & F_M1750B3)
         printf ("M1750B3 ");
-      if (f_flags & F_M1750MMU)
+      if (coff->f_flags & F_M1750MMU)
         printf ("M1750MMU ");
-      if (f_flags & F_RELFLG)
+      if (coff->f_flags & F_RELFLG)
         printf ("RELFLG ");
-      if (f_flags & F_EXEC)
+      if (coff->f_flags & F_EXEC)
         printf ("EXEC ");
-      if (f_flags & F_LNNO)
+      if (coff->f_flags & F_LNNO)
         printf ("LNNO ");
-      if (f_flags & F_LSYMS)
+      if (coff->f_flags & F_LSYMS)
         printf ("LSYMS ");
-      if (f_flags & F_AR16WR)
+      if (coff->f_flags & F_AR16WR)
         printf ("AR16W ");
-      if (f_flags & F_AR32WR)
+      if (coff->f_flags & F_AR32WR)
         printf ("AR16WR ");
-      if (f_flags & F_AR32W)
+      if (coff->f_flags & F_AR32W)
         printf ("AR32W ");
-      if (f_flags & F_DYNLOAD)
+      if (coff->f_flags & F_DYNLOAD)
         printf ("DYNLOAD ");
-      if (f_flags & F_SHROBJ)
+      if (coff->f_flags & F_SHROBJ)
         printf ("SHROBJ ");
-      if (f_flags & F_DLL)
+      if (coff->f_flags & F_DLL)
         printf ("DLL");
       printf ("\n");
     }
@@ -563,12 +569,12 @@ summarize_sec_header (int sec)
 }
 
 void
-get_strings (FILE *input_file)
+get_strings (FILE *input_file, struct coff_symtab * coff)
 {
   int strings;
   unsigned char length [4];
 
-  strings = f_symptr + SYMESZ * f_nsyms;
+  strings = coff->f_symptr + SYMESZ * coff->f_nsyms;
 
   /* Note, the COFF book says a COFF file with no strings
      has a lenght field set to zero. GCC seems to omit the
@@ -576,48 +582,48 @@ get_strings (FILE *input_file)
   fseek (input_file, strings, SEEK_SET);
   if (fread (length, 4, 1, input_file) < 1)
     {
-      str_length = 0;
+      coff->str_length = 0;
     }
   else
     {
-      str_length = ((unsigned) length [0] << 24) +
+      coff->str_length = ((unsigned) length [0] << 24) +
                    ((unsigned) length [1] << 16) +
                    ((unsigned) length [2] << 8) +
                    ((unsigned) length [3]);
     }
 
-  if (str_length < 0 || str_length > 10000)
+  if (coff->str_length < 0 || coff->str_length > 10000)
     problem ("load_coff (get_strings): string table bad size");
 
-  if (str_length > 0)
+  if (coff->str_length > 0)
     {
-      str_length -= 4;
-      str_tab = (char *)malloc (str_length);
+      coff->str_length -= 4;
+      coff->str_tab = (char *)malloc (coff->str_length);
       fseek (input_file, strings + 4, SEEK_SET);
-      fread (str_tab, str_length, 1, input_file);
+      fread (coff->str_tab, coff->str_length, 1, input_file);
     }
   else
     {
-      str_tab = NULL;
+      coff->str_tab = NULL;
     }
 }
 
 static void
-dump_strings ()
+dump_strings (struct coff_symtab * coff)
 {
   printf ("----The-string-table-----------------------------------------\n");
 
-  if (str_tab != NULL)
+  if (coff->str_tab != NULL)
     {
-      int length = str_length;
-      char *ptr = str_tab;
+      int length = coff->str_length;
+      char *ptr = coff->str_tab;
       do
          {
-           printf ("%p : %s\n", (void*)(ptr - str_tab), ptr);
+           printf ("%p : %s\n", (void*)(ptr - coff->str_tab), ptr);
            while (*ptr++ != '\0')
              ;
          }
-      while (ptr < (str_tab + length));
+      while (ptr < (coff->str_tab + length));
     }
 
 }
@@ -656,7 +662,7 @@ get_se (struct internal_syment *ise)
 
 
 static void
-get_dst (FILE *input_file)
+get_dst (FILE *input_file, struct coff_symtab * coff)
 {
   /* Read the debug symbol table into memory
    */
@@ -664,16 +670,16 @@ get_dst (FILE *input_file)
   int j;
 
   /* Allocate space for f_nsyms */
-  syms = (struct internal_syment *)malloc (sizeof (struct internal_syment) * f_nsyms);
+  coff->syms = (struct internal_syment *)malloc (sizeof (struct internal_syment) * coff->f_nsyms);
 
-  fseek (input_file, f_symptr, SEEK_SET);
+  fseek (input_file, coff->f_symptr, SEEK_SET);
   i = 0;
-  while (i < f_nsyms)
+  while (i < coff->f_nsyms)
     {
       fread (&se, SYMESZ, 1, input_file);
-      get_se (&syms [i]);
+      get_se (&coff->syms [i]);
       i++;
-      for (j = 0; j < syms [i].e_numaux; j++)
+      for (j = 0; j < coff->syms [i].e_numaux; j++)
         {
           fread (&ae, AUXESZ, 1, input_file);
 /*          get_ae (); */
@@ -684,7 +690,7 @@ get_dst (FILE *input_file)
 }
 
 static void
-print_se (struct internal_syment *se)
+print_se (struct coff_symtab * coff, struct internal_syment *se)
 {
   /* pretty print a symbol table entry */
 
@@ -749,7 +755,7 @@ print_se (struct internal_syment *se)
         }
     }
   else
-    printf ("%s", &str_tab [(se->e.e_offset - 4)]);
+    printf ("%s", &coff->str_tab [(se->e.e_offset - 4)]);
 
   if (ISFCN (se->e_type))
     printf (" ()");
@@ -760,7 +766,7 @@ print_se (struct internal_syment *se)
 }
 
 static void
-pretty_print_dst ()
+pretty_print_dst (struct coff_symtab *coff)
 {
   int i;
 
@@ -768,16 +774,16 @@ pretty_print_dst ()
   printf ("-sec--class----type---address--name--------------------------\n");
 
   i = 0;
-  while (i < f_nsyms)
+  while (i < coff->f_nsyms)
     {
-      print_se (&syms [i]);
+      print_se (coff, &coff->syms [i]);
       i++;
     }
 }
 
 
 static int
-process_file (FILE* input_file)
+process_file (struct coff_symtab * coff, FILE* input_file)
 {
   /*
    * Read the file header and any sections
@@ -789,35 +795,35 @@ process_file (FILE* input_file)
     return error ("canot read file header");
   }
 
-  get_file_header ();
+  get_file_header (coff);
   offset = FILHSZ;
 
-  if (f_magic != 0333 && f_magic != 0334)
+  if (coff->f_magic != 0333 && coff->f_magic != 0334)
     {
       return error ("File format not recognized");
     }
 
-  if (f_opthdr > 0)
+  if (coff->f_opthdr > 0)
     {
-      fread (&aout_header, f_opthdr, 1, input_file);
+      fread (&aout_header, coff->f_opthdr, 1, input_file);
       get_opt_header ();
-      offset += f_opthdr;
+      offset += coff->f_opthdr;
 
       if (verbose)
         printf ("Entry point = 0x%08X\n", entry >> 1);
       sim_cpu_ctx->state.reg.ic = entry >> 1;
     }
 
-  get_strings (input_file);
+  get_strings (input_file, coff);
   if (optz)
-    dump_strings ();
+    dump_strings (coff);
 
-  get_dst (input_file);
+  get_dst (input_file, coff);
 
   if (optf)
-    dump_file_header ();
+    dump_file_header (coff);
 
-  for (sec = 0; sec < f_nscns; sec++)
+  for (sec = 0; sec < coff->f_nscns; sec++)
     {
       fseek (input_file, offset, 0);
       if (fread (&sec_header, SCNHSZ, 1, input_file) != 1)
@@ -864,7 +870,7 @@ process_file (FILE* input_file)
 
 
 static int
-load_coff (char *filename)
+load_coff (struct coff_symtab * coff, char *filename)
 {
   FILE *loadfile;
   /* char lline [strlen (filename) + 5]; */
@@ -872,11 +878,11 @@ load_coff (char *filename)
   int retval;
 
   /* remove any previous COFF info */
-  if (syms != NULL)
-    free (syms);
+  if (coff->syms != NULL)
+    free (coff->syms);
 
-  if (str_tab != NULL)
-    free (str_tab);
+  if (coff->str_tab != NULL)
+    free (coff->str_tab);
 
   /* get space for extended file name */
   lline = (char *)malloc(strlen(filename) + 5);
@@ -896,48 +902,35 @@ load_coff (char *filename)
         }
     }
 
-  retval = process_file (loadfile);
+  retval = process_file (coff, loadfile);
   free (lline);
   fclose (loadfile);
   return retval;
 }
 
-
-int
-si_lcf (int argc, char *argv[])
-{
-  char *filename = argv [1];
-
-  opts = verbose;
-
-  if (argc <= 1)
-    return error ("filename missing");
-  loadfile_type = COFF;
-  if (*filename == '"')
-    {
-      *filename++ = '\0';
-      *(filename + strlen (filename) - 1) = '\0';
-    }
-
-  return load_coff (filename);
+static void coff_free_data(void *data) {
+    struct coff_symtab *coff = (struct coff_symtab *)data;
+    if (coff->syms) free(coff->syms);
+    if (coff->str_tab) free(coff->str_tab);
+    free(coff);
 }
 
-
 int
-find_coff_address (char *id)
+find_coff_address (void *data, const char *id)
 {
   /* Given a symbol id, search the symbol table for an
      an entry with this name, and return the value.
      Return -1 if not found.
    */
   int i;
+  struct coff_symtab *coff = (struct coff_symtab *)data;
 
   i = 0;
-  while (i < f_nsyms)
+  while (i < coff->f_nsyms)
     {
       char short_id [9];
       char *key;
-      struct internal_syment *se = &syms [i];
+      struct internal_syment *se = &coff->syms [i];
       int j;
 
       if (se->e_scnum >= 1 &&
@@ -955,7 +948,7 @@ find_coff_address (char *id)
               key = short_id;
             }
           else
-            key = &str_tab [(se->e.e_offset - 4)];
+            key = &coff->str_tab [(se->e.e_offset - 4)];
 
           if (key [0] != '.' && strcmp (key, id) == 0)
             return se->e_value >> 1;
@@ -969,12 +962,43 @@ find_coff_address (char *id)
 
 
 int
-display_coff_symbols ()
+display_coff_symbols (void *data)
 {
   /* dump_dst (); */
-  pretty_print_dst ();
+  struct coff_symtab *coff = (struct coff_symtab *)data;
+  pretty_print_dst (coff);
 
   return OKAY;
 }
 
 
+// ... update find_coff_address and display_coff_symbols to take (void *data) ...
+
+static const struct symbol_ops coff_ops = {
+    find_coff_address,
+    NULL, /* COFF doesn't implement reverse lookup yet */
+    display_coff_symbols,
+    coff_free_data
+};
+
+extern struct cpu_context *sim_cpu_ctx;
+int
+si_lcf (int argc, char *argv[])
+{
+  char *filename = argv [1];
+
+  opts = verbose;
+
+  if (argc <= 1)
+    return error ("filename missing");
+  loadfile_type = COFF;
+  if (*filename == '"')
+    {
+      *filename++ = '\0';
+      *(filename + strlen (filename) - 1) = '\0';
+    }
+  free_symtab(sim_cpu_ctx);
+  sim_cpu_ctx->symtab.ops = &coff_ops;
+  sim_cpu_ctx->symtab.data = (struct coff_symtab *)calloc(1, sizeof(struct coff_symtab));
+  return load_coff (sim_cpu_ctx->symtab.data, filename);
+}

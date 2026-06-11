@@ -1,6 +1,5 @@
 /* coffops.h  --  Special purpose exports of load_coff.c
                   General purpose exports are mentioned in loadfile.h  */
 
-extern long find_coff_address (char *labelname);
-extern int  display_coff_symbols ();
-
+extern int find_coff_address (void * data, const char *labelname);
+extern int  display_coff_symbols (void * data);

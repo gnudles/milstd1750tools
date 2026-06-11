@@ -56,9 +56,6 @@ struct section
     uint base_addr;
     int   length;
   };
-static struct section section[MAX_SECTIONS];
-
-int n_sections = 0;
 
 struct symbol
   {
@@ -68,11 +65,30 @@ struct symbol
     struct section *sect;
   };
 
-static struct {
-		int n_allocated;
-		int n_used;
-		struct symbol *sym;
-	      } symdata;
+
+struct tek_symtab {
+    struct section section[MAX_SECTIONS];
+    int n_sections;
+    struct {
+        int n_allocated;
+        int n_used;
+        struct symbol *sym;
+    } symdata;
+};
+
+static void tek_free_data(void *data) {
+    struct tek_symtab *tek = (struct tek_symtab *)data;
+    for (int i = 0; i < tek->n_sections; i++)
+        free(tek->section[i].name);
+    for (int i = 0; i < tek->symdata.n_used; i++)
+        free(tek->symdata.sym[i].name);
+
+    /*if (tek->section) free(tek->section);*/
+    if (tek->symdata.sym) free(tek->symdata.sym);
+    free(tek);
+}
+
+
 
 /* TekHex symbol type codes */
 #define GLOBAL_ADDRESS		1
@@ -98,41 +114,44 @@ static const char *typename[] =
 
 
 void
-init_tekops ()	/* free up previous memory allocations; initialize */
+init_tekops (void * data)	/* free up previous memory allocations; initialize */
 {
-  while (n_sections > 0)
-    free ((void *) section[--n_sections].name);
-  while (symdata.n_used > 0)
-    free ((void *) symdata.sym[--symdata.n_used].name);
-  if (symdata.n_allocated == 0)
+    struct tek_symtab* tek = (struct tek_symtab*) data;
+  while (tek->n_sections > 0)
+    free ((void *) tek->section[--tek->n_sections].name);
+  while (tek->symdata.n_used > 0)
+    free ((void *) tek->symdata.sym[--tek->symdata.n_used].name);
+  if (tek->symdata.n_allocated == 0)
     {
-      symdata.n_allocated = 42;  /* rat science */
-      symdata.sym = (struct symbol *) calloc (symdata.n_allocated,
+      tek->symdata.n_allocated = 42;  /* rat science */
+      tek->symdata.sym = (struct symbol *) calloc (tek->symdata.n_allocated,
 					      sizeof (struct symbol));
     }
 }
 
 
 int
-find_tek_address (char *labelname)
+find_tek_address (void * data, const char *labelname)
 {
   int i;
+  struct tek_symtab* tek = (struct tek_symtab*) data;
 
-  for (i = 0; i < symdata.n_used; i++)
-    if (eq (labelname, symdata.sym[i].name))
-      return (int) symdata.sym[i].value;
+  for (i = 0; i < tek->symdata.n_used; i++)
+    if (eq (labelname, tek->symdata.sym[i].name))
+      return (int) tek->symdata.sym[i].value;
   return -1;
 }
 
 
 char *
-find_tek_label (uint address)
+find_tek_label (void * data, uint address)
 {
-  int i = symdata.n_used;
+  struct tek_symtab* tek = (struct tek_symtab*) data;
+  int i = tek->symdata.n_used;
 
   while (i-- > 0)
-    if (symdata.sym[i].value == address)
-      return symdata.sym[i].name;
+    if (tek->symdata.sym[i].value == address)
+      return tek->symdata.sym[i].name;
   return NULL;
 }
 
@@ -141,7 +160,7 @@ find_tek_label (uint address)
 		   isupper (ch) ? (ch) - ('A' - 10) :	\
 		   islower (ch) ? (ch) - ('a' - 10) : -1)
 
-static int 
+static int
 get_xnum (char **string, int number)
 {
   int nibble;
@@ -161,22 +180,22 @@ get_xnum (char **string, int number)
 
 
 static void
-add_symbol (char *name, int type, ushort value, struct section *section)
+add_symbol (struct tek_symtab* tek, char *name, int type, ushort value, struct section *section)
 {
   int n;
 
-  if ((n = symdata.n_used) == symdata.n_allocated)
+  if ((n = tek->symdata.n_used) == tek->symdata.n_allocated)
     {
-      symdata.n_allocated *= 2;
-      if ((symdata.sym = (struct symbol *) realloc (symdata.sym,
-	 symdata.n_allocated * sizeof (struct symbol))) == (struct symbol *) 0)
+      tek->symdata.n_allocated *= 2;
+      if ((tek->symdata.sym = (struct symbol *) realloc (tek->symdata.sym,
+	 tek->symdata.n_allocated * sizeof (struct symbol))) == (struct symbol *) 0)
 	problem ("tekhex: request for symbol space refused by OS");
     }
-  symdata.sym[n].name = strdup (name);
-  symdata.sym[n].type = type;
-  symdata.sym[n].sect = section;
-  symdata.sym[n].value = value;
-  symdata.n_used++;
+  tek->symdata.sym[n].name = strdup (name);
+  tek->symdata.sym[n].type = type;
+  tek->symdata.sym[n].sect = section;
+  tek->symdata.sym[n].value = value;
+  tek->symdata.n_used++;
 }
 
 
@@ -185,7 +204,7 @@ static int linecount;
 /* Analyze and load a line from a Tektronix Extended Hex file */
 
 int
-load_tekline (char *line)
+load_tekline (struct tek_symtab* tek, char *line)
 {
   char  sectname[32], *linep;
   int   i, checksum, type, blk_len, addr_len, line_len;
@@ -229,10 +248,10 @@ load_tekline (char *line)
 	      uint sectlen      =       get_xnum (&linep, sectlen_len);
 
 	      /* lprintf ("\nSEC %s %s\n", sectname, linep); */
-	      section[n_sections].name = strdup (sectname);
-	      section[n_sections].base_addr = baseaddr;
-	      section[n_sections].length = sectlen;
-	      n_sections++;
+	      tek->section[tek->n_sections].name = strdup (sectname);
+	      tek->section[tek->n_sections].base_addr = baseaddr;
+	      tek->section[tek->n_sections].length = sectlen;
+	      tek->n_sections++;
 	    }
 	  else			/* symbol definition */
 	    {
@@ -249,7 +268,7 @@ load_tekline (char *line)
 	      val_len = (int) get_xnum (&linep, 1);	/* value length */
 	      val = get_xnum (&linep, val_len);		/* value */
 	      /* lprintf ("ELM %s %s %s\n", sym, sectname, linep); */
-	      add_symbol (sym, type, val, &section[n_sections-1]);
+	      add_symbol (tek, sym, type, val, &tek->section[tek->n_sections-1]);
 	    }
 	}
       break;
@@ -290,6 +309,44 @@ load_tekline (char *line)
   return (OKAY);
 }
 
+
+/* Display symbols loaded from a TekHex loadfile */
+
+int
+display_tek_symbols  (void * data)
+{
+  int i;
+  struct tek_symtab* tek = (struct tek_symtab*) data;
+  for (i = 0; i < tek->n_sections; i++)
+    {
+      if (i == 0)
+	lprintf ("Section             BaseAddr Length\n");
+      lprintf ("%-20s  %04hXh     %d\n", tek->section[i].name,
+		tek->section[i].base_addr, tek->section[i].length);
+    }
+  for (i = 0; i < tek->symdata.n_used; i++)
+    {
+      if (i == 0)
+	{
+	  lprintf ("-------------------------------------------------------\n");
+	  lprintf ("Symbolname           Value Type                 Section\n");
+	}
+      lprintf ("%-20s %05X %-20s %s\n", tek->symdata.sym[i].name,
+		tek->symdata.sym[i].value, typename[tek->symdata.sym[i].type],
+		tek->symdata.sym[i].sect->name);
+    }
+  return (OKAY);
+}
+
+
+static const struct symbol_ops tek_ops = {
+    find_tek_address,
+    find_tek_label,
+    display_tek_symbols,
+    tek_free_data
+};
+
+
 /* load file in Tektronix Extended Hex format */
 
 int
@@ -318,12 +375,19 @@ si_lo (int argc, char *argv[])
   loadfile_type = TEK_HEX;
   linecount = 0;
 
+  free_symtab(sim_cpu_ctx);
+  sim_cpu_ctx->symtab.ops = &tek_ops;
+  struct tek_symtab * tek = (struct tek_symtab *)calloc(1, sizeof(struct tek_symtab));
+  init_tekops(tek);
+  sim_cpu_ctx->symtab.data = tek;
+
+
   while (fgets (lline, sizeof (lline), fpoint) != NULL)
     {
       ++linecount;
       if (strlen (lline) < 2)
 	continue;
-      if ((retval = load_tekline (lline)) != OKAY)
+      if ((retval = load_tekline (tek, lline)) != OKAY)
 	break;
     }
   fclose (fpoint);
@@ -331,34 +395,6 @@ si_lo (int argc, char *argv[])
   return retval;
 }
 
-
-/* Display symbols loaded from a TekHex loadfile */
-
-int
-display_tek_symbols ()
-{
-  int i;
-
-  for (i = 0; i < n_sections; i++)
-    {
-      if (i == 0)
-	lprintf ("Section             BaseAddr Length\n");
-      lprintf ("%-20s  %04hXh     %d\n", section[i].name,
-		section[i].base_addr, section[i].length);
-    }
-  for (i = 0; i < symdata.n_used; i++)
-    {
-      if (i == 0)
-	{
-	  lprintf ("-------------------------------------------------------\n");
-	  lprintf ("Symbolname           Value Type                 Section\n");
-	}
-      lprintf ("%-20s %05X %-20s %s\n", symdata.sym[i].name,
-		symdata.sym[i].value, typename[symdata.sym[i].type],
-		symdata.sym[i].sect->name);
-    }
-  return (OKAY);
-}
 
 
 int
@@ -388,4 +424,3 @@ si_save (int argc, char *argv[])
 
   return OKAY;
 }
-

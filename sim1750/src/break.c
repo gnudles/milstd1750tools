@@ -35,7 +35,7 @@
 #include "status.h"
 #include "utils.h"
 #include "cmd.h"	/* for function parse_address() */
-#include "loadfile.h"	/* for the loadfile_type variable */
+#include "loadfile.h"
 #include "tekops.h"	/* for function find_tek_address() */
 #include "coffops.h"	/* for function find_coff_address() */
 
@@ -56,12 +56,12 @@ si_brkset (int argc, char **argv)
     return error ("address argument missing");
   if (sim_cpu_ctx->n_breakpts >= MAX_BREAK)
     return error ("too many breakpoints");
- 
+
   if (parse_address (sim_cpu_ctx, argv[1], &address) != OKAY)
     {
       if (isalpha (*argv[1]) || *argv[1] == '_')
         {
-          int addr = find_address (argv[1]);
+          int addr = find_address (sim_cpu_ctx, argv[1]);
           if (addr < 0)
             return error ("label name not found");
           address = (uint) addr;
@@ -99,7 +99,7 @@ si_wtchset (int argc, char **argv)
     {
       if (isalpha (*argv[1]) || *argv[1] == '_')
         {
-          int addr = find_address (argv[1]);
+          int addr = find_address (sim_cpu_ctx, argv[1]);
           if (addr < 0)
             return error ("label name not found");
           address = (uint) addr;
@@ -303,4 +303,3 @@ si_brksave (int argc, char **argv)
   fclose (savefile);
   return (OKAY);
 }
-

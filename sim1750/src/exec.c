@@ -40,7 +40,7 @@
 
 /* Imports */
 
-extern void  dis_reg ();	/* cmd.c */
+extern void  dis_reg (struct cpu_context *);	/* cmd.c */
 extern int   sys_int (int);	/* cmd.c */
 extern char *disassemble (struct cpu_state *cpu);	/* sdisasm.c */
 extern int scan_instructions_from_address(struct cpu_context *cpu_ctx, ushort address); /* jit.c */
@@ -76,7 +76,7 @@ int si_jit_scan (int argc, char *argv[])
   if (argc > 1)
     {
       sscanf (argv[1], "%x", &next);
-      
+
     }
   else
     next = sim_cpu_ctx->state.reg.ic;
@@ -87,8 +87,8 @@ int si_jit_scan (int argc, char *argv[])
 // function to set halt to NO_HALT after debug conditions, so that we can continue execution. we also need to clear watchpoint hits, otherwise we will keep hitting the same watchpoint and never continue execution. we can not just set the watchpoint to inactive, because we want to keep track of it and show it in the watchpoint list, and step over BPT special instruction by incrementing IC, otherwise we will keep hitting the same BPT and never continue execution.
 void clear_debug_halt(struct cpu_context *cpu_ctx)
 {
-  if (cpu_ctx->state.halt == DBG_WATCHPOINT 
-    || cpu_ctx->state.halt == DBG_BREAKPOINT 
+  if (cpu_ctx->state.halt == DBG_WATCHPOINT
+    || cpu_ctx->state.halt == DBG_BREAKPOINT
     || cpu_ctx->state.halt == INST_BPT)
   {
     if (cpu_ctx->state.halt == DBG_WATCHPOINT)
@@ -173,7 +173,7 @@ si_go_new (int argc, char *argv[])
       sscanf (argv[1], "%x", &next);
       sim_cpu_ctx->state.reg.ic = (ushort) next;
     }
-  start = clock();  
+  start = clock();
   // if we continue after hitting a watchpoint, we need to call clear_all_wp_hits, and also set halt to NO_HALT, otherwise we will keep hitting the same watchpoint and never continue execution. We can not just set the watchpoint to inactive, because we want to keep track of it and show it in the watchpoint list, and also we want to be able to hit it again if the same address is accessed again.
   clear_debug_halt(sim_cpu_ctx);
 
@@ -206,7 +206,7 @@ si_snglstp_new (int argc, char *argv[])
 	{
 	  step_over = TRUE;
 	  target_addr = sim_cpu_ctx->state.reg.ic + 2;
-    
+
 	}
       else
 	sscanf (argv[1], "%d", &count);
@@ -280,7 +280,7 @@ si_go (int argc, char *argv[])
 }
 
 void
-dis_reg (struct cpu_state *cpu);
+dis_reg (struct cpu_context *cpu);
 int
 si_snglstp (int argc, char *argv[])
 {
@@ -337,7 +337,7 @@ si_snglstp (int argc, char *argv[])
     {
       while (count-- > 0)
 	{
-    dis_reg(&sim_cpu_ctx->state);
+    dis_reg(sim_cpu_ctx);
 	  if (sys_int (1))
 	    return (INTERRUPT);
 	  if (at_bpt_instruction (&sim_cpu_ctx->state))
@@ -437,5 +437,3 @@ si_bt (int argc, char *argv[])
 
   return (OKAY);
 }
-
-

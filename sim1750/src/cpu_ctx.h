@@ -7,6 +7,18 @@
 
 #define BT_SIZE (200)
 
+struct symbol_ops {
+    int (*find_address)(void *data, const char *labelname);
+    char *(*find_label)(void *data, uint address);
+    int (*display_symbols)(void *data);
+    void (*free_data)(void *data);
+};
+
+struct symbol_table {
+    void *data;                      /* Opaque pointer to the format-specific state */
+    const struct symbol_ops *ops;    /* Function pointers for this specific format */
+};
+
 struct cpu_context {
   struct cpu_state state;
   char name[32];
@@ -24,6 +36,7 @@ struct cpu_context {
   uint last_processed_interrupt; // used for debugging
   int n_breakpts;	/* breakpoint counter */
   int n_watchpts;
+  struct symbol_table symtab; /* The active symbol table for this core */
 };
 
 #endif // _CPU_CTX_H

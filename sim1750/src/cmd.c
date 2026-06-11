@@ -63,8 +63,8 @@
 
 /* imports not mentioned in includefiles */
 
-extern int  dism1750 (struct cpu_state *cpu, char *, ushort *);  /* dism1750.c */
-extern char *disassemble (struct cpu_state *cpu);		  /* sdisasm.c */
+extern int  dism1750 (struct cpu_context *cpu, char *, ushort *);  /* dism1750.c */
+extern char *disassemble (struct cpu_context *cpu);		  /* sdisasm.c */
 
 /* private stuff */
 
@@ -110,7 +110,7 @@ static const struct {
  {
    /* This table is sorted such that the more commonly used commands
       come first. The reason is that abbreviations are permitted,
-      and the first command that matches the abbreviation is 
+      and the first command that matches the abbreviation is
       selected. E.g. on inputting "co", the command "coffload" is
       selected as it comes before "conditions".
     */
@@ -1088,7 +1088,7 @@ si_disasm (int argc, char *argv[])
     {
       if (sys_int (1))
 	return (INTERRUPT);
-      if ((sym = find_labelname (address)) != NULL)
+      if ((sym = find_labelname (sim_cpu_ctx, address)) != NULL)
 	lprintf ("                      %s\n", sym);
       lprintf ("%05lX     ", address);
       if (! peek (&sim_cpu_ctx->state, address, &words[0]))
@@ -1097,7 +1097,7 @@ si_disasm (int argc, char *argv[])
 	  return error ("<no code loaded here>");
 	}
       peek (&sim_cpu_ctx->state, address + 1, &words[1]);
-      n_words = dism1750 (&sim_cpu_ctx->state, disasm_text, words);
+      n_words = dism1750 (sim_cpu_ctx, disasm_text, words);
       lprintf ("%04hX ", words[0]);
       if (! n_words)
 	{
@@ -1122,8 +1122,9 @@ si_disasm (int argc, char *argv[])
 
 
 void
-dis_reg (struct cpu_state *cpu)
+dis_reg (struct cpu_context *cpu_ctx)
 {
+  struct cpu_state *cpu = &cpu_ctx->state;
   int i;
 #define state(flag)  ((cpu->reg.sys & flag) ? 'E' : 'D')
 
@@ -1145,7 +1146,7 @@ dis_reg (struct cpu_state *cpu)
 
   lprintf (" IC:%04hX%c %-20s", cpu->reg.ic,
 	   was_written (cpu, get_phys_address (cpu, CODE, cpu->reg.sw & 0xF, cpu->reg.ic))
-	   ? ' ' : '!', disassemble (cpu));
+	   ? ' ' : '!', disassemble (cpu_ctx));
   lprintf ("CS:%c   ",
 	    cpu->reg.sw & CS_CARRY    ? 'C' :
 	    cpu->reg.sw & CS_POSITIVE ? 'P' :
@@ -1159,7 +1160,7 @@ static int
 si_dispreg (int argc, char *argv[])
 {
   info ("\t\tREGISTER DUMP\n");
-  dis_reg (&sim_cpu_ctx->state);
+  dis_reg (sim_cpu_ctx);
 
   return (OKAY);
 }
@@ -1516,7 +1517,7 @@ init_simulator (struct cpu_context *cpu_ctx, int mode)
       /* Reset simulation time tracking */
       cpu_ctx->state.total_cycles = 0;
       /* Do loadfile processing initializations */
-      init_load_formats ();
+      init_load_formats (cpu_ctx);
     }
   else
     {
@@ -1777,5 +1778,3 @@ si_fill (int argc, char *argv[])
   apply (r);
   return (OKAY);
 }
-
-
