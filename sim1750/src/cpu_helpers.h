@@ -1370,7 +1370,7 @@ D2XY ROPR	Read Operand Page Register:  This command transfers the 16-bit content
             {
                 ushort bank = ((xio_address & 0x0F00) >> 8) - 1; /* CODE = 0, DATA = 1*/
                 ushort grp = (xio_address & 0x00F0) >> 4;
-                ushort page = xio_address &(xio_address & 0x000F);
+                ushort page = (xio_address & 0x000F);
                 if (xio_address & 0x8000)
                 {
                     *transfer = cpu_ctx->state.pagereg[bank][grp][page].word;
